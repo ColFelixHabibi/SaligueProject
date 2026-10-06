@@ -35,6 +35,6 @@ function copyDir(from, to, filter = () => true) {
 for (const [url, target] of downloads) await download(url, target);
 
 // WebAssembly runtimes for ONNX Runtime and MediaPipe.
-copyDir('node_modules/onnxruntime-web/dist', join(OUT, 'ort'), (n) => /^ort-wasm.*\.(wasm|mjs)$/.test(n));
+copyDir('node_modules/onnxruntime-web/dist', join(OUT, 'ort'), (n) => /^ort-wasm.*\.(wasm|mjs)$/.test(n) && !n.includes('jspi'));
 copyDir('node_modules/@mediapipe/tasks-vision/wasm', join(OUT, 'mediapipe'));
 console.log('Models bundled in public/models');

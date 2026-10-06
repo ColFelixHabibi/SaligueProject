@@ -1,0 +1,80 @@
+name: Build Android and iOS apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps
+  cancel-in-progress: true
+
+env:
+  # Firebase web config is public by design; access is controlled by firestore.rules.
+  NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyCpVDhsHXKU14IEV_ppYc2ltvysHV9Ulh8
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: studio-7983619446-3b874.firebaseapp.com
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: studio-7983619446-3b874
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: studio-7983619446-3b874.firebasestorage.app
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "441434718560"
+  NEXT_PUBLIC_FIREBASE_APP_ID: 1:441434718560:web:409478362aa5854164de05
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      # Static site with the AI models bundled, copied into the native projects.
+      - run: npm run build:app
+      - name: Build test APK
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk saligue-android-test.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saligue-android-test
+          path: saligue-android-test.apk
+      # Fixed download link: https://github.com/<owner>/<repo>/releases/download/android-test/saligue-android-test.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-test
+          name: Saligue Android test app
+          prerelease: true
+          make_latest: false
+          files: saligue-android-test.apk
+          body: |
+            Test build of Saligue by INDECIANA for Android, made automatically from the latest code (${{ github.sha }}).
+            Download `saligue-android-test.apk` on an Android phone, open it and allow "Install unknown apps" when asked.
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:app
+      # Proves the iOS app compiles. Installing on iPhones needs an Apple Developer account for signing.
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - run: cd build/Build/Products/Debug-iphonesimulator && zip -qr ../../../../saligue-ios-simulator.zip App.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saligue-ios-simulator
+          path: saligue-ios-simulator.zip

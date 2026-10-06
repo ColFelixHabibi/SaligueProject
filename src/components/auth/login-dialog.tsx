@@ -21,6 +21,7 @@ import { app } from '@/lib/firebase';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
+import { GoogleButton } from './google-button';
 
 interface LoginDialogProps {
   open: boolean;
@@ -110,6 +111,7 @@ export function LoginDialog({
 
                         <Button type="submit" size="lg" className="w-full text-lg h-14">Log In</Button>
                         </form>
+                        <GoogleButton />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Don't have an account?{' '}

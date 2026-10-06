@@ -21,6 +21,7 @@ import { app } from '@/lib/firebase';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { ScrollArea } from '../ui/scroll-area';
 import { Switch } from '../ui/switch';
+import { GoogleButton } from './google-button';
 
 interface RegisterDialogProps {
     open: boolean;
@@ -115,6 +116,7 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
 
                         <Button type="submit" size="lg" className="w-full text-lg h-14">Create Account</Button>
                     </form>
+                    <GoogleButton label="Sign up with Google" />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Already have an account?{' '}
