@@ -16,6 +16,7 @@ import { app } from '@/lib/firebase';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toCatalog } from '@/lib/types';
 
 export default function RecommendationsPage() {
   const { toast } = useToast();
@@ -74,7 +75,7 @@ export default function RecommendationsPage() {
     try {
       const recommendation = await getOutfitRecommendation({
         userPreferences: preferences,
-        products: products,
+        products: toCatalog(products),
       });
       setResult(recommendation);
     } catch (error) {

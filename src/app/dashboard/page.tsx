@@ -48,6 +48,7 @@ import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useMemo } from 'react';
 import { useDashboardSearchStore } from '@/hooks/use-dashboard-search-store';
+import { useAuth } from '@/components/auth/auth-provider';
 
 const chartData: { month: string, desktop: number }[] = [];
 
@@ -60,17 +61,18 @@ const chartConfig = {
 
 export default function DashboardPage() {
   const { products } = useProductStore();
+  const { user } = useAuth();
   const { searchQuery } = useDashboardSearchStore();
-  
+
   const recentSales = useMemo(() => {
-    const allSales = products.slice(0, 5);
+    const allSales = products.filter(p => p.sellerId === user?.uid).slice(0, 5);
     if (!searchQuery) {
       return allSales;
     }
     return allSales.filter(sale =>
       sale.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [products, searchQuery]);
+  }, [products, searchQuery, user]);
 
   return (
     <div className="flex flex-col gap-4 md:gap-8">

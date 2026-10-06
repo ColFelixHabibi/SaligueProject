@@ -1,13 +1,15 @@
 
 'use client';
 
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { useWishlist } from '@/hooks/use-wishlist';
-import { useCart } from '@/hooks/use-cart-store';
+import { useUserRoleStore, type UserRole } from '@/hooks/use-user-role-store';
+import { subscribeToWishlist } from '@/hooks/use-wishlist';
+import { subscribeToCart } from '@/hooks/use-cart-store';
+import { subscribeToProducts } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '../ui/skeleton';
 
@@ -23,7 +25,22 @@ const AuthContext = createContext<AuthContextType>({
   isAuthLoading: true,
 });
 
-const auth = getAuth(app);
+// Loads the user's role from Firestore, creating their profile on first sign-in.
+// A role picked in the login/register dialog overrides the saved one.
+async function resolveRole(user: User, pendingRole: UserRole | null): Promise<UserRole> {
+  const ref = doc(db, 'users', user.uid);
+  const snapshot = await getDoc(ref);
+  if (!snapshot.exists()) {
+    const role = pendingRole ?? 'buyer';
+    await setDoc(ref, { role, email: user.email, createdAt: serverTimestamp() });
+    return role;
+  }
+  if (pendingRole && pendingRole !== snapshot.data().role) {
+    await setDoc(ref, { role: pendingRole }, { merge: true });
+    return pendingRole;
+  }
+  return snapshot.data().role === 'seller' ? 'seller' : 'buyer';
+}
 
 function FullPageLoader() {
     return (
@@ -53,22 +70,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-        const storageSuffix = currentUser ? currentUser.uid : 'anonymous';
-        
-        useUserRoleStore.persist.setOptions({ name: `user-role-storage-${storageSuffix}` });
-        useWishlist.persist.setOptions({ name: `wishlist-storage-${storageSuffix}` });
-        useCart.persist.setOptions({ name: `cart-storage-${storageSuffix}` });
+  useEffect(() => subscribeToProducts(), []);
 
-        await Promise.all([
-            useUserRoleStore.persist.rehydrate(),
-            useWishlist.persist.rehydrate(),
-            useCart.persist.rehydrate(),
-        ]);
-        
+  useEffect(() => {
+    let isFirstCallback = true;
+    let previousUser: User | null = null;
+    let unsubscribeUserData = () => {};
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        // A sign-in that happens after the page has loaded (not a restored session).
+        const isFreshSignIn = !isFirstCallback && !previousUser && !!currentUser;
+        isFirstCallback = false;
+        previousUser = currentUser;
+
+        unsubscribeUserData();
+        const uid = currentUser?.uid ?? null;
+        const stopCart = subscribeToCart(uid);
+        const stopWishlist = subscribeToWishlist(uid);
+        unsubscribeUserData = () => {
+          stopCart();
+          stopWishlist();
+        };
+
+        let currentRole: UserRole = 'buyer';
         if (currentUser) {
-           const currentRole = useUserRoleStore.getState().role;
+          try {
+            currentRole = await resolveRole(currentUser, useUserRoleStore.getState().pendingRole);
+          } catch (error) {
+            console.error('Failed to load user profile:', error);
+          }
+        }
+        useUserRoleStore.setState({ role: currentRole, pendingRole: null, isInitialized: true });
+
+        if (currentUser && isFreshSignIn) {
            const isNewUser = currentUser.metadata.creationTime === currentUser.metadata.lastSignInTime;
 
             if (isNewUser) {
@@ -82,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     description: `Welcome back, ${currentUser.displayName}! You are logged in as a ${currentRole}.`,
                 });
             }
-          
+
           const dashboardPath = currentRole === 'seller' ? '/dashboard' : '/my-account';
           router.replace(dashboardPath);
         }
@@ -91,7 +125,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubscribeUserData();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

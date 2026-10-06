@@ -24,6 +24,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Phone } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function SupportPage() {
   const { toast } = useToast();
@@ -33,7 +35,7 @@ export default function SupportPage() {
   const [contact, setContact] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subject || !message) {
       toast({
@@ -46,8 +48,18 @@ export default function SupportPage() {
     
     setIsSubmitting(true);
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      await addDoc(collection(db, 'supportRequests'), {
+        userId: user?.uid ?? null,
+        name: user?.displayName ?? '',
+        email: user?.email ?? '',
+        contact,
+        subject,
+        message,
+        source: 'seller-dashboard',
+        status: 'open',
+        createdAt: serverTimestamp(),
+      });
       toast({
         title: 'Request Sent!',
         description: 'Our support team has received your request and will get back to you shortly.',
@@ -55,8 +67,16 @@ export default function SupportPage() {
       setSubject('');
       setMessage('');
       setContact('');
+    } catch (error) {
+      console.error('Failed to send support request:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Request Failed',
+        description: 'We could not send your request. Please try again.',
+      });
+    } finally {
       setIsSubmitting(false);
-    }, 1000);
+    }
   };
 
   return (

@@ -17,6 +17,7 @@ import { app } from '@/lib/firebase';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
+import { compressImage } from '@/lib/image';
 
 
 export default function SellPage() {
@@ -60,14 +61,14 @@ export default function SellPage() {
         setTimeout(() => setLoginOpen(true), 150);
     };
 
-    const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result as string);
-            };
-            reader.readAsDataURL(file);
+            try {
+                setImagePreview(await compressImage(file));
+            } catch (error: any) {
+                toast({ variant: 'destructive', title: 'Image Error', description: error.message });
+            }
         }
     };
 
@@ -113,8 +114,7 @@ export default function SellPage() {
         setIsSubmitting(true);
 
         try {
-            const newProduct: Product = {
-                id: Date.now().toString(),
+            const newProduct: Omit<Product, 'id'> = {
                 name: formValues.title,
                 price: parseFloat(formValues.price),
                 image: imagePreview,
@@ -131,7 +131,7 @@ export default function SellPage() {
                 createdAt: new Date().toISOString(),
             };
 
-            addProduct(newProduct);
+            await addProduct(newProduct);
 
             toast({
                 title: 'Product Listed!',
@@ -140,6 +140,7 @@ export default function SellPage() {
             
             resetForm();
         } catch (error) {
+            console.error('Failed to list product:', error);
             toast({
                 variant: 'destructive',
                 title: 'Listing Failed',

@@ -2,35 +2,32 @@
 'use client';
 
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 
 export type UserRole = 'seller' | 'buyer';
 
 interface UserRoleState {
   role: UserRole;
+  // Role picked in the login/register dialog, applied to the account once sign-in completes.
+  pendingRole: UserRole | null;
   isInitialized: boolean;
   setRole: (role: UserRole) => void;
 }
 
-const getStorageKey = (uid?: string) => {
-    return uid ? `user-role-storage-${uid}` : 'user-role-storage-anonymous';
-}
-
-export const useUserRoleStore = create(
-  persist<UserRoleState>(
-    (set) => ({
-      role: 'buyer', // Default role
-      isInitialized: false,
-      setRole: (role) => set({ role }),
-    }),
-    {
-      name: getStorageKey(),
-      storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.isInitialized = true;
-        }
-      },
+export const useUserRoleStore = create<UserRoleState>()((set) => ({
+  role: 'buyer', // Default role
+  pendingRole: null,
+  isInitialized: false,
+  setRole: (role) => {
+    set({ role });
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      setDoc(doc(db, 'users', uid), { role }, { merge: true }).catch((error) =>
+        console.error('Failed to save role:', error)
+      );
+    } else {
+      set({ pendingRole: role });
     }
-  )
-);
+  },
+}));

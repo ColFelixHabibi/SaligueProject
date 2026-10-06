@@ -76,7 +76,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
     setTimeout(() => setLoginOpen(true), 150);
   };
 
-  const handleWishlistToggle = (e: React.MouseEvent) => {
+  const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
 
@@ -85,18 +85,23 @@ export default function ProductCard({ product, className }: ProductCardProps) {
         return;
     }
 
-    if (isWishlisted) {
-      removeFromWishlist(product.id);
-      toast({
-        title: 'Removed from My Saligue',
-        description: `${product.name} has been removed from your wishlist.`,
-      });
-    } else {
-      addToWishlist(product);
-      toast({
-        title: 'Added to My Saligue',
-        description: `${product.name} has been added to your wishlist.`,
-      });
+    try {
+      if (isWishlisted) {
+        await removeFromWishlist(product.id);
+        toast({
+          title: 'Removed from My Saligue',
+          description: `${product.name} has been removed from your wishlist.`,
+        });
+      } else {
+        await addToWishlist(product);
+        toast({
+          title: 'Added to My Saligue',
+          description: `${product.name} has been added to your wishlist.`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update wishlist:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not update your wishlist. Please try again.' });
     }
   };
   

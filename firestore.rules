@@ -1,18 +1,58 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 11, 4);
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Product photos are stored inline (see src/lib/image.ts), so cap their size.
+    function isValidProduct(p) {
+      return p.name is string && p.name.size() > 0 && p.name.size() <= 200
+        && p.price is number && p.price >= 0
+        && p.image is string && p.image.size() <= 800000
+        && p.status in ['active', 'archived', 'draft']
+        && p.sellerId == request.auth.uid;
+    }
+
+    // Marketplace listings: public to read, only the seller who listed an item can change it.
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if signedIn() && isValidProduct(request.resource.data);
+      allow update: if isUser(resource.data.sellerId) && isValidProduct(request.resource.data);
+      allow delete: if isUser(resource.data.sellerId);
+    }
+
+    // Each user's profile (role), cart and wishlist are private to them.
+    match /users/{uid} {
+      allow read: if isUser(uid);
+      allow create, update: if isUser(uid)
+        && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller']);
+
+      match /cart/{productId} {
+        allow read, delete: if isUser(uid);
+        allow create, update: if isUser(uid)
+          && request.resource.data.quantity is int
+          && request.resource.data.quantity > 0
+          && request.resource.data.quantity <= 99;
+      }
+
+      match /wishlist/{productId} {
+        allow read, write: if isUser(uid);
+      }
+    }
+
+    // Support requests can be sent by signed-in users; they are read in the Firebase console.
+    match /supportRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 5000;
     }
   }
 }

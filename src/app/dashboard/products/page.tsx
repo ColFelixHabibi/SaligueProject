@@ -64,10 +64,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useDashboardSearchStore } from '@/hooks/use-dashboard-search-store';
 import { format } from 'date-fns';
+import { useAuth } from '@/components/auth/auth-provider';
 
 
 export default function ProductsPage() {
-  const { products, archiveProduct, deleteProduct, isInitialized } = useProductStore();
+  const { products: allProducts, archiveProduct, deleteProduct, isInitialized } = useProductStore();
+  const { user } = useAuth();
+  const products = React.useMemo(
+    () => allProducts.filter(p => p.sellerId === user?.uid),
+    [allProducts, user]
+  );
   const { toast } = useToast();
   const { searchQuery } = useDashboardSearchStore();
   
@@ -84,15 +90,21 @@ export default function ProductsPage() {
     setShowArchiveDialog(true);
   };
 
-  const handleConfirmArchive = () => {
+  const handleConfirmArchive = async () => {
     if (productToArchive) {
-      archiveProduct(productToArchive.id);
-      toast({
-        title: "Product Archived",
-        description: `"${productToArchive.name}" has been archived and removed from public view.`,
-      });
+      const product = productToArchive;
       setShowArchiveDialog(false);
       setProductToArchive(null);
+      try {
+        await archiveProduct(product.id);
+        toast({
+          title: "Product Archived",
+          description: `"${product.name}" has been archived and removed from public view.`,
+        });
+      } catch (error) {
+        console.error('Failed to archive product:', error);
+        toast({ variant: 'destructive', title: 'Archive Failed', description: 'Something went wrong. Please try again.' });
+      }
     }
   };
 
@@ -101,15 +113,21 @@ export default function ProductsPage() {
     setShowDeleteDialog(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (productToDelete) {
-      deleteProduct(productToDelete.id);
-      toast({
-        title: "Product Deleted",
-        description: `"${productToDelete.name}" has been permanently deleted.`,
-      });
+      const product = productToDelete;
       setShowDeleteDialog(false);
       setProductToDelete(null);
+      try {
+        await deleteProduct(product.id);
+        toast({
+          title: "Product Deleted",
+          description: `"${product.name}" has been permanently deleted.`,
+        });
+      } catch (error) {
+        console.error('Failed to delete product:', error);
+        toast({ variant: 'destructive', title: 'Delete Failed', description: 'Something went wrong. Please try again.' });
+      }
     }
   };
   

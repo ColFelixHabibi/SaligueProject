@@ -15,6 +15,7 @@ import { app } from '@/lib/firebase';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { compressImage } from '@/lib/image';
 
 export default function VirtualTryOnPage() {
     const { toast } = useToast();
@@ -58,13 +59,14 @@ export default function VirtualTryOnPage() {
     ) => {
         const file = e.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const dataUri = reader.result as string;
-                setFile(file);
-                setPreview(dataUri);
-            };
-            reader.readAsDataURL(file);
+            compressImage(file)
+                .then((dataUri) => {
+                    setFile(file);
+                    setPreview(dataUri);
+                })
+                .catch((error) => {
+                    toast({ variant: 'destructive', title: 'Image Error', description: error.message });
+                });
         }
     };
 

@@ -21,10 +21,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ProductPage() {
   const { id } = useParams();
-  const { products } = useProductStore();
+  const { products, isInitialized } = useProductStore();
   const { addToCart } = useCart();
   const { toast } = useToast();
   
@@ -36,6 +37,21 @@ export default function ProductPage() {
     ? allProducts.filter((p) => p.category === product.category && p.id !== product.id && p.status === 'active').slice(0, 4)
     : [];
 
+  if (!isInitialized) {
+    return (
+      <div className="container mx-auto py-8 px-4 md:py-12">
+        <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
+          <Skeleton className="w-full aspect-[3/4]" />
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-3/4" />
+            <Skeleton className="h-8 w-1/3" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!product || product.status === 'archived') {
     return (
       <div className="container mx-auto py-8 px-4 md:py-12 text-center">
@@ -45,12 +61,17 @@ export default function ProductPage() {
     );
   }
 
-  const handleAddToCart = () => {
-    addToCart(product);
-    toast({
-      title: "Added to Cart",
-      description: `${product.name} has been added to your cart.`,
-    });
+  const handleAddToCart = async () => {
+    try {
+      await addToCart(product);
+      toast({
+        title: "Added to Cart",
+        description: `${product.name} has been added to your cart.`,
+      });
+    } catch (error) {
+      console.error('Failed to add to cart:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not add this item to your cart.' });
+    }
   };
 
   const aiHint = product.name.toLowerCase().split(' ').slice(0, 2).join(' ');

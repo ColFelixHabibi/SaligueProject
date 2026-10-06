@@ -1,44 +1,66 @@
 
 'use client';
 
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { Product } from '@/lib/types';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+import { useProductStore } from './use-product-store';
 
 interface WishlistState {
-  wishlistItems: Product[];
+  ids: string[];
   isInitialized: boolean;
-  addToWishlist: (item: Product) => void;
-  removeFromWishlist: (id: string) => void;
 }
 
-const getStorageKey = (uid?: string) => {
-    return uid ? `wishlist-storage-${uid}` : 'wishlist-storage-anonymous';
-}
+export const useWishlistStore = create<WishlistState>()(() => ({
+  ids: [],
+  isInitialized: false,
+}));
 
+const wishlistDoc = (uid: string, productId: string) => doc(db, 'users', uid, 'wishlist', productId);
 
-export const useWishlist = create(
-  persist<WishlistState>(
-    (set) => ({
-      wishlistItems: [],
-      isInitialized: false,
-      addToWishlist: (item) =>
-        set((state) => ({
-          wishlistItems: [...state.wishlistItems, item],
-        })),
-      removeFromWishlist: (id) =>
-        set((state) => ({
-          wishlistItems: state.wishlistItems.filter((item) => item.id !== id),
-        })),
-    }),
-    {
-      name: getStorageKey(),
-      storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.isInitialized = true;
-        }
-      },
+const actions = {
+  addToWishlist: async (item: Product) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error('You must be logged in to use the wishlist.');
+    await setDoc(wishlistDoc(uid, item.id), { addedAt: serverTimestamp() });
+  },
+  removeFromWishlist: async (id: string) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    await deleteDoc(wishlistDoc(uid, id));
+  },
+};
+
+// Keeps the wishlist in sync with the signed-in user's saved items. Returns an unsubscribe function.
+export function subscribeToWishlist(uid: string | null) {
+  if (!uid) {
+    useWishlistStore.setState({ ids: [], isInitialized: true });
+    return () => {};
+  }
+  useWishlistStore.setState({ isInitialized: false });
+  return onSnapshot(
+    collection(db, 'users', uid, 'wishlist'),
+    (snapshot) => {
+      useWishlistStore.setState({ ids: snapshot.docs.map((d) => d.id), isInitialized: true });
+    },
+    (error) => {
+      console.error('Failed to load wishlist:', error);
+      useWishlistStore.setState({ isInitialized: true });
     }
-  )
-);
+  );
+}
+
+export function useWishlist() {
+  const ids = useWishlistStore((s) => s.ids);
+  const isInitialized = useWishlistStore((s) => s.isInitialized);
+  const products = useProductStore((s) => s.products);
+
+  const wishlistItems = useMemo(
+    () => products.filter((p) => ids.includes(p.id) && p.status !== 'archived'),
+    [ids, products]
+  );
+
+  return { wishlistItems, isInitialized, ...actions };
+}

@@ -9,11 +9,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, Loader2, Search, Sparkles, Filter } from 'lucide-react';
 import ProductCard from '@/components/product-card';
-import { imageBasedStyleMatching, type ImageBasedStyleMatchingOutput, type ImageBasedStyleMatchingInput } from '@/ai/flows/image-based-style-matching';
-import { textBasedSearch, type TextBasedSearchOutput } from '@/ai/flows/text-based-search';
+import { imageBasedStyleMatching, type ImageBasedStyleMatchingInput } from '@/ai/flows/image-based-style-matching';
+import { textBasedSearch } from '@/ai/flows/text-based-search';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Product } from '@/lib/types';
+import { Product, toCatalog } from '@/lib/types';
+import { compressImage } from '@/lib/image';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -61,7 +62,7 @@ export default function SearchPage() {
   const searchParams = useSearchParams();
   const { products: userProducts } = useProductStore();
 
-  const allProducts = useMemo(() => [...userProducts], [userProducts]);
+  const allProducts = useMemo(() => userProducts.filter(p => p.status === 'active'), [userProducts]);
   
   // Text search state
   const [textSearchQuery, setTextSearchQuery] = useState(searchParams.get('q') || '');
@@ -73,7 +74,7 @@ export default function SearchPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageSearchDescription, setImageSearchDescription] = useState('');
-  const [imageSearchResults, setImageSearchResults] = useState<ImageBasedStyleMatchingOutput | null>(null);
+  const [imageSearchResults, setImageSearchResults] = useState<Product[] | null>(null);
   const [isImageSearching, setIsImageSearching] = useState(false);
   const [imageFilters, setImageFilters] = useState({ brand: '', category: '', size: '', color: '' });
   
@@ -109,7 +110,7 @@ export default function SearchPage() {
       
       const result = await textBasedSearch({
         query: combinedQuery,
-        products: allProducts,
+        products: toCatalog(allProducts),
       });
 
       if (result && result.results) {
@@ -155,17 +156,17 @@ export default function SearchPage() {
   };
 
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImageFile(file);
       setImageSearchResults(null);
       setHasSearched(false);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        setImagePreview(await compressImage(file));
+        setImageFile(file);
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Image Error', description: error.message });
+      }
     }
   };
 
@@ -179,10 +180,15 @@ export default function SearchPage() {
         photoDataUri: imagePreview,
         description: imageSearchDescription,
         ...imageFilters,
+        products: toCatalog(allProducts),
       };
 
       const result = await imageBasedStyleMatching(input);
-      setImageSearchResults(result);
+      setImageSearchResults(
+        result.results
+          .map(item => allProducts.find(p => p.id === item.id))
+          .filter((p): p is Product => p !== undefined)
+      );
     } catch (error) {
       console.error(error);
       toast({
@@ -196,7 +202,7 @@ export default function SearchPage() {
   };
   
   const showTextNoResults = hasSearched && !isTextSearching && textSearchResults.length === 0 && (textSearchQuery || Object.values(textFilters).some(f => f));
-  const showImageNoResults = hasSearched && !isImageSearching && (imageSearchResults?.similarItems.length ?? 0) === 0 && imageFile;
+  const showImageNoResults = hasSearched && !isImageSearching && (imageSearchResults?.length ?? 0) === 0 && imageFile;
 
 
   return (
@@ -293,12 +299,8 @@ export default function SearchPage() {
               ))
             ) : textSearchResults.length > 0 ? (
               textSearchResults.map((product) => <ProductCard key={product.id} product={product} />)
-            ) : imageSearchResults?.similarItems.length ?? 0 > 0 ? (
-              imageSearchResults?.similarItems.map((url, i) => (
-                <Card key={i} className="overflow-hidden group">
-                  <Image src={url} alt={`Similar item ${i + 1}`} width={400} height={500} className="object-cover w-full h-80 transition-transform duration-300 group-hover:scale-105" data-ai-hint="fashion style" />
-                </Card>
-              ))
+            ) : imageSearchResults && imageSearchResults.length > 0 ? (
+              imageSearchResults.map((product) => <ProductCard key={product.id} product={product} />)
             ) : null}
           </div>
            {showTextNoResults && (

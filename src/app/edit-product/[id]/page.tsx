@@ -16,6 +16,7 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { app } from '@/lib/firebase';
 import { useParams, useRouter } from 'next/navigation';
 import { Product } from '@/lib/types';
+import { compressImage } from '@/lib/image';
 
 
 export default function EditProductPage() {
@@ -40,7 +41,9 @@ export default function EditProductPage() {
     const [user, setUser] = useState<User | null>(null);
     const { role } = useUserRoleStore();
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
+    const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
+    const product = products.find(p => p.id === id);
+
     useEffect(() => {
         const auth = getAuth(app);
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -50,8 +53,9 @@ export default function EditProductPage() {
     }, []);
 
     useEffect(() => {
-        const product = products.find(p => p.id === id);
-        if (product) {
+        // Fill the form once; later live updates must not overwrite the seller's unsaved edits.
+        if (product && loadedProductId !== product.id) {
+            setLoadedProductId(product.id);
             setFormValues({
                 name: product.name,
                 description: product.description || '',
@@ -64,17 +68,17 @@ export default function EditProductPage() {
             });
             setImagePreview(product.image);
         }
-    }, [id, products]);
+    }, [product, loadedProductId]);
 
 
-    const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result as string);
-            };
-            reader.readAsDataURL(file);
+            try {
+                setImagePreview(await compressImage(file));
+            } catch (error: any) {
+                toast({ variant: 'destructive', title: 'Image Error', description: error.message });
+            }
         }
     };
 
@@ -89,7 +93,7 @@ export default function EditProductPage() {
         
         if (isSubmitting) return;
 
-        if (!user || role !== 'seller') {
+        if (!user || role !== 'seller' || !product || product.sellerId !== user.uid) {
             toast({
                 variant: 'destructive',
                 title: 'Access Denied',
@@ -111,20 +115,20 @@ export default function EditProductPage() {
                 name: formValues.name,
                 price: parseFloat(formValues.price),
                 image: imagePreview,
-                category: 'Updated', // Simplified
+                category: product.category,
                 seller: user?.displayName || 'Anonymous Seller',
                 sellerEmail: user?.email || '',
-                status: 'active' as const,
+                status: product.status,
                 description: formValues.description,
                 size: formValues.size,
                 color: formValues.color,
                 brand: formValues.brand,
                 condition: formValues.condition,
                 contact: formValues.contact,
-                createdAt: products.find(p => p.id === id)?.createdAt || new Date().toISOString(),
+                createdAt: product.createdAt || new Date().toISOString(),
             };
 
-            updateProduct(id as string, updatedProduct);
+            await updateProduct(id as string, updatedProduct);
 
             toast({
                 title: 'Product Updated!',
@@ -133,6 +137,7 @@ export default function EditProductPage() {
             
             router.push('/dashboard/products');
         } catch (error) {
+            console.error('Failed to update product:', error);
             toast({
                 variant: 'destructive',
                 title: 'Update Failed',

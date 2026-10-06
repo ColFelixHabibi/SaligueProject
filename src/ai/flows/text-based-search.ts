@@ -10,20 +10,11 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { Product } from '@/lib/types';
-
-const ProductSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    price: z.number(),
-    image: z.string(),
-    category: z.string(),
-    seller: z.string(),
-});
+import {CatalogItemSchema, CATALOG_PROMPT_LIST} from '@/ai/catalog';
 
 const TextBasedSearchInputSchema = z.object({
   query: z.string().describe('The user\'s search query for a clothing item.'),
-  products: z.array(ProductSchema).describe('A list of available products to search from.'),
+  products: z.array(CatalogItemSchema).describe('A list of available products to search from.'),
 });
 export type TextBasedSearchInput = z.infer<typeof TextBasedSearchInputSchema>;
 
@@ -54,9 +45,7 @@ User Query:
 "{{{query}}}"
 
 Available Products:
-{{#each products}}
-- ID: {{id}}, Name: {{name}}, Category: {{category}}, Price: {{price}}, Seller: {{seller}}
-{{/each}}
+${CATALOG_PROMPT_LIST}
 
 Return a list of product IDs that are relevant to the user's query. Consider the product name, category, and other attributes. If no products match, return an empty array.
 `,
