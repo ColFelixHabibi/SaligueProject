@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Saligue</string>
+    <string name="title_activity_main">Saligue</string>
+    <string name="package_name">com.indeciana.saligue</string>
+    <string name="custom_url_scheme">com.indeciana.saligue</string>
+</resources>

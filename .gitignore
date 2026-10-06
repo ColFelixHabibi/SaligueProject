@@ -45,3 +45,6 @@ firebase-debug.log
 firestore-debug.log
 # static export
 /out/
+
+# AI models bundled into the mobile apps (scripts/bundle-models.mjs)
+/public/models/

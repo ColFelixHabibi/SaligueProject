@@ -23,6 +23,7 @@ import { LoginDialog } from './auth/login-dialog';
 import { RegisterDialog } from './auth/register-dialog';
 import { categoryLabel } from '@/lib/categories';
 import { absoluteUrl } from '@/lib/paths';
+import { productHref } from '@/lib/links';
 
 
 interface ProductCardProps {
@@ -110,7 +111,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    const productUrl = absoluteUrl(`/product?id=${product.id}`);
+    const productUrl = absoluteUrl(productHref(product));
     const shareData = {
       title: product.name,
       text: `Check out this ${product.name} on Saligue!`,
@@ -307,7 +308,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
       <Card className={cn('overflow-hidden group w-full', className)}>
         <Sheet>
             <div className="relative">
-              <Link href={`/product?id=${product.id}`} className="block cursor-pointer">
+              <Link href={productHref(product)} className="block cursor-pointer">
                 <Image
                   src={product.image}
                   alt={product.name}
@@ -317,6 +318,11 @@ export default function ProductCard({ product, className }: ProductCardProps) {
                   data-ai-hint={aiHint}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+                {product.official && (
+                  <span className="absolute right-2 top-2 rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-foreground shadow">
+                    INDECIANA
+                  </span>
+                )}
               </Link>
               
               <div className="absolute top-1/2 -translate-y-1/2 left-3 flex flex-col space-y-3">
@@ -367,10 +373,10 @@ export default function ProductCard({ product, className }: ProductCardProps) {
               </div>
             </div>
             <CardContent className="p-4 bg-card">
-              <Link href={`/product?id=${product.id}`} className="cursor-pointer">
+              <Link href={productHref(product)} className="cursor-pointer">
                 <h3 className="text-base font-semibold truncate text-foreground hover:underline">{product.name}</h3>
               </Link>
-              <p className="text-sm text-muted-foreground">{product.seller}</p>
+              <p className="text-sm text-muted-foreground">{product.official ? 'Recommended by INDECIANA' : product.shop?.name ?? product.seller}</p>
               <div className="flex items-center justify-between mt-3">
                 <p className="text-lg font-bold text-primary">${Number(product.price).toFixed(2)}</p>
                 <Badge variant="outline">{categoryLabel(product.category)}</Badge>

@@ -89,6 +89,7 @@ export default function BuyerDashboardLayout({
 
   const navItems = [
     { href: '/my-account', icon: User, label: 'Profile' },
+    { href: '/my-account/orders', icon: Package, label: 'My Orders' },
     { href: '/wishlist', icon: Heart, label: 'My Saligue' },
   ];
 

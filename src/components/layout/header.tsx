@@ -32,7 +32,10 @@ const Logo = () => (
     <div className="h-10 w-10 flex items-center justify-center bg-primary-foreground text-primary rounded-full font-bold text-xl">
       S
     </div>
-    <span className="text-2xl font-bold text-primary-foreground">Saligue</span>
+    <span className="flex flex-col leading-none">
+      <span className="text-2xl font-bold text-primary-foreground">Saligue</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary-foreground/80">by INDECIANA</span>
+    </span>
   </div>
 );
 

@@ -11,7 +11,7 @@ import { PwaRegister } from '@/components/pwa-register';
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 export const metadata: Metadata = {
-  title: 'Saligue',
+  title: 'Saligue by INDECIANA',
   description: 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.',
   manifest: `${basePath}/manifest.webmanifest`,
   icons: {
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#4B0082',
+  themeColor: '#e21376',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',

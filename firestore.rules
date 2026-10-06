@@ -11,6 +11,12 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // INDECIANA's official accounts. The flag is set by an administrator (Firebase console), never by the app.
+    function isOfficial() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('official', false) == true;
+    }
+
     // Product photos are stored inline (see src/lib/image.ts), so cap their size.
     // A document is limited to 1 MiB in total.
     function isValidProduct(p) {
@@ -21,7 +27,8 @@ service cloud.firestore {
         && (!('embedding' in p) || (p.embedding is list && p.embedding.size() <= 1024))
         && p.category is string && p.category.size() <= 60
         && p.status in ['active', 'archived', 'draft']
-        && p.sellerId == request.auth.uid;
+        && p.sellerId == request.auth.uid
+        && (p.get('official', false) == false || isOfficial());
     }
 
     // Marketplace listings: public to read, only the seller who listed an item can change it.
@@ -35,8 +42,13 @@ service cloud.firestore {
     // Each user's profile (role), cart and wishlist are private to them.
     match /users/{uid} {
       allow read: if isUser(uid);
-      allow create, update: if isUser(uid)
-        && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller']);
+      allow create: if isUser(uid)
+        && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller'])
+        && request.resource.data.get('official', false) == false;
+      // Users can edit their role and shop, but not make themselves official.
+      allow update: if isUser(uid)
+        && (!('role' in request.resource.data) || request.resource.data.role in ['buyer', 'seller'])
+        && request.resource.data.get('official', false) == resource.data.get('official', false);
 
       match /cart/{productId} {
         allow read, delete: if isUser(uid);
@@ -49,6 +61,39 @@ service cloud.firestore {
       match /wishlist/{productId} {
         allow read, write: if isUser(uid);
       }
+    }
+
+    // Orders: one per shop. Buyers create them and may cancel while still "placed";
+    // the shop updates the delivery and payment status.
+    match /orders/{orderId} {
+      allow read: if signedIn()
+        && (resource.data.buyerId == request.auth.uid || resource.data.sellerId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.buyerId == request.auth.uid
+        && request.resource.data.sellerId is string
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 50
+        && request.resource.data.total is number
+        && request.resource.data.status == 'placed'
+        && request.resource.data.paymentStatus == 'unpaid'
+        && request.resource.data.paymentMethod in ['mobile_money', 'cash_on_delivery', 'pickup'];
+      allow update: if signedIn() && (
+        (resource.data.sellerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus'])
+          && request.resource.data.status in ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled']
+          && request.resource.data.paymentStatus in ['unpaid', 'paid'])
+        || (resource.data.buyerId == request.auth.uid
+          && resource.data.status == 'placed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status == 'cancelled')
+      );
+    }
+
+    // App settings such as the Saligue AI Studio address; readable by all, set by INDECIANA.
+    match /config/{name} {
+      allow read: if true;
+      allow write: if isOfficial();
     }
 
     // Support requests can be sent by signed-in users; they are read in the Firebase console.

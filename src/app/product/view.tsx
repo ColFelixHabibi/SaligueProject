@@ -2,6 +2,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,9 +25,11 @@ import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ContactButtons } from '@/components/contact-buttons';
+import { ShopAddress } from '@/components/shop-address';
 import { categoryLabel } from '@/lib/categories';
 
 export default function ProductView({ id }: { id: string | null }) {
+  const router = useRouter();
   const { products, isInitialized } = useProductStore();
   const { addToCart } = useCart();
   const { toast } = useToast();
@@ -38,7 +42,12 @@ export default function ProductView({ id }: { id: string | null }) {
     ? allProducts.filter((p) => p.category === product.category && p.id !== product.id && p.status === 'active').slice(0, 4)
     : [];
 
-  if (!isInitialized) {
+  // INDECIANA items are only shown on INDECIANA's own page.
+  useEffect(() => {
+    if (product?.official) router.replace(`/indeciana?item=${product.id}`);
+  }, [product, router]);
+
+  if (!isInitialized || product?.official) {
     return (
       <div className="container mx-auto py-8 px-4 md:py-12">
         <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
@@ -173,6 +182,17 @@ export default function ProductView({ id }: { id: string | null }) {
             </CardContent>
           </Card>
           
+          {product.shop && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl"><Store className="h-5 w-5 text-primary" /> Shop</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ShopAddress shop={product.shop} email={product.sellerEmail} />
+              </CardContent>
+            </Card>
+          )}
+
           {productDetails.length > 0 && (
             <Card>
                 <CardHeader>

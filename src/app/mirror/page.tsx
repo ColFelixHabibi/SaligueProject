@@ -3,7 +3,9 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Camera, Download, ImageUp, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, Download, ImageUp, Loader2, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { dressAsDescribed, getStudio } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -57,6 +59,28 @@ function Mirror() {
   const { personUrl, landmarks: normalizedLandmarks, restore, setPerson, clear } = useMirrorStore();
 
   useEffect(() => restore(), [restore]);
+
+  // Saligue AI Studio (realistic redraw) is optional: on-device dressing works without it.
+  const [studio, setStudio] = useState(false);
+  useEffect(() => {
+    getStudio().then((url) => setStudio(!!url));
+  }, []);
+
+  const [outfitText, setOutfitText] = useState('');
+  const [outfitBusy, setOutfitBusy] = useState(false);
+  const [outfitUrl, setOutfitUrl] = useState<string | null>(null);
+  const handleDescribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!personUrl || !outfitText.trim()) return;
+    setOutfitBusy(true);
+    try {
+      setOutfitUrl(await dressAsDescribed(personUrl, outfitText.trim()));
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Could not create the outfit', description: error.message });
+    } finally {
+      setOutfitBusy(false);
+    }
+  };
 
   // The shopper's cut-out as a canvas, plus landmarks in its pixel coordinates.
   const [person, setPersonCanvas] = useState<HTMLCanvasElement | null>(null);
@@ -304,6 +328,43 @@ function Mirror() {
             </CardContent>
           </Card>
 
+          {studio && personUrl && (
+            <Card className="border-primary/30">
+              <CardContent className="space-y-4 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-lg font-semibold">3. Dress me as I describe</h2>
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Saligue AI</span>
+                </div>
+                <form onSubmit={handleDescribe} className="space-y-3">
+                  <Textarea
+                    value={outfitText}
+                    onChange={(e) => setOutfitText(e.target.value)}
+                    placeholder="e.g. a navy blue suit with a white shirt and brown leather shoes"
+                    className="min-h-20"
+                  />
+                  <Button type="submit" disabled={outfitBusy || !outfitText.trim()}>
+                    {outfitBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                    {outfitBusy ? 'Saligue AI is dressing you…' : 'Dress me'}
+                  </Button>
+                </form>
+                {outfitUrl && (
+                  <div className="space-y-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={outfitUrl} alt="You in the described outfit" className="mx-auto max-h-[70vh] rounded-lg border object-contain" />
+                    <div className="flex justify-center gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={outfitUrl} download="saligue-outfit.jpg"><Download className="mr-2 h-4 w-4" /> Save</a>
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setText(outfitText); runSearch({ text: outfitText, category: '' }); }}>
+                        <Search className="mr-2 h-4 w-4" /> Find similar items to buy
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <div>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold">
@@ -336,7 +397,7 @@ function Mirror() {
             ) : person ? (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map((product) => (
-                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} />
+                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} personUrl={personUrl!} studio={studio} />
                 ))}
               </div>
             ) : (

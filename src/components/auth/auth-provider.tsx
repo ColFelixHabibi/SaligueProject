@@ -7,6 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUserRoleStore, type UserRole } from '@/hooks/use-user-role-store';
+import type { Shop } from '@/lib/types';
 import { subscribeToWishlist } from '@/hooks/use-wishlist';
 import { subscribeToCart } from '@/hooks/use-cart-store';
 import { subscribeToProducts } from '@/hooks/use-product-store';
@@ -27,19 +28,23 @@ const AuthContext = createContext<AuthContextType>({
 
 // Loads the user's role from Firestore, creating their profile on first sign-in.
 // A role picked in the login/register dialog overrides the saved one.
-async function resolveRole(user: User, pendingRole: UserRole | null): Promise<UserRole> {
+type Profile = { role: UserRole; official: boolean; shop: Shop | null };
+
+async function resolveProfile(user: User, pendingRole: UserRole | null): Promise<Profile> {
   const ref = doc(db, 'users', user.uid);
   const snapshot = await getDoc(ref);
   if (!snapshot.exists()) {
     const role = pendingRole ?? 'buyer';
     await setDoc(ref, { role, email: user.email, createdAt: serverTimestamp() });
-    return role;
+    return { role, official: false, shop: null };
   }
-  if (pendingRole && pendingRole !== snapshot.data().role) {
+  const data = snapshot.data();
+  let role: UserRole = data.role === 'seller' ? 'seller' : 'buyer';
+  if (pendingRole && pendingRole !== role) {
     await setDoc(ref, { role: pendingRole }, { merge: true });
-    return pendingRole;
+    role = pendingRole;
   }
-  return snapshot.data().role === 'seller' ? 'seller' : 'buyer';
+  return { role, official: data.official === true, shop: data.shop ?? null };
 }
 
 function FullPageLoader() {
@@ -92,15 +97,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           stopWishlist();
         };
 
-        let currentRole: UserRole = 'buyer';
+        let profile: Profile = { role: 'buyer', official: false, shop: null };
         if (currentUser) {
           try {
-            currentRole = await resolveRole(currentUser, useUserRoleStore.getState().pendingRole);
+            profile = await resolveProfile(currentUser, useUserRoleStore.getState().pendingRole);
           } catch (error) {
             console.error('Failed to load user profile:', error);
           }
         }
-        useUserRoleStore.setState({ role: currentRole, pendingRole: null, isInitialized: true });
+        const currentRole = profile.role;
+        useUserRoleStore.setState({ ...profile, pendingRole: null, isInitialized: true });
 
         if (currentUser && isFreshSignIn) {
            const isNewUser = currentUser.metadata.creationTime === currentUser.metadata.lastSignInTime;
@@ -117,8 +123,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 });
             }
 
-          const dashboardPath = currentRole === 'seller' ? '/dashboard' : '/my-account';
-          router.replace(dashboardPath);
+          // Logging in during checkout keeps the buyer on the checkout page.
+          if (!window.location.pathname.includes('/checkout')) {
+            const dashboardPath = currentRole === 'seller' ? '/dashboard' : '/my-account';
+            router.replace(dashboardPath);
+          }
         }
 
         setUser(currentUser);

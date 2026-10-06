@@ -12,6 +12,7 @@ export default function Home() {
   const { products, isInitialized } = useProductStore();
 
   const activeProducts = products.filter(p => p.status === 'active');
+  const recommended = activeProducts.filter(p => p.official).slice(0, 8);
 
   if (!isInitialized) {
     return (
@@ -58,6 +59,25 @@ export default function Home() {
           </Button>
         </div>
       </div>
+
+      {recommended.length > 0 && (
+        <section className="mb-12">
+          <div className="mb-4 flex items-end justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">Recommended</p>
+              <h2 className="text-2xl font-extrabold tracking-wide">by INDECIANA</h2>
+            </div>
+            <Button variant="link" asChild><Link href="/indeciana">See all</Link></Button>
+          </div>
+          <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2">
+            {recommended.map((product) => (
+              <div key={product.id} className="w-64 shrink-0 snap-start">
+                <ProductCard product={product} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div id="mirror-my-self">
         {activeProducts.length > 0 ? (

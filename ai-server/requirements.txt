@@ -1,0 +1,24 @@
+# Saligue AI Studio (install on a machine with an NVIDIA GPU; PyTorch with CUDA must already be installed)
+diffusers>=0.31
+transformers>=4.44
+accelerate
+safetensors
+peft
+einops
+omegaconf
+timm
+fvcore
+cloudpickle
+pycocotools
+av
+onnxruntime
+opencv-python-headless
+scikit-image
+scipy
+mediapipe==0.10.21
+fastapi
+uvicorn
+gradio>=4.44
+huggingface_hub
+pillow
+numpy<2.2

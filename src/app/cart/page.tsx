@@ -9,24 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Trash2, ShoppingCart } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { productHref } from '@/lib/links';
 
 export default function CartPage() {
-  const { cartItems, removeFromCart, updateQuantity, clearCart } = useCart();
-  const { toast } = useToast();
+  const { cartItems, removeFromCart, updateQuantity } = useCart();
 
-  const subtotal = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
-  const taxes = subtotal * 0.08; // Example 8% tax
-  const total = subtotal + taxes;
-
-  const handleCheckout = () => {
-    // In a real app, this would redirect to a payment gateway
-    toast({
-        title: "Checkout Initiated",
-        description: "Redirecting to payment processor...",
-    });
-    clearCart();
-  };
+  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
     <div className="container mx-auto max-w-4xl py-8 px-4 md:py-12">
@@ -57,10 +45,10 @@ export default function CartPage() {
                         className="rounded-md object-cover"
                       />
                       <div className="flex-1">
-                        <Link href={`/product?id=${item.id}`} className="font-semibold hover:underline">
+                        <Link href={productHref(item)} className="font-semibold hover:underline">
                           {item.name}
                         </Link>
-                        <p className="text-sm text-muted-foreground">{item.seller}</p>
+                        <p className="text-sm text-muted-foreground">{item.shop?.name ?? item.seller}</p>
                         <p className="text-lg font-bold text-primary mt-1">${Number(item.price).toFixed(2)}</p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -93,23 +81,14 @@ export default function CartPage() {
                 <CardTitle>Order Summary</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Taxes (8%)</span>
-                  <span>${taxes.toFixed(2)}</span>
-                </div>
-                <Separator />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
                   <span>${total.toFixed(2)}</span>
                 </div>
               </CardContent>
               <CardFooter>
-                <Button size="lg" className="w-full" onClick={handleCheckout}>
-                  Proceed to Checkout
+                <Button size="lg" className="w-full" asChild>
+                  <Link href="/checkout">Proceed to Checkout</Link>
                 </Button>
               </CardFooter>
             </Card>

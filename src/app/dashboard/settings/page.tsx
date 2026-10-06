@@ -16,6 +16,7 @@ import { getAuth, updateProfile, EmailAuthProvider, reauthenticateWithCredential
 import React, { useState, useEffect } from 'react';
 import { app } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { ShopProfileForm } from '@/components/shop-profile-form';
 
 export default function SettingsPage() {
   const auth = getAuth(app);
@@ -105,6 +106,8 @@ export default function SettingsPage() {
 
   return (
     <div className="grid gap-6">
+      <ShopProfileForm />
+
       <Card>
         <form onSubmit={handleSaveChanges}>
           <CardHeader>

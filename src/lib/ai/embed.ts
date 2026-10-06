@@ -1,6 +1,6 @@
 'use client';
 
-import { MODELS, type Progress } from './models';
+import { BUNDLED, LOCAL_MODELS, MODELS, ORT_WASM_PATH, type Progress } from './models';
 import { squareOnBackground, type ImageSource } from './canvas';
 
 type Transformers = typeof import('@huggingface/transformers');
@@ -9,7 +9,15 @@ let transformersPromise: Promise<Transformers> | null = null;
 function loadTransformers() {
   if (!transformersPromise) {
     transformersPromise = import('@huggingface/transformers').then((t) => {
-      t.env.allowLocalModels = false;
+      if (BUNDLED) {
+        t.env.allowLocalModels = true;
+        t.env.allowRemoteModels = false;
+        t.env.localModelPath = `${LOCAL_MODELS}/`;
+      } else {
+        t.env.allowLocalModels = false;
+      }
+      const wasm = t.env.backends.onnx.wasm;
+      if (wasm) wasm.wasmPaths = ORT_WASM_PATH;
       return t;
     });
   }

@@ -14,6 +14,7 @@ import {
   Bell,
   Users,
   LifeBuoy,
+  ShoppingBag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,6 +101,7 @@ export default function DashboardLayout({
   const navItems = [
     { href: '/dashboard', icon: Home, label: 'Overview' },
     { href: '/dashboard/products', icon: Package, label: 'Products' },
+    { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
     { href: '/dashboard/analytics', icon: LineChart, label: 'Analytics' },
     { href: '/dashboard/notifications', icon: Bell, label: 'Notifications' },
   ];

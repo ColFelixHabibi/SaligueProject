@@ -14,6 +14,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { useUserRoleStore } from './use-user-role-store';
 
 interface ProductState {
   products: Product[];
@@ -40,12 +41,13 @@ export const useProductStore = create<ProductState>()(() => ({
     const uid = auth.currentUser?.uid;
     if (!uid) throw new Error('You must be logged in to list a product.');
     const ref = doc(productsCollection);
-    await setDoc(ref, withoutUndefined({ ...item, sellerId: uid, status: 'active' }));
+    const { shop, official } = useUserRoleStore.getState();
+    await setDoc(ref, withoutUndefined({ ...item, shop: shop ?? undefined, official, sellerId: uid, status: 'active' }));
     return ref.id;
   },
   updateProduct: async (id, updatedProduct) => {
     // id and sellerId are never changed by an edit.
-    const { id: _id, sellerId: _sellerId, ...fields } = updatedProduct;
+    const { id: _id, sellerId: _sellerId, official: _official, ...fields } = updatedProduct;
     await updateDoc(doc(productsCollection, id), withoutUndefined(fields));
   },
   deleteProduct: async (id) => {

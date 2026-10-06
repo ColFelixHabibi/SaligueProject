@@ -1,5 +1,5 @@
 {
-  "name": "Saligue — Mirror My-Self",
+  "name": "Saligue by INDECIANA",
   "short_name": "Saligue",
   "description": "See yourself wearing any item, then contact the owner. AI runs on your device.",
   "id": "./",
@@ -7,8 +7,8 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#E6E6FA",
-  "theme_color": "#4B0082",
+  "background_color": "#ffffff",
+  "theme_color": "#e21376",
   "categories": ["shopping", "lifestyle"],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

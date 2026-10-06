@@ -9,7 +9,10 @@ const Logo = () => (
     <div className="h-10 w-10 flex items-center justify-center bg-primary-foreground text-primary rounded-full font-bold text-xl">
       S
     </div>
-    <span className="text-2xl font-bold text-primary-foreground">Saligue</span>
+    <span className="flex flex-col leading-none">
+      <span className="text-2xl font-bold text-primary-foreground">Saligue</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary-foreground/80">by INDECIANA</span>
+    </span>
   </div>
 );
 
@@ -52,7 +55,7 @@ export default function Footer() {
           </div>
           
           <div className="mt-8 pt-8 border-t border-primary-foreground/20 text-center relative z-10">
-            <p className="text-sm text-primary-foreground/60">&copy; {new Date().getFullYear()} Saligue Inc. All rights reserved.</p>
+            <p className="text-sm text-primary-foreground/60">&copy; {new Date().getFullYear()} Saligue by INDECIANA. All rights reserved.</p>
           </div>
         </div>
 

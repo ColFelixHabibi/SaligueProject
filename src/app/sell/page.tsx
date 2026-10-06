@@ -18,6 +18,9 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
+import Link from 'next/link';
+import { MapPin } from 'lucide-react';
+import { isShopComplete } from '@/lib/types';
 
 
 export default function SellPage() {
@@ -39,7 +42,8 @@ export default function SellPage() {
     const [formValues, setFormValues] = useState(initialFormValues);
 
     const [user, setUser] = useState<User | null>(null);
-    const { role } = useUserRoleStore();
+    const { role, shop } = useUserRoleStore();
+    const hasShop = isShopComplete(shop);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [loginOpen, setLoginOpen] = useState(false);
@@ -90,6 +94,11 @@ export default function SellPage() {
                 title: 'Access Denied',
                 description: 'Only sellers can list products. Please log in as a seller.',
             });
+            return;
+        }
+
+        if (!hasShop) {
+            toast({ variant: 'destructive', title: 'Shop address required', description: 'Add your shop name and full address in Settings before listing.' });
             return;
         }
 
@@ -154,6 +163,13 @@ export default function SellPage() {
             <CardDescription>Fill out the details below to put your fashion item up for sale.</CardDescription>
           </CardHeader>
           <CardContent>
+            {user && role === 'seller' && !hasShop && (
+              <div className="mb-6 flex flex-col gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 sm:flex-row sm:items-center">
+                <MapPin className="h-6 w-6 shrink-0 text-primary" />
+                <p className="flex-1 text-sm">Add your shop name and full address first. Buyers see it on every item you sell.</p>
+                <Button asChild size="sm"><Link href="/dashboard/settings">Add shop address</Link></Button>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-6">
               
               <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
