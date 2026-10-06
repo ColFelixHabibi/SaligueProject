@@ -43,10 +43,9 @@ export default function Header() {
   const { cartItems } = useCart();
 
   const navLinks = [
-    { href: '/#mirror-my-self', label: 'Mirror My-Self' },
+    { href: '/mirror', label: 'Mirror My-Self' },
+    { href: '/search', label: 'AI Search' },
     { href: '/sell', label: 'Sell' },
-    { href: '/recommendations', label: 'AI Stylist' },
-    { href: '/try-on', label: 'Virtual Try-On' },
     { href: '/wishlist', label: 'My Saligue' },
   ];
 
@@ -80,7 +79,7 @@ export default function Header() {
         title: 'Logged Out',
         description: 'You have been successfully logged out.',
       });
-      window.location.href = '/';
+      router.push('/');
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -164,14 +163,7 @@ export default function Header() {
                 </DropdownMenuContent>
             </DropdownMenu>
             ) : (
-            <>
-                <LoginDialog
-                    open={loginOpen}
-                    onOpenChange={setLoginOpen}
-                    onSwitchToRegister={openRegister}
-                    trigger={<Button variant="outline" className="bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary">Login</Button>}
-                />
-            </>
+            <Button variant="outline" className="bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary" onClick={() => setLoginOpen(true)}>Login</Button>
             )}
           </div>
         </div>
@@ -214,18 +206,8 @@ export default function Header() {
                     </>
                   ) : (
                     <div className="flex flex-col gap-2 mt-4">
-                        <LoginDialog
-                            open={loginOpen}
-                            onOpenChange={setLoginOpen}
-                            onSwitchToRegister={openRegister}
-                            trigger={<Button className="w-full" variant="outline">Login</Button>}
-                        />
-                        <RegisterDialog
-                            open={registerOpen}
-                            onOpenChange={setRegisterOpen}
-                            onSwitchToLogin={openLogin}
-                            trigger={<Button className="w-full">Sign Up</Button>}
-                        />
+                        <Button className="w-full" variant="outline" onClick={() => setLoginOpen(true)}>Login</Button>
+                        <Button className="w-full" onClick={() => setRegisterOpen(true)}>Sign Up</Button>
                     </div>
                   )}
                 </nav>

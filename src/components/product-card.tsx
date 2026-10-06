@@ -4,7 +4,7 @@
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Heart, MessageCircle, Share2, Send, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Send, ThumbsUp, ThumbsDown, Wand2 } from 'lucide-react';
 import type { Product } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,8 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { app } from '@/lib/firebase';
 import { LoginDialog } from './auth/login-dialog';
 import { RegisterDialog } from './auth/register-dialog';
+import { categoryLabel } from '@/lib/categories';
+import { absoluteUrl } from '@/lib/paths';
 
 
 interface ProductCardProps {
@@ -108,7 +110,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
   const handleShare = async (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    const productUrl = `${window.location.origin}/product/${product.id}`;
+    const productUrl = absoluteUrl(`/product?id=${product.id}`);
     const shareData = {
       title: product.name,
       text: `Check out this ${product.name} on Saligue!`,
@@ -305,7 +307,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
       <Card className={cn('overflow-hidden group w-full', className)}>
         <Sheet>
             <div className="relative">
-              <Link href={`/product/${product.id}`} className="block cursor-pointer">
+              <Link href={`/product?id=${product.id}`} className="block cursor-pointer">
                 <Image
                   src={product.image}
                   alt={product.name}
@@ -342,6 +344,18 @@ export default function ProductCard({ product, className }: ProductCardProps) {
                       </Button>
                   </SheetTrigger>
                   
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    asChild
+                    className="h-10 w-10 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full"
+                >
+                  <Link href={`/mirror?item=${product.id}`}>
+                    <Wand2 className="h-6 w-6 text-white" />
+                    <span className="sr-only">Try it on</span>
+                  </Link>
+                </Button>
+
                 <Button 
                     variant="ghost" 
                     size="icon" 
@@ -353,13 +367,13 @@ export default function ProductCard({ product, className }: ProductCardProps) {
               </div>
             </div>
             <CardContent className="p-4 bg-card">
-              <Link href={`/product/${product.id}`} className="cursor-pointer">
+              <Link href={`/product?id=${product.id}`} className="cursor-pointer">
                 <h3 className="text-base font-semibold truncate text-foreground hover:underline">{product.name}</h3>
               </Link>
               <p className="text-sm text-muted-foreground">{product.seller}</p>
               <div className="flex items-center justify-between mt-3">
                 <p className="text-lg font-bold text-primary">${Number(product.price).toFixed(2)}</p>
-                <Badge variant="outline">{product.category}</Badge>
+                <Badge variant="outline">{categoryLabel(product.category)}</Badge>
               </div>
             </CardContent>
           <SheetContent side="bottom" className="h-[85vh] flex flex-col rounded-t-2xl p-0">

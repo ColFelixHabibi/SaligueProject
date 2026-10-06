@@ -1,12 +1,12 @@
 
 'use client';
 
-import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DollarSign, MessageSquare, Store, Mail, Phone, ShoppingCart, Shirt, Palette, Building, Info, Sparkles } from 'lucide-react';
+import { DollarSign, MessageSquare, Store, Mail, Phone, ShoppingCart, Shirt, Palette, Building, Info, Sparkles, Wand2 } from 'lucide-react';
 import ProductCard from '@/components/product-card';
 import {
   Dialog,
@@ -22,9 +22,10 @@ import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ContactButtons } from '@/components/contact-buttons';
+import { categoryLabel } from '@/lib/categories';
 
-export default function ProductPage() {
-  const { id } = useParams();
+export default function ProductView({ id }: { id: string | null }) {
   const { products, isInitialized } = useProductStore();
   const { addToCart } = useCart();
   const { toast } = useToast();
@@ -103,7 +104,7 @@ export default function ProductPage() {
             <CardHeader>
               <div className="flex justify-between items-start">
                 <div>
-                  <Badge variant="outline">{product.category}</Badge>
+                  <Badge variant="outline">{categoryLabel(product.category)}</Badge>
                   <CardTitle className="text-3xl lg:text-4xl font-extrabold mt-2">{product.name}</CardTitle>
                 </div>
                 <div className="text-right">
@@ -123,7 +124,13 @@ export default function ProductPage() {
                 {product.description || `This is a high-quality ${product.name} from ${product.seller}. Perfect for any occasion and crafted with the finest materials.`}
               </CardDescription>
 
-              <div className="flex flex-col sm:flex-row gap-2 mt-6">
+              <Button size="lg" variant="secondary" className="w-full text-lg h-14 mt-6" asChild>
+                <Link href={`/mirror?item=${product.id}`}>
+                  <Wand2 className="mr-2 h-6 w-6" /> Try it on — see yourself wearing it
+                </Link>
+              </Button>
+
+              <div className="flex flex-col sm:flex-row gap-2 mt-2">
                 <Button size="lg" className="w-full sm:w-1/2 text-lg h-14" onClick={handleAddToCart}>
                     <ShoppingCart className="mr-2 h-6 w-6" /> Add to Cart
                 </Button>
@@ -151,12 +158,13 @@ export default function ProductPage() {
                     <div className="space-y-3">
                         <div className="flex items-center gap-4">
                           <Mail className="h-5 w-5 text-muted-foreground" />
-                          <span className="font-medium">{product.sellerEmail || 'Not provided'}</span>
+                          <span className="font-medium break-all">{product.sellerEmail || 'Not provided'}</span>
                         </div>
                         <div className="flex items-center gap-4">
                           <Phone className="h-5 w-5 text-muted-foreground" />
                           <span className="font-medium">{product.contact || 'Not provided'}</span>
                         </div>
+                        <ContactButtons contact={product.contact} email={product.sellerEmail} className="pt-2 justify-center" />
                     </div>
                   </DialogContent>
                 </Dialog>

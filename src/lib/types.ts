@@ -3,7 +3,13 @@ export type Product = {
   id: string;
   name: string;
   price: number;
+  // Original photo as uploaded by the seller (JPEG data URL).
   image: string;
+  // The item with its background removed (transparent WebP/PNG data URL), used for dressing.
+  cutout?: string;
+  // MobileCLIP embedding of the cut-out, used for AI search.
+  embedding?: number[];
+  // One of CATEGORIES in src/lib/categories.ts (older listings may hold other text).
   category: string;
   seller: string;
   sellerId?: string;
@@ -17,15 +23,3 @@ export type Product = {
   contact?: string;
   createdAt?: string;
 };
-
-// Product details sent to the AI flows. Images are left out to keep requests small.
-export type CatalogItem = Pick<Product, 'id' | 'name' | 'price' | 'category' | 'seller'> &
-  Partial<Pick<Product, 'description' | 'size' | 'color' | 'brand' | 'condition'>>;
-
-export function toCatalog(products: Product[]): CatalogItem[] {
-  return products
-    .filter((p) => p.status === 'active')
-    .map(({ id, name, price, category, seller, description, size, color, brand, condition }) => ({
-      id, name, price, category, seller, description, size, color, brand, condition,
-    }));
-}

@@ -289,7 +289,7 @@ export default function ProductsPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuItem asChild>
-                               <Link href={`/edit-product/${product.id}`} className="flex items-center cursor-pointer">
+                               <Link href={`/edit-product?id=${product.id}`} className="flex items-center cursor-pointer">
                                  <Edit className="mr-2 h-4 w-4" />
                                  Edit
                                </Link>

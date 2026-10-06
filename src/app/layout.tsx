@@ -1,15 +1,35 @@
 
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/components/auth/auth-provider';
+import { PwaRegister } from '@/components/pwa-register';
+
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 export const metadata: Metadata = {
   title: 'Saligue',
-  description: 'Drip? AI’s got you',
+  description: 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.',
+  manifest: `${basePath}/manifest.webmanifest`,
+  icons: {
+    icon: `${basePath}/icons/icon-192.png`,
+    apple: `${basePath}/icons/apple-touch-icon.png`,
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'Saligue',
+    statusBarStyle: 'black-translucent',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#4B0082',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -35,6 +55,7 @@ export default function RootLayout({
             <Footer />
           </div>
           <Toaster />
+          <PwaRegister />
         </AuthProvider>
       </body>
     </html>

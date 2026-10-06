@@ -12,10 +12,14 @@ service cloud.firestore {
     }
 
     // Product photos are stored inline (see src/lib/image.ts), so cap their size.
+    // A document is limited to 1 MiB in total.
     function isValidProduct(p) {
       return p.name is string && p.name.size() > 0 && p.name.size() <= 200
         && p.price is number && p.price >= 0
-        && p.image is string && p.image.size() <= 800000
+        && p.image is string && p.image.size() <= 500000
+        && (!('cutout' in p) || (p.cutout is string && p.cutout.size() <= 400000))
+        && (!('embedding' in p) || (p.embedding is list && p.embedding.size() <= 1024))
+        && p.category is string && p.category.size() <= 60
         && p.status in ['active', 'archived', 'draft']
         && p.sellerId == request.auth.uid;
     }

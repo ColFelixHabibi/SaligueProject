@@ -17,7 +17,7 @@ export default function Footer() {
   const mobileNavLinks = [
     { href: '/', label: 'Home', icon: <Home className="h-6 w-6" /> },
     { href: '/search', label: 'Search', icon: <Search className="h-6 w-6" /> },
-    { href: '/recommendations', label: 'AI Stylist', icon: <Wand2 className="h-6 w-6" /> },
+    { href: '/mirror', label: 'Mirror My-Self', icon: <Wand2 className="h-6 w-6" /> },
     { href: '/wishlist', label: 'My Saligue', icon: <Heart className="h-6 w-6" /> },
   ];
 

@@ -1,8 +1,14 @@
 
 import type {NextConfig} from 'next';
 
+// Set when building for GitHub Pages, which serves the site from /<repo-name>.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Static site: all AI runs in the browser and data comes from Firebase, so no server is needed.
+  output: 'export',
+  basePath,
+  trailingSlash: true,
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -10,18 +16,17 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
+    // Static export has no image optimization server; product photos are data URLs anyway.
+    unoptimized: true,
   },
-  experimental: {
-    // Photo uploads (try-on sends two) go to server actions; the default limit is 1 MB.
-    serverActions: {
-      bodySizeLimit: '5mb',
-    },
+  webpack: (config) => {
+    // Node-only dependencies of Transformers.js; the browser build uses onnxruntime-web.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      sharp$: false,
+      'onnxruntime-node$': false,
+    };
+    return config;
   },
   allowedDevOrigins: [
     'https://6000-firebase-studio-1757425340606.cluster-lu4mup47g5gm4rtyvhzpwbfadi.cloudworkstations.dev',

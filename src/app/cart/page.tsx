@@ -57,7 +57,7 @@ export default function CartPage() {
                         className="rounded-md object-cover"
                       />
                       <div className="flex-1">
-                        <Link href={`/product/${item.id}`} className="font-semibold hover:underline">
+                        <Link href={`/product?id=${item.id}`} className="font-semibold hover:underline">
                           {item.name}
                         </Link>
                         <p className="text-sm text-muted-foreground">{item.seller}</p>

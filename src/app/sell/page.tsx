@@ -8,8 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
-import Image from 'next/image';
+import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
@@ -17,13 +16,16 @@ import { app } from '@/lib/firebase';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
-import { compressImage } from '@/lib/image';
+import type { PreparedItemPhoto } from '@/lib/image';
+import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
 
 
 export default function SellPage() {
     const { toast } = useToast();
     const { addProduct } = useProductStore();
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [photo, setPhoto] = useState<PreparedItemPhoto | null>(null);
+    const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
+    const [category, setCategory] = useState('');
     const initialFormValues = {
         title: '',
         description: '',
@@ -61,17 +63,6 @@ export default function SellPage() {
         setTimeout(() => setLoginOpen(true), 150);
     };
 
-    const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            try {
-                setImagePreview(await compressImage(file));
-            } catch (error: any) {
-                toast({ variant: 'destructive', title: 'Image Error', description: error.message });
-            }
-        }
-    };
-
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value } = e.target;
         setFormValues(prev => ({...prev, [id]: value}));
@@ -79,12 +70,8 @@ export default function SellPage() {
 
     const resetForm = () => {
         setFormValues(initialFormValues);
-        setImagePreview(null);
-        // Reset file input
-        const fileInput = document.getElementById('image-upload') as HTMLInputElement;
-        if (fileInput) {
-            fileInput.value = '';
-        }
+        setPhoto(null);
+        setCategory('');
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -106,8 +93,13 @@ export default function SellPage() {
             return;
         }
 
-        if (!imagePreview) {
+        if (!photo) {
             toast({ variant: 'destructive', title: 'Image Required', description: 'Please upload an image for your product.' });
+            return;
+        }
+
+        if (!category) {
+            toast({ variant: 'destructive', title: 'Category Required', description: 'Please choose what kind of item this is.' });
             return;
         }
         
@@ -117,8 +109,10 @@ export default function SellPage() {
             const newProduct: Omit<Product, 'id'> = {
                 name: formValues.title,
                 price: parseFloat(formValues.price),
-                image: imagePreview,
-                category: 'New', // Simplified for now
+                image: photo.image,
+                cutout: photo.cutout,
+                embedding: photo.embedding,
+                category,
                 seller: user?.displayName || 'Anonymous Seller',
                 sellerEmail: user?.email || '',
                 status: 'active' as const,
@@ -162,21 +156,9 @@ export default function SellPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <div className="space-y-2">
-                  <Label htmlFor="image-upload" className="text-lg font-medium">Product Image</Label>
-                  <label htmlFor="image-upload" className="relative block w-full h-80 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary transition-colors flex items-center justify-center text-muted-foreground bg-muted/20">
-                      {imagePreview ? (
-                          <Image src={imagePreview} alt="Preview" layout="fill" className="object-contain rounded-lg p-2" />
-                      ) : (
-                      <div className="flex flex-col items-center">
-                          <Upload className="h-12 w-12 mb-2" />
-                          <span>Click or drag to upload a full-standing image</span>
-                          <span className="text-sm">PNG, JPG, WEBP up to 5MB</span>
-                      </div>
-                      )}
-                  </label>
-                  <Input id="image-upload" type="file" className="sr-only" accept="image/*" onChange={handleImageFileChange} required/>
-              </div>
+              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
+
+              <CategoryField value={category} onChange={setCategory} />
 
               <div className="space-y-2">
                   <Label htmlFor="title" className="text-lg font-medium">Product Title</Label>
@@ -241,7 +223,7 @@ export default function SellPage() {
                   </div>
               </div>
               
-              <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={isSubmitting}>
+              <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={isSubmitting || isPreparingPhoto}>
                   {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : 'List Product'}
               </Button>
             </form>

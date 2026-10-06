@@ -100,7 +100,7 @@ export default function BuyerDashboardPage() {
                     <h3 className="text-lg font-semibold">Nothing here yet!</h3>
                     <p className="text-sm text-muted-foreground">Start exploring and add items to your wishlist.</p>
                      <Button asChild className="mt-4">
-                        <Link href="/">Mirror My-Self</Link>
+                        <Link href="/mirror">Mirror My-Self</Link>
                     </Button>
                 </div>
             )}

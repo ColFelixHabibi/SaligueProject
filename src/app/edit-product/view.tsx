@@ -8,24 +8,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
-import Image from 'next/image';
+import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { app } from '@/lib/firebase';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Product } from '@/lib/types';
-import { compressImage } from '@/lib/image';
+import type { PreparedItemPhoto } from '@/lib/image';
+import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
 
 
-export default function EditProductPage() {
+export default function EditProductView({ id }: { id: string | null }) {
     const { toast } = useToast();
-    const { id } = useParams();
     const router = useRouter();
     const { products, updateProduct } = useProductStore();
 
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [photo, setPhoto] = useState<Partial<PreparedItemPhoto> | null>(null);
+    const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
+    const [category, setCategory] = useState('');
     const initialFormValues = {
         name: '',
         description: '',
@@ -66,21 +67,11 @@ export default function EditProductPage() {
                 condition: product.condition || '',
                 contact: product.contact || '',
             });
-            setImagePreview(product.image);
+            setPhoto({ image: product.image, cutout: product.cutout, embedding: product.embedding });
+            setCategory(product.category);
         }
     }, [product, loadedProductId]);
 
-
-    const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            try {
-                setImagePreview(await compressImage(file));
-            } catch (error: any) {
-                toast({ variant: 'destructive', title: 'Image Error', description: error.message });
-            }
-        }
-    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value } = e.target;
@@ -102,7 +93,7 @@ export default function EditProductPage() {
             return;
         }
 
-        if (!imagePreview) {
+        if (!photo?.image) {
             toast({ variant: 'destructive', title: 'Image Required', description: 'Please upload an image for your product.' });
             return;
         }
@@ -111,11 +102,13 @@ export default function EditProductPage() {
 
         try {
             const updatedProduct: Product = {
-                id: id as string,
+                id: product.id,
                 name: formValues.name,
                 price: parseFloat(formValues.price),
-                image: imagePreview,
-                category: product.category,
+                image: photo.image,
+                cutout: photo.cutout,
+                embedding: photo.embedding,
+                category: category || product.category,
                 seller: user?.displayName || 'Anonymous Seller',
                 sellerEmail: user?.email || '',
                 status: product.status,
@@ -128,7 +121,7 @@ export default function EditProductPage() {
                 createdAt: product.createdAt || new Date().toISOString(),
             };
 
-            await updateProduct(id as string, updatedProduct);
+            await updateProduct(product.id, updatedProduct);
 
             toast({
                 title: 'Product Updated!',
@@ -158,21 +151,9 @@ export default function EditProductPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <div className="space-y-2">
-                  <Label htmlFor="image-upload" className="text-lg font-medium">Product Image</Label>
-                  <label htmlFor="image-upload" className="relative block w-full h-80 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary transition-colors flex items-center justify-center text-muted-foreground bg-muted/20">
-                      {imagePreview ? (
-                          <Image src={imagePreview} alt="Preview" layout="fill" className="object-contain rounded-lg p-2" />
-                      ) : (
-                      <div className="flex flex-col items-center">
-                          <Upload className="h-12 w-12 mb-2" />
-                          <span>Click or drag to upload a full-standing image</span>
-                          <span className="text-sm">PNG, JPG, WEBP up to 5MB</span>
-                      </div>
-                      )}
-                  </label>
-                  <Input id="image-upload" type="file" className="sr-only" accept="image/*" onChange={handleImageFileChange}/>
-              </div>
+              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
+
+              <CategoryField value={category} onChange={setCategory} />
 
               <div className="space-y-2">
                   <Label htmlFor="name" className="text-lg font-medium">Product Title</Label>
@@ -237,7 +218,7 @@ export default function EditProductPage() {
                   </div>
               </div>
               
-              <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={isSubmitting}>
+              <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={isSubmitting || isPreparingPhoto}>
                   {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : 'Save Changes'}
               </Button>
             </form>
