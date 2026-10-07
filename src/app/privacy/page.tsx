@@ -23,7 +23,7 @@ export default function PrivacyPage() {
           heading: 'Your photo in the Fitting Room',
           paragraphs: [
             'The photo you add in the Fitting Room is processed by AI on your own device and kept only on that device. It is not uploaded to Saligue.',
-            'Only if you tap "Make it realistic" or "Dress me as I describe" is your photo sent to the Saligue AI server, to create that one image. Remove your photo at any time with the bin button.',
+            'Only if you tap "Make it realistic" or "Dress me as I describe" is your photo sent to the Saligue AI server, to create that one image. Until Saligue runs its own AI server, "Make it realistic" uses the open Leffa model hosted on Hugging Face, which receives the photo and the garment picture only to create that image. Remove your photo at any time with the bin button.',
           ],
         },
         {

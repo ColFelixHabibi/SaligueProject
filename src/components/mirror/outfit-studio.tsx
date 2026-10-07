@@ -344,9 +344,14 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
                 Show quick preview
               </Button>
             ) : (
-              <Button variant="outline" className="w-full" onClick={makeRealistic} disabled={!!realisticBusy || !lookUrl}>
-                <Sparkles className="mr-2 h-4 w-4" /> Make it realistic
-              </Button>
+              <div className="space-y-1">
+                <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={makeRealistic} disabled={!!realisticBusy || !lookUrl}>
+                  <Sparkles className="mr-2 h-4 w-4" /> Make it realistic
+                </Button>
+                <p className="text-center text-[11px] text-muted-foreground">
+                  AI redraws you wearing the clothes (about 20 s per piece). Sends your photo to Saligue&apos;s AI.
+                </p>
+              </div>
             ))}
           </div>
         </div>

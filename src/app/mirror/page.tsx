@@ -7,7 +7,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Camera, Download, ImageUp, Loader2, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
-import { dressAsDescribed, getStudio } from '@/lib/ai/studio';
+import { dressAsDescribed, getRealistic, getStudio } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -59,8 +59,11 @@ function Mirror() {
 
   // Saligue AI Studio (realistic redraw) is optional: on-device dressing works without it.
   const [studio, setStudio] = useState(false);
+  // "Make it realistic" also works without it, through the Saligue server.
+  const [realistic, setRealistic] = useState(false);
   useEffect(() => {
     getStudio().then((url) => setStudio(!!url));
+    getRealistic().then(setRealistic);
   }, []);
 
   const [outfitText, setOutfitText] = useState('');
@@ -325,7 +328,7 @@ function Mirror() {
             ) : person ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map((product) => (
-                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={studio} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
+                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
                 ))}
               </div>
             ) : (
@@ -345,7 +348,7 @@ function Mirror() {
               person={person}
               landmarks={landmarks}
               personUrl={personUrl}
-              studio={studio}
+              studio={realistic}
               photoBusy={personBusy ?? parseBusy}
               onPhoto={handlePersonFile}
               onRemovePhoto={clear}

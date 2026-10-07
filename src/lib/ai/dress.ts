@@ -320,12 +320,28 @@ function inFrame(landmarks: Point[], width: number, height: number): Point[] {
   );
 }
 
+// Average colour of a garment's visible pixels.
+function garmentColor(item: HTMLCanvasElement): [number, number, number] {
+  const data = context2d(item).getImageData(0, 0, item.width, item.height).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < data.length; i += 16) {
+    if (data[i + 3] < 200) continue;
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
+    n++;
+  }
+  return n ? [r / n, g / n, b / n] : [128, 128, 128];
+}
+
 /**
- * Takes off what the new outfit replaces: the old shirt, trousers, hat or glasses become skin
- * (or hair, under a hat), lit like the rest of the photo; old shoes are removed.
+ * Takes off what the new outfit replaces. Old clothes the new garment doesn't cover (a hood, long sleeves)
+ * take the new garment's colour, with the photo's light and folds; old glasses become skin,
+ * an old hat becomes hair, old shoes are removed.
  */
-function undress(person: HTMLCanvasElement, parsing: Parsing, categories: Category[]) {
+function undress(person: HTMLCanvasElement, parsing: Parsing, worn: { item: HTMLCanvasElement; category: Category }[]) {
   const { width, height } = person;
+  const categories = worn.map((w) => w.category);
   const replaced = [...new Set(categories.flatMap((c) => REPLACED_PARTS[c] ?? []))];
   if (!replaced.length) return person;
   const copy = createCanvas(width, height);
@@ -339,11 +355,20 @@ function undress(person: HTMLCanvasElement, parsing: Parsing, categories: Catego
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  const toSkin = replaced.filter((p) => p !== PART.leftShoe && p !== PART.rightShoe && p !== PART.hat);
-  const toHair = replaced.filter((p) => p === PART.hat);
   const skin = averageColor(person, parsing, SKIN) ?? [176, 128, 98];
   const hair = averageColor(person, parsing, [PART.hair]) ?? [40, 30, 26];
-  const fills: [number[], [number, number, number]][] = [[toSkin, skin], [toHair, hair]];
+  const fills: [number[], [number, number, number]][] = [];
+  if (replaced.includes(PART.sunglasses)) fills.push([[PART.sunglasses], skin]);
+  if (replaced.includes(PART.hat)) fills.push([[PART.hat], hair]);
+  // Clothes in dressing order, so a dress's colour wins over trousers it also replaces.
+  const done = new Set<number>();
+  for (const { item, category } of worn) {
+    const parts = (REPLACED_PARTS[category] ?? []).filter(
+      (p) => !done.has(p) && ![PART.leftShoe, PART.rightShoe, PART.hat, PART.sunglasses].includes(p as never)
+    );
+    parts.forEach((p) => done.add(p));
+    if (parts.length) fills.push([parts, garmentColor(item)]);
+  }
 
   // Broad light and shadow of the photo, so the new skin isn't flat.
   const grow = Math.max(2, Math.round(Math.max(width, height) * 0.012));
@@ -369,7 +394,7 @@ function undress(person: HTMLCanvasElement, parsing: Parsing, categories: Catego
     for (let i = 0; i < px.length; i += 4) {
       const m = mask[i + 3] / 255;
       if (!m || !px[i + 3]) continue;
-      const f = Math.min(1.15, Math.max(0.75, Math.pow(Math.max(shade[i], 1) / mean, 0.6)));
+      const f = Math.min(1.2, Math.max(0.65, Math.pow(Math.max(shade[i], 1) / mean, 0.7)));
       for (let c = 0; c < 3; c++) px[i + c] = px[i + c] * (1 - m) + Math.min(255, color[c] * f) * m;
     }
   }
@@ -414,7 +439,7 @@ export function dressOutfit(person: HTMLCanvasElement, landmarks: Point[] | null
   const canvas = createCanvas(person.width + pad * 2, person.height + pad * 2);
   const ctx = context2d(canvas);
   const base = parsing
-    ? undress(person, parsing, worn.map((w) => w.category))
+    ? undress(person, parsing, worn)
     : withErased(person, worn.flatMap((w) => w.placements.flatMap((p) => (p.erase ? [p.erase] : []))));
   ctx.drawImage(base, pad, pad);
 

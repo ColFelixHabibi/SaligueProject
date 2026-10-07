@@ -6,6 +6,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { sendEmail } from './mail.mjs';
+import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -656,6 +657,24 @@ route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
   if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can change app settings.');
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(params[0], json(body));
   return { ok: true };
+});
+
+// Realistic try-on (see tryon.mjs). A few runs per account per hour, since the free AI has a daily limit.
+const tryOnRuns = new Map();
+route('GET', '/api/ai/tryon', () => ({ available: true, categories: REALISTIC_CATEGORIES }));
+route('POST', '/api/ai/tryon', async ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (!REALISTIC_CATEGORIES.includes(body.category)) fail(400, 'unsupported', 'Realistic try-on works for tops, jackets, trousers and dresses.');
+  const hour = Date.now() - 3_600_000;
+  const recent = (tryOnRuns.get(user.id) ?? []).filter((t) => t > hour);
+  if (recent.length >= 20) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
+  tryOnRuns.set(user.id, [...recent, Date.now()]);
+  try {
+    return { image: await tryOn(body.person, body.garment, body.category) };
+  } catch (error) {
+    if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
+    fail(error.status ?? 502, 'tryon_failed', error.message);
+  }
 });
 
 route('GET', '/api/health', () => ({ ok: true, products: db.prepare('select count(*) as n from products').get().n }));

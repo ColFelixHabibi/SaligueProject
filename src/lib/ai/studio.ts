@@ -90,9 +90,31 @@ async function call(path: string, body: object): Promise<string> {
   return data.image;
 }
 
-/** Realistically redraws the garment on the person (Leffa). Returns a JPEG data URL. */
+let cloud: Promise<boolean> | null = null;
+
+/**
+ * Whether "Make it realistic" can run: on Saligue's own AI Studio, or through the Saligue server,
+ * which uses the public Leffa model (see server/tryon.mjs).
+ */
+export function getRealistic(): Promise<boolean> {
+  if (!cloud) {
+    cloud = getStudio().then(async (url) => {
+      if (url) return true;
+      try {
+        return !!(await api<{ available?: boolean }>('/ai/tryon'))?.available;
+      } catch {
+        return false;
+      }
+    });
+  }
+  return cloud;
+}
+
+/** Realistically redraws the garment on the person (Leffa). Returns an image data URL. */
 export async function realisticTryOn(personUrl: string, garmentUrl: string, category: string) {
-  return call('/api/tryon', { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category });
+  const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category };
+  if (await getStudio()) return call('/api/tryon', body);
+  return (await api<{ image: string }>('/ai/tryon', { body })).image;
 }
 
 /** Dresses the person as described (SDXL Inpainting), keeping face and body. Returns a JPEG data URL. */
