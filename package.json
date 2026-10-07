@@ -10,7 +10,10 @@
     "preview": "npx --yes serve@14 out -l 9003",
     "build:app": "node scripts/build-app.mjs",
     "android": "npx cap open android",
-    "ios": "npx cap open ios"
+    "ios": "npx cap open ios",
+    "server": "node --no-warnings server/index.mjs",
+    "start": "next build && node --no-warnings server/index.mjs",
+    "admin": "node --no-warnings server/admin.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
@@ -41,7 +44,6 @@
     "@radix-ui/react-tabs": "^1.1.3",
     "@radix-ui/react-toast": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.1.8",
-    "@supabase/supabase-js": "^2.117.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -49,6 +51,7 @@
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.475.0",
     "next": "15.3.8",
+    "nodemailer": "^6.10.1",
     "onnxruntime-web": "^1.31.0-dev.20260914-8d85527a0",
     "patch-package": "^8.0.0",
     "react": "^18.3.1",

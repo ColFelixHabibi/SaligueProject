@@ -16,13 +16,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { AtSign, User, Store } from 'lucide-react';
+import { AtSign, KeyRound, User, Store } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { registerWithEmail } from '@/lib/auth-actions';
+import { GoogleButton } from './google-button';
+import Link from 'next/link';
+import { Checkbox } from '../ui/checkbox';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { ScrollArea } from '../ui/scroll-area';
 import { Switch } from '../ui/switch';
-import { GoogleButton } from './google-button';
 
 interface RegisterDialogProps {
     open: boolean;
@@ -36,18 +38,17 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
     const { role, setRole } = useUserRoleStore();
     const id = useId();
     const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [name, setName] = useState('');
     const [busy, setBusy] = useState(false);
+    const [accepted, setAccepted] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setBusy(true);
         try {
-            const result = await registerWithEmail(name, email);
+            await registerWithEmail(name, email, password, role, accepted);
             onOpenChange(false);
-            if (result?.confirmationRequired) {
-                toast({ title: 'Check your email', description: 'Confirm your email, then set your password in account settings.' });
-            }
         } catch (error: any) {
             toast({
                 variant: 'destructive',
@@ -97,7 +98,13 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                             </div>
                         </div>
 
-                        <p className="text-sm text-muted-foreground">Confirm your email, then choose a password in account settings.</p>
+                        <div className="space-y-2">
+                            <Label htmlFor={`${id}-password-register`} className="text-lg font-medium">Password</Label>
+                            <div className="relative">
+                                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                <Input id={`${id}-password-register`} type="password" placeholder="At least 6 characters" minLength={6} className="pl-10 h-12 text-base" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                            </div>
+                        </div>
 
                         <div className="flex items-center justify-between rounded-lg border p-4">
                             <div className="flex items-center space-x-3">
@@ -113,9 +120,18 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                             />
                         </div>
 
-                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Sending confirmation…' : 'Continue with Email'}</Button>
+                        <label className="flex items-start gap-3 text-sm leading-snug">
+                            <Checkbox checked={accepted} onCheckedChange={(v) => setAccepted(v === true)} className="mt-0.5" required />
+                            <span>
+                                I am at least 16 and I accept the{' '}
+                                <Link href="/terms" target="_blank" className="font-medium text-primary hover:underline">Terms of Service</Link> and{' '}
+                                <Link href="/privacy" target="_blank" className="font-medium text-primary hover:underline">Privacy Policy</Link>.
+                            </span>
+                        </label>
+
+                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy || !accepted}>{busy ? 'Creating account…' : 'Create Account'}</Button>
                     </form>
-                    <GoogleButton label="Sign up with Google" onDone={() => onOpenChange(false)} />
+                    <GoogleButton role={role} onDone={() => onOpenChange(false)} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Already have an account?{' '}

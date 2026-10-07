@@ -142,6 +142,9 @@ export default function Sidebar() {
         )}
         <p className="hidden px-3 text-xs leading-relaxed text-muted-foreground lg:block">
           © {new Date().getFullYear()} Saligue by INDECIANA
+          <br />
+          <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link> ·{' '}
+          <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link>
         </p>
       </div>
 

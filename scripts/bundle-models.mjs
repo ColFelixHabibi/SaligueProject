@@ -9,6 +9,7 @@ const HF = 'https://huggingface.co';
 const downloads = [
   [`${HF}/Xenova/modnet/resolve/main/onnx/model_quantized.onnx`, 'modnet.onnx'],
   [`${HF}/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx`, 'u2netp.onnx'],
+  [`${HF}/Xenova/segformer_b2_clothes/resolve/main/onnx/model_quantized.onnx`, 'clothes.onnx'],
   ['https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', 'pose_landmarker_lite.task'],
   ...['config.json', 'preprocessor_config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/vision_model.onnx', 'onnx/text_model_quantized.onnx'].map(
     (f) => [`${HF}/Xenova/mobileclip_s0/resolve/main/${f}`, `Xenova/mobileclip_s0/${f}`]

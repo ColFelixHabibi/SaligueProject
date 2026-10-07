@@ -1,9 +1,9 @@
 'use client';
 
-import { supabase } from './supabase';
+import { api } from './api';
 
 // An item's sound: up to 30 seconds taken from the seller's music or from the soundtrack of a video,
-// encoded on the device as a small MP3 and stored next to the product (productAudio/{productId}).
+// encoded on the device as a small MP3 and stored next to the product on the Saligue server.
 
 export const CLIP_SECONDS = 30;
 const SAMPLE_RATE = 22050;
@@ -86,9 +86,8 @@ export function previewClip(source: AudioBuffer, start: number) {
   return stop;
 }
 
-export async function saveProductSound(productId: string, sellerId: string, name: string, clip: { data: string; duration: number }) {
-  const { error } = await supabase.from('product_audio').upsert({ product_id: productId, seller_id: sellerId, data: clip.data, name: name.slice(0, 80), duration: clip.duration });
-  if (error) throw error;
+export async function saveProductSound(productId: string, name: string, clip: { data: string; duration: number }) {
+  await api(`/products/${productId}/sound`, { method: 'PUT', body: { data: clip.data, name, duration: clip.duration } });
 }
 
 const loaded = new Map<string, Promise<string | null>>();
@@ -97,9 +96,8 @@ const loaded = new Map<string, Promise<string | null>>();
 export function loadProductSound(productId: string) {
   let sound = loaded.get(productId);
   if (!sound) {
-    const query = supabase.from('product_audio').select('data').eq('product_id', productId).maybeSingle();
-    const fetched: Promise<string | null> = Promise.resolve(query)
-      .then(({ data, error }) => (error ? null : ((data?.data as string | undefined) ?? null)))
+    const fetched: Promise<string | null> = api<{ data: string }>(`/products/${productId}/sound`)
+      .then((sound) => sound.data)
       .catch(() => null);
     sound = fetched;
     loaded.set(productId, fetched);

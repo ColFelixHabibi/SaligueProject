@@ -59,32 +59,32 @@ function IndecianaStore() {
   };
 
   return (
-    <div className="min-h-full bg-neutral-950 text-white">
-      <section className="border-b border-white/10 px-4 py-14 text-center md:py-20">
-        <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.5em] text-white/50">Saligue presents</p>
+    <div className="min-h-full bg-background text-foreground">
+      <section className="border-b border-border px-4 py-14 text-center md:py-20">
+        <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.5em] text-muted-foreground">Saligue presents</p>
         <Wordmark />
-        <p className="mt-6 flex items-center justify-center gap-2 text-sm tracking-widest text-white/70">
+        <p className="mt-6 flex items-center justify-center gap-2 text-sm tracking-widest text-muted-foreground">
           <BadgeCheck className="h-4 w-4 text-primary" /> OFFICIAL HOUSE COLLECTION
         </p>
       </section>
 
       <div className="mx-auto max-w-6xl px-4 py-10 md:py-14">
         {!isInitialized ? (
-          <Skeleton className="h-[480px] w-full bg-white/10" />
+          <Skeleton className="h-[480px] w-full bg-muted" />
         ) : !selected ? (
           <div className="py-20 text-center">
             <p className="font-serif text-3xl tracking-widest">The collection arrives soon</p>
-            <p className="mt-3 text-white/60">INDECIANA&apos;s first pieces will appear here.</p>
+            <p className="mt-3 text-muted-foreground">INDECIANA&apos;s first pieces will appear here.</p>
           </div>
         ) : (
           <>
             <div className="grid gap-10 md:grid-cols-2">
               <div>
-                <div className="overflow-hidden bg-white">
+                <div className="overflow-hidden bg-muted">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={selected.image} alt={selected.name} className="aspect-[4/5] w-full object-contain p-4" />
                 </div>
-                <div className="mt-2 rounded-md bg-white text-foreground">
+                <div className="mt-2 rounded-md border bg-card text-foreground">
                   <div className="px-2 py-1">
                     <ActionRail product={selected} variant="bar" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
                   </div>
@@ -94,31 +94,31 @@ function IndecianaStore() {
 
               <div className="flex flex-col gap-6 md:pt-6">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-white/50">{categoryLabel(selected.category)}</p>
+                  <p className="text-xs uppercase tracking-[0.35em] text-muted-foreground">{categoryLabel(selected.category)}</p>
                   <h2 className="mt-3 font-serif text-4xl font-light leading-tight md:text-5xl">{selected.name}</h2>
                   <p className="mt-5 text-2xl tracking-wider">{formatPrice(Number(selected.price))}</p>
                 </div>
-                {selected.description && <p className="leading-relaxed text-white/75">{selected.description}</p>}
-                <dl className="grid grid-cols-2 gap-px overflow-hidden bg-white/10 text-sm">
+                {selected.description && <p className="leading-relaxed text-foreground/80">{selected.description}</p>}
+                <dl className="grid grid-cols-2 gap-px overflow-hidden bg-border text-sm">
                   {[['Size', selected.size], ['Colour', selected.color], ['Brand', selected.brand], ['Condition', selected.condition]]
                     .filter(([, v]) => v)
                     .map(([k, v]) => (
-                      <div key={k} className="bg-neutral-950 p-4">
-                        <dt className="text-[11px] uppercase tracking-widest text-white/50">{k}</dt>
+                      <div key={k} className="bg-background p-4">
+                        <dt className="text-[11px] uppercase tracking-widest text-muted-foreground">{k}</dt>
                         <dd className="mt-1">{v}</dd>
                       </div>
                     ))}
                 </dl>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Button size="lg" className="h-14 rounded-none bg-white text-base text-neutral-950 hover:bg-white/90" asChild>
-                    <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Try it on</Link>
+                  <Button size="lg" className="h-14 rounded-none bg-foreground text-base text-background hover:bg-foreground/90" asChild>
+                    <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Wear it</Link>
                   </Button>
-                  <Button size="lg" variant="outline" className="h-14 rounded-none border-white bg-transparent text-base text-white hover:bg-white hover:text-neutral-950" onClick={add}>
+                  <Button size="lg" variant="outline" className="h-14 rounded-none border-foreground bg-transparent text-base text-foreground hover:bg-foreground hover:text-background" onClick={add}>
                     <ShoppingBag className="mr-2 h-5 w-5" /> Add to bag
                   </Button>
                 </div>
                 {selected.shop && (
-                  <div className="rounded-md bg-white p-4 text-foreground">
+                  <div className="rounded-md border bg-card p-4 text-foreground">
                     <ShopAddress shop={selected.shop} email={selected.sellerEmail} />
                   </div>
                 )}
@@ -126,7 +126,7 @@ function IndecianaStore() {
             </div>
 
             <section className="mt-20">
-              <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
                 <h3 className="font-serif text-3xl font-light tracking-widest">The collection</h3>
                 {categories.length > 1 && (
                   <div className="flex flex-wrap gap-2">
@@ -135,7 +135,7 @@ function IndecianaStore() {
                         key={c || 'all'}
                         type="button"
                         onClick={() => setFilter(c)}
-                        className={cn('border px-4 py-1.5 text-xs uppercase tracking-widest', filter === c ? 'border-white bg-white text-neutral-950' : 'border-white/30 text-white/70 hover:border-white')}
+                        className={cn('border px-4 py-1.5 text-xs uppercase tracking-widest', filter === c ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:border-foreground')}
                       >
                         {c ? categoryLabel(c) : 'All'}
                       </button>
@@ -146,12 +146,12 @@ function IndecianaStore() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-4">
                 {shown.map((p) => (
                   <button key={p.id} type="button" onClick={() => select(p.id)} className="group text-left">
-                    <div className={cn('overflow-hidden bg-white', p.id === selected.id && 'ring-2 ring-primary ring-offset-4 ring-offset-neutral-950')}>
+                    <div className={cn('overflow-hidden bg-muted', p.id === selected.id && 'ring-2 ring-primary ring-offset-4 ring-offset-background')}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={p.image} alt={p.name} loading="lazy" className="aspect-[4/5] w-full object-contain p-3 transition-transform duration-500 group-hover:scale-105" />
                     </div>
                     <p className="mt-3 truncate text-sm tracking-wide">{p.name}</p>
-                    <p className="text-sm text-white/60">{formatPrice(Number(p.price))}</p>
+                    <p className="text-sm text-muted-foreground">{formatPrice(Number(p.price))}</p>
                   </button>
                 ))}
               </div>
@@ -159,9 +159,9 @@ function IndecianaStore() {
           </>
         )}
 
-        <section className="mx-auto mt-24 max-w-2xl border-t border-white/10 pt-12 text-center">
-          <p className="text-[11px] uppercase tracking-[0.5em] text-white/50">About</p>
-          <p className="mt-4 font-serif text-2xl font-light leading-relaxed text-white/85">
+        <section className="mx-auto mt-24 max-w-2xl border-t border-border pt-12 text-center">
+          <p className="text-[11px] uppercase tracking-[0.5em] text-muted-foreground">About</p>
+          <p className="mt-4 font-serif text-2xl font-light leading-relaxed text-foreground/85">
             INDECIANA is the house behind Saligue — curated fashion you can try on with AI before you buy.
           </p>
         </section>

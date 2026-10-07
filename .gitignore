@@ -48,3 +48,6 @@ next-env.d.ts
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Saligue database files (server/db.mjs)
+/data/

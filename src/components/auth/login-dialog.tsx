@@ -19,10 +19,11 @@ import { AtSign, KeyRound, Store } from 'lucide-react';
 import React, { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { loginWithEmail } from '@/lib/auth-actions';
+import { GoogleButton } from './google-button';
+import Link from 'next/link';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
-import { GoogleButton } from './google-button';
 
 interface LoginDialogProps {
   open: boolean;
@@ -41,14 +42,15 @@ export function LoginDialog({
   const id = React.useId();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { role, setRole } = useUserRoleStore();
+  const { role, setRole, pendingRole } = useUserRoleStore();
   const [busy, setBusy] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      await loginWithEmail(email, password);
+      // Send the role only if the visitor flipped the seller switch.
+      await loginWithEmail(email, password, useUserRoleStore.getState().pendingRole ?? undefined);
       onOpenChange(false);
     } catch (error: any) {
       toast({
@@ -92,7 +94,10 @@ export function LoginDialog({
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor={`${id}-password-login`} className="text-lg font-medium">Password</Label>
+                            <div className="flex items-baseline justify-between">
+                                <Label htmlFor={`${id}-password-login`} className="text-lg font-medium">Password</Label>
+                                <Link href="/forgot-password" onClick={() => onOpenChange(false)} className="text-sm font-medium text-primary hover:underline">Forgot password?</Link>
+                            </div>
                             <div className="relative">
                             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                             <Input id={`${id}-password-login`} type="password" placeholder="••••••••" className="pl-10 h-12 text-base" required value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -115,7 +120,7 @@ export function LoginDialog({
 
                         <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Logging in…' : 'Log In'}</Button>
                         </form>
-                        <GoogleButton onDone={() => onOpenChange(false)} />
+                        <GoogleButton role={pendingRole ?? undefined} onDone={() => onOpenChange(false)} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Don't have an account?{' '}

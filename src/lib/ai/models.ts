@@ -16,6 +16,9 @@ export const MODELS = {
   person: BUNDLED ? `${LOCAL_MODELS}/modnet.onnx` : 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model_quantized.onnx',
   // U-2-Netp salient object segmentation (Apache-2.0): cuts out clothes, shoes and accessories.
   item: BUNDLED ? `${LOCAL_MODELS}/u2netp.onnx` : 'https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx',
+  // SegFormer-B2 clothes parsing (Transformers.js port): finds hair, face, arms, legs and the clothes being worn,
+  // so new clothes replace the old ones instead of being pasted over them.
+  clothes: BUNDLED ? `${LOCAL_MODELS}/clothes.onnx` : 'https://huggingface.co/Xenova/segformer_b2_clothes/resolve/main/onnx/model_quantized.onnx',
   // MediaPipe Pose Landmarker lite (Apache-2.0): body landmarks used to dress the person.
   pose: BUNDLED
     ? `${LOCAL_MODELS}/pose_landmarker_lite.task`

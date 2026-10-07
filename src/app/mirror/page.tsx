@@ -14,6 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import ProductCard from '@/components/product-card';
 import { DressedCard } from '@/components/mirror/dressed-card';
+import { OutfitStudio, PhotoInputs } from '@/components/mirror/outfit-studio';
+import { parseClothes, type Parsing } from '@/lib/ai/parse';
+import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { useToast } from '@/hooks/use-toast';
@@ -31,28 +34,6 @@ import { cn } from '@/lib/utils';
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
 
-function PhotoInputs({ onFile, disabled }: { onFile: (file: File) => void; disabled?: boolean }) {
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
-  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (file) onFile(file);
-  };
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      <Button type="button" onClick={() => cameraRef.current?.click()} disabled={disabled}>
-        <Camera className="mr-2 h-4 w-4" /> Take photo
-      </Button>
-      <Button type="button" variant="outline" onClick={() => galleryRef.current?.click()} disabled={disabled}>
-        <ImageUp className="mr-2 h-4 w-4" /> Upload
-      </Button>
-      <input ref={cameraRef} type="file" accept="image/*" capture="user" className="sr-only" onChange={handle} />
-      <input ref={galleryRef} type="file" accept="image/*" className="sr-only" onChange={handle} />
-    </div>
-  );
-}
-
 function Mirror() {
   const { toast } = useToast();
   const params = useSearchParams();
@@ -61,6 +42,20 @@ function Mirror() {
   const { personUrl, landmarks: normalizedLandmarks, restore, setPerson, clear } = useMirrorStore();
 
   useEffect(() => restore(), [restore]);
+
+  // The full outfit. Opening the Mirror from an item ("Wear it") puts that item on.
+  const { slots, restore: restoreOutfit, wear } = useOutfitStore();
+  useEffect(() => restoreOutfit(), [restoreOutfit]);
+  const wornFrom = useRef<string | null>(null);
+  useEffect(() => {
+    if (!itemId || wornFrom.current === itemId || !isInitialized) return;
+    const product = products.find((p) => p.id === itemId && p.status === 'active');
+    if (!product) return;
+    wornFrom.current = itemId;
+    restoreOutfit();
+    wear(product);
+  }, [itemId, products, isInitialized, wear, restoreOutfit]);
+  const wornIds = useMemo(() => new Set(Object.values(slots)), [slots]);
 
   // Saligue AI Studio (realistic redraw) is optional: on-device dressing works without it.
   const [studio, setStudio] = useState(false);
@@ -110,6 +105,24 @@ function Mirror() {
     [person, normalizedLandmarks]
   );
 
+  // What the shopper is wearing in the photo, so new clothes replace it instead of going on top.
+  const [parsing, setParsing] = useState<Parsing | null>(null);
+  const [parseBusy, setParseBusy] = useState<string | null>(null);
+  useEffect(() => {
+    setParsing(null);
+    if (!person) return;
+    let cancelled = false;
+    parseClothes(person, (message) => !cancelled && setParseBusy(message)).then((result) => {
+      if (cancelled) return;
+      setParsing(result);
+      setParseBusy(null);
+    });
+    return () => {
+      cancelled = true;
+      setParseBusy(null);
+    };
+  }, [person]);
+
   const [personBusy, setPersonBusy] = useState<string | null>(null);
   const handlePersonFile = async (file: File) => {
     setPersonBusy('Reading your photo…');
@@ -140,12 +153,8 @@ function Mirror() {
   const [queryPhoto, setQueryPhoto] = useState<string | null>(null);
   const searchId = useRef(0);
 
-  // Only what the shopper asked for: the item they tapped "Try on" for, or their search results.
-  const defaults = useMemo(
-    () => (itemId ? products.filter((p) => p.id === itemId && p.status === 'active') : []),
-    [products, itemId]
-  );
-  const shown = results ?? defaults;
+  // Search results; the item the shopper came from is already in the outfit.
+  const shown = results ?? [];
 
   const [parsed, setParsed] = useState<ParsedDescription | null>(null);
   const [chosen, setChosen] = useState<{ product: Product; image: string } | null>(null);
@@ -207,73 +216,25 @@ function Mirror() {
   return (
     <div className="container mx-auto px-4 py-6 md:py-10">
       {chosen && <LocateSellerDialog product={chosen.product} image={chosen.image} onClose={() => setChosen(null)} />}
-      <div className="mb-6 text-center md:mb-10">
-        <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-4xl font-extrabold tracking-tight text-transparent md:text-5xl">
-          Mirror My-Self
-        </h1>
-        <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
-          Add your photo, search for anything, and see yourself wearing it. The AI runs on your device — your photo is never uploaded.
-        </p>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2 md:mb-6">
+        <div>
+          <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-3xl font-extrabold tracking-tight text-transparent md:text-4xl">
+            Fitting Room
+          </h1>
+          <p className="text-sm text-muted-foreground">Wear a whole outfit — clothes, shoes, hat, glasses and bag — before you buy.</p>
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[320px_1fr] lg:grid-cols-[360px_1fr]">
-        {/* Your photo */}
-        <div className="md:sticky md:top-24 md:self-start">
+      <div className="space-y-6">
           <Card>
             <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">1. Your photo</h2>
-              {personBusy ? (
-                <div className="flex aspect-[3/4] flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-6 text-center">
-                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">{personBusy}</p>
-                </div>
-              ) : personUrl ? (
-                <>
-                  <div className={cn('relative aspect-[3/4] overflow-hidden rounded-lg border', checkerboard)}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={personUrl} alt="You, background removed" className="absolute inset-0 h-full w-full object-contain" />
-                  </div>
-                  <PhotoInputs onFile={handlePersonFile} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant="ghost" size="sm" asChild>
-                      <a href={personUrl} download="saligue-me.png">
-                        <Download className="mr-2 h-4 w-4" /> Save
-                      </a>
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={clear}>
-                      <Trash2 className="mr-2 h-4 w-4" /> Remove
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex aspect-[3/4] flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-6 text-center text-muted-foreground">
-                    <Camera className="h-12 w-12" />
-                    <p className="font-medium text-foreground">Add a full-body photo</p>
-                    <ul className="space-y-1 text-sm">
-                      <li>Stand straight, facing the camera</li>
-                      <li>Head to feet in the picture</li>
-                      <li>Good light, fitted clothes</li>
-                    </ul>
-                  </div>
-                  <PhotoInputs onFile={handlePersonFile} />
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search and looks */}
-        <div className="min-w-0 space-y-6">
-          <Card>
-            <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">2. Describe what you want to wear</h2>
-              <form onSubmit={handleSubmit} className="space-y-2">
+              <h2 className="text-lg font-semibold">1. Describe what you want to wear</h2>
+              <form onSubmit={handleSubmit} className="space-y-3">
                 <Textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onFocus={warmUpSearch}
-                  placeholder="Type, size, colour, brand… e.g. “size M blue jeans by Levi's” or “white sneakers 42”"
+                  placeholder="Type, size, colour, brand, budget… e.g. “size M blue jeans by Levi's” or “white sneakers 42”"
                   className="min-h-20 text-base"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -282,9 +243,24 @@ function Mirror() {
                     }
                   }}
                 />
-                <Button type="submit" className="w-full" disabled={!!searchBusy || !text.trim()}>
+                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() => handleCategory(c.value)}
+                      className={cn(
+                        'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition',
+                        category === c.value ? 'border-primary bg-primary text-primary-foreground' : 'hover:border-primary hover:text-primary'
+                      )}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                <Button type="submit" className="w-full" disabled={!!searchBusy || (!text.trim() && !category)}>
                   {searchBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-                  Show me wearing it
+                  Show me the choices on me
                 </Button>
               </form>
               {parsed && (parsed.category || parsed.size || parsed.color || parsed.brand) && (
@@ -297,24 +273,91 @@ function Mirror() {
                     ))}
                 </div>
               )}
-
-
-              <div className="flex flex-wrap items-center gap-3">
-                {results && (
-                  <Button type="button" variant="ghost" size="sm" onClick={clearSearch}>
-                    <X className="mr-1 h-4 w-4" /> Clear
-                  </Button>
-                )}
-                {searchBusy && <span className="text-sm text-muted-foreground">{searchBusy}</span>}
-              </div>
+              {(results || searchBusy) && (
+                <div className="flex flex-wrap items-center gap-3">
+                  {results && (
+                    <Button type="button" variant="ghost" size="sm" onClick={clearSearch}>
+                      <X className="mr-1 h-4 w-4" /> Clear
+                    </Button>
+                  )}
+                  {searchBusy && <span className="text-sm text-muted-foreground">{searchBusy}</span>}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {(results || searchBusy) && (
+          <div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  2. Compare {results ? `${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'your choices'} on you
+                </h2>
+                {person && parseBusy && <p className="text-xs text-muted-foreground">{parseBusy}</p>}
+              </div>
+              {!personUrl && shown.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Add your photo to see yourself in them:</span>
+                  <PhotoInputs onFile={handlePersonFile} disabled={!!personBusy} compact />
+                </div>
+              )}
+            </div>
+
+            {!isInitialized ? (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="aspect-[3/4] w-full" />
+                ))}
+              </div>
+            ) : shown.length === 0 ? (
+              <div className="rounded-lg border-2 border-dashed py-16 text-center text-muted-foreground">
+                {results ? (
+                  <>
+                    <p>Nothing matched. Try other words, another size or colour.</p>
+                    <Button variant="link" onClick={clearSearch}>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Start again
+                    </Button>
+                  </>
+                ) : (
+                  <p className="px-6">Looking for matching items…</p>
+                )}
+              </div>
+            ) : person ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {shown.map((product) => (
+                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={studio} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                {shown.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+            )}
+          </div>
+          )}
+
+          <div>
+            <h2 className="mb-3 text-xl font-semibold">{results ? '3. Your full outfit' : '2. Your full outfit'}</h2>
+            <OutfitStudio
+              products={products}
+              person={person}
+              landmarks={landmarks}
+              personUrl={personUrl}
+              studio={studio}
+              photoBusy={personBusy ?? parseBusy}
+              onPhoto={handlePersonFile}
+              onRemovePhoto={clear}
+              parsing={parsing}
+            />
+          </div>
 
           {studio && personUrl && (
             <Card className="border-primary/30">
               <CardContent className="space-y-4 p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-lg font-semibold">3. Dress me as I describe</h2>
+                  <h2 className="text-lg font-semibold">Dress me as I describe</h2>
                   <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Saligue AI</span>
                 </div>
                 <form onSubmit={handleDescribe} className="space-y-3">
@@ -347,50 +390,6 @@ function Mirror() {
             </Card>
           )}
 
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold">
-                {results ? `${results.length} ${results.length === 1 ? 'look' : 'looks'} found` : shown.length ? 'Your look' : 'Your looks'}
-              </h2>
-              {!personUrl && shown.length > 0 && (
-                <span className="text-sm text-muted-foreground">Add your photo to see yourself in them</span>
-              )}
-            </div>
-
-            {!isInitialized ? (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="aspect-[3/4] w-full" />
-                ))}
-              </div>
-            ) : shown.length === 0 ? (
-              <div className="rounded-lg border-2 border-dashed py-16 text-center text-muted-foreground">
-                {results ? (
-                  <>
-                    <p>Nothing matched. Try other words or another photo.</p>
-                    <Button variant="link" onClick={clearSearch}>
-                      <RefreshCw className="mr-2 h-4 w-4" /> Show all items
-                    </Button>
-                  </>
-                ) : (
-                  <p className="px-6">Search above (or describe what you want) and only the matching items will be put on you.</p>
-                )}
-              </div>
-            ) : person ? (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {shown.map((product) => (
-                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} personUrl={personUrl!} studio={studio} onChoose={(image) => setChosen({ product, image })} />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {shown.map((product) => (
-                  <ProductCard key={product.id} product={product} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

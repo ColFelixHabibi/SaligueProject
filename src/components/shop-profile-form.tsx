@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { supabase } from '@/lib/supabase';
+import { updateAccount } from '@/lib/auth-actions';
+import { useProductStore } from '@/hooks/use-product-store';
 import { isShopComplete, type Shop } from '@/lib/types';
 
 const EMPTY: Shop = { name: '', phone: '', whatsapp: '', country: 'Rwanda', city: '', district: '', street: '', landmark: '', mapUrl: '', hours: '' };
@@ -46,8 +47,6 @@ export function ShopProfileForm() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
     const cleaned = compact(shop);
     if (!isShopComplete(cleaned)) {
       toast({ variant: 'destructive', title: 'Missing details', description: 'Shop name, phone, country, city and street are required.' });
@@ -55,14 +54,10 @@ export function ShopProfileForm() {
     }
     setSaving(true);
     try {
-      const { error: profileError } = await supabase.from('profiles').update({ shop: cleaned }).eq('id', user.id);
-      if (profileError) throw profileError;
-      // Keep the address on already-listed items up to date.
-      const { data: mine, error: productsError } = await supabase.from('products')
-        .update({ shop: cleaned }).eq('seller_id', user.id).select('id');
-      if (productsError) throw productsError;
+      // The server also updates the address on already-listed items.
+      await updateAccount({ shop: cleaned });
       useUserRoleStore.setState({ shop: cleaned });
-      const count = mine?.length ?? 0;
+      const count = useProductStore.getState().products.filter((p) => p.shop?.name === cleaned.name).length;
       toast({ title: 'Shop saved', description: `Your address is shown on ${count} item${count === 1 ? '' : 's'}.` });
     } catch (error: any) {
       console.error('Failed to save shop:', error);

@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { updateAccount } from '@/lib/auth-actions';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,6 +25,7 @@ export default function BuyerSettingsPage() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
 
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
@@ -41,10 +42,7 @@ export default function BuyerSettingsPage() {
     if (!user) return;
     
     try {
-      const { error: authError } = await supabase.auth.updateUser({ data: { display_name: displayName } });
-      if (authError) throw authError;
-      const { error: profileError } = await supabase.from('profiles').update({ display_name: displayName }).eq('id', user.uid);
-      if (profileError) throw profileError;
+      await updateAccount({ displayName });
       toast({
         title: 'Success',
         description: 'Your profile has been updated.',
@@ -72,20 +70,20 @@ export default function BuyerSettingsPage() {
         setIsPasswordSaving(false);
         return;
     }
-    if (!newPassword) {
+    if (!currentPassword || !newPassword) {
         toast({ variant: 'destructive', title: 'Error', description: 'Please fill all password fields.' });
         setIsPasswordSaving(false);
         return;
     }
 
     try {
-        const { error: passwordError } = await supabase.auth.updateUser({ password: newPassword });
-        if (passwordError) throw passwordError;
+        await updateAccount({ currentPassword, password: newPassword });
             
             toast({
                 title: 'Success',
                 description: 'Your password has been changed successfully.',
             });
+            setCurrentPassword('');
             setNewPassword('');
             setConfirmPassword('');
     } catch (error: any) {
@@ -133,6 +131,16 @@ export default function BuyerSettingsPage() {
             <CardDescription>Set or update the password for this account.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
                 <Input 

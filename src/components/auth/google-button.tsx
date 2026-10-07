@@ -1,13 +1,34 @@
-
 'use client';
 
 import { friendlyError } from '@/lib/errors';
 
-import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { continueWithGoogle } from '@/lib/auth-actions';
+import { googleClientId, loginWithGoogle } from '@/lib/auth-actions';
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
+
+let gsiScript: Promise<void> | null = null;
+function loadGoogleScript() {
+  if (!gsiScript) {
+    gsiScript = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Could not reach Google. Check your internet connection.'));
+      document.head.appendChild(script);
+    });
+    gsiScript.catch(() => (gsiScript = null));
+  }
+  return gsiScript;
+}
 
 function GoogleLogo() {
   return (
@@ -20,38 +41,86 @@ function GoogleLogo() {
   );
 }
 
-/** "Continue with Google". New accounts get the buyer/seller role chosen in the dialog. */
-export function GoogleButton({ label = 'Continue with Google', onDone }: { label?: string; onDone?: () => void }) {
+/**
+ * "Continue with Google" using Google's own sign-in button. New accounts get the buyer/seller role
+ * chosen in the dialog. Until the server has a Google client ID, the button explains that instead.
+ */
+export function GoogleButton({ role, onDone }: { role?: 'buyer' | 'seller'; onDone?: () => void }) {
   const { toast } = useToast();
-  const [busy, setBusy] = useState(false);
-  // Google's sign-in window can't open inside the installed Android/iOS app's web view.
-  const [supported, setSupported] = useState(true);
-  useEffect(() => {
-    setSupported(!(window as any).Capacitor?.isNativePlatform?.());
-  }, []);
-  if (!supported) return null;
+  const slot = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'off'>('loading');
+  // Read inside Google's callback, which is registered only once.
+  const latest = useRef({ role, onDone });
+  latest.current = { role, onDone };
 
-  const handleClick = async () => {
-    setBusy(true);
-    try {
-      await continueWithGoogle();
-      onDone?.();
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const clientId = await googleClientId();
+        if (!clientId) {
+          if (!cancelled) setState('off');
+          return;
+        }
+        await loadGoogleScript();
+        if (cancelled || !slot.current) return;
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async ({ credential }: { credential: string }) => {
+            try {
+              await loginWithGoogle(credential, latest.current.role);
+              latest.current.onDone?.();
+            } catch (error: any) {
+              toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) });
+            }
+          },
+        });
+        window.google.accounts.id.renderButton(slot.current, {
+          theme: 'outline',
+          size: 'large',
+          shape: 'pill',
+          text: 'continue_with',
+          width: Math.min(slot.current.offsetWidth || 320, 400),
+        });
+        setState('ready');
+      } catch (error) {
+        console.error('Google sign-in unavailable:', error);
+        if (!cancelled) setState('off');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toast]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 text-xs uppercase text-muted-foreground">
         <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
       </div>
-      <Button type="button" variant="outline" size="lg" className="h-14 w-full text-base" onClick={handleClick} disabled={busy}>
-        {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <span className="mr-3"><GoogleLogo /></span>}
-        {label}
-      </Button>
+      <div ref={slot} className={state === 'ready' ? 'flex min-h-11 justify-center' : 'hidden'} />
+      {state !== 'ready' && (
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-14 w-full text-base"
+          disabled={state === 'loading'}
+          onClick={() =>
+            toast({
+              title: 'Google sign-in is not switched on yet',
+              description: 'Use email for now. Saligue needs a Google client ID on the server to turn this on.',
+            })
+          }
+        >
+          <span className="mr-3"><GoogleLogo /></span> Continue with Google
+        </Button>
+      )}
+      <p className="text-center text-xs text-muted-foreground">
+        By continuing with Google you accept the{' '}
+        <Link href="/terms" target="_blank" className="underline">Terms of Service</Link> and{' '}
+        <Link href="/privacy" target="_blank" className="underline">Privacy Policy</Link>.
+      </p>
     </div>
   );
 }

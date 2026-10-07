@@ -25,7 +25,7 @@ interface ActionRailProps {
 }
 
 /**
- * Like (public count) · Comments · Save (private) · Try on · Share.
+ * Like (public count) · Comments · Save (private) · Wear it · Share.
  * Works for guests too — no login needed.
  */
 export function ActionRail({ product, commentsOpen, onToggleComments, variant }: ActionRailProps) {
@@ -78,9 +78,9 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant }:
         <Bookmark className={cn(icon, saved && 'fill-current')} />
         <span>{saved ? 'Saved' : 'Save'}</span>
       </button>
-      <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Try it on">
+      <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Wear it">
         <Wand2 className={icon} />
-        <span>Try on</span>
+        <span>Wear it</span>
       </Link>
       <button type="button" className={button} onClick={share} aria-label="Share">
         <Share2 className={icon} />

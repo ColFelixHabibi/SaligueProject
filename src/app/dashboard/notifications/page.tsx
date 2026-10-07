@@ -16,6 +16,8 @@ import { useDashboardSearchStore } from '@/hooks/use-dashboard-search-store';
 
 const getIconForType = (type: string) => {
     switch (type) {
+        case 'order':
+            return <Package className="h-6 w-6 text-primary" />;
         case 'sale':
             return <ShoppingCart className="h-6 w-6 text-green-500" />;
         case 'message':
@@ -99,7 +101,7 @@ export default function NotificationsPage() {
                             ))
                         ) : (
                             <div className="text-center py-10">
-                                <p className="text-muted-foreground">No notifications match your search.</p>
+                                <p className="text-muted-foreground">{notifications.length ? 'No notifications match your search.' : 'No notifications yet. New orders, comments and account news will appear here.'}</p>
                             </div>
                         )}
                     </div>

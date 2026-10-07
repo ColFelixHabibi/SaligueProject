@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, LayoutDashboard, LogOut, MapPin, Package, Settings, ShoppingBag, Store } from 'lucide-react';
+import { Bell, Bookmark, ChevronRight, FileText, LayoutDashboard, LogOut, MapPin, Package, Settings, ShoppingBag, Store } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,6 +15,7 @@ import { useCart } from '@/hooks/use-cart-store';
 import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
+import { useNotificationStore } from '@/hooks/use-notification-store';
 
 function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
   const body = (
@@ -36,6 +37,7 @@ export default function MePage() {
   const shop = useUserRoleStore((s) => s.shop);
   const { wishlistItems } = useWishlist();
   const { cartItems } = useCart();
+  const unread = useNotificationStore((st) => st.notifications.filter((n) => !n.read).length);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -68,6 +70,7 @@ export default function MePage() {
         <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
         <Row href="/cart" icon={ShoppingBag} label="Cart" detail={String(cartItems.reduce((n, i) => n + i.quantity, 0))} />
         <Row href="/orders" icon={Package} label="My orders" />
+        {user && <Row href="/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />}
       </Card>
 
       {user && (
@@ -92,6 +95,11 @@ export default function MePage() {
           />
         </Card>
       )}
+
+      <Card className="mt-4 overflow-hidden">
+        <Row href="/terms" icon={FileText} label="Terms of Service" />
+        <Row href="/privacy" icon={FileText} label="Privacy Policy" />
+      </Card>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />
       <RegisterDialog open={registerOpen} onOpenChange={setRegisterOpen} onSwitchToLogin={() => { setRegisterOpen(false); setTimeout(() => setLoginOpen(true), 150); }} />

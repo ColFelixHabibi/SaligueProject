@@ -24,11 +24,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Phone } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 
 export default function SupportPage() {
   const { toast } = useToast();
-  const { user, authUid } = useAuth();
+  const { user } = useAuth();
   const [subject, setSubject] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [contact, setContact] = React.useState('');
@@ -48,17 +48,9 @@ export default function SupportPage() {
     setIsSubmitting(true);
     
     try {
-      const { error } = await supabase.from('support_requests').insert({
-        user_id: authUid,
-        name: user?.displayName ?? '',
-        email: user?.email ?? '',
-        contact,
-        subject,
-        message,
-        source: 'buyer-account',
-        status: 'open',
+      await api('/support', {
+        body: { name: user?.displayName ?? '', email: user?.email ?? '', contact, subject, message, source: 'buyer-account' },
       });
-      if (error) throw error;
       toast({
         title: 'Request Sent!',
         description: 'Our support team has received your request and will get back to you shortly.',

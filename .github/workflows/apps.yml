@@ -16,8 +16,7 @@ jobs:
   android:
     runs-on: ubuntu-latest
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,8 +28,6 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
-      - name: Check Supabase configuration
-        run: test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
       # Static site with the AI models bundled, copied into the native projects.
       - run: npm run build:app
       - name: Build test APK
@@ -56,8 +53,7 @@ jobs:
   ios:
     runs-on: macos-15
     env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -65,8 +61,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Check Supabase configuration
-        run: test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
       - run: npm run build:app
       # Proves the iOS app compiles. Installing on iPhones needs an Apple Developer account for signing.
       - name: Build for iOS Simulator

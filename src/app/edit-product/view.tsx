@@ -121,7 +121,7 @@ export default function EditProductView({ id }: { id: string | null }) {
             if (sound) {
                 const clip = await makeClip(sound.buffer, sound.start);
                 updatedProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
-                await saveProductSound(product.id, user.uid, sound.name, clip);
+                await saveProductSound(product.id, sound.name, clip);
             } else if (product.sound) {
                 updatedProduct.sound = product.sound;
             }

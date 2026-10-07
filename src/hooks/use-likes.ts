@@ -1,50 +1,47 @@
 'use client';
 
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
+import { useProductStore } from './use-product-store';
 
-interface LikesState { liked: Set<string>; isInitialized: boolean }
+// Likes are public (a count on each product); Saves are the private wishlist (see use-wishlist.ts).
+interface LikesState {
+  liked: Set<string>;
+  isInitialized: boolean;
+}
 export const useLikesStore = create<LikesState>()(() => ({ liked: new Set(), isInitialized: false }));
 
-export function subscribeToLikes(uid: string | null) {
-  if (!uid) {
-    useLikesStore.setState({ liked: new Set(), isInitialized: true });
-    return () => {};
-  }
+export function subscribeToLikes(_uid: string) {
   let active = true;
   useLikesStore.setState({ liked: new Set(), isInitialized: false });
-  const load = async () => {
-    const { data, error } = await supabase.from('product_likes').select('product_id').eq('user_id', uid);
-    if (!active) return;
-    if (error) {
+  api<string[]>('/me/likes')
+    .then((ids) => active && useLikesStore.setState({ liked: new Set(ids), isInitialized: true }))
+    .catch((error) => {
       console.error('Failed to load likes:', error);
-      useLikesStore.setState({ isInitialized: true });
-      return;
-    }
-    useLikesStore.setState({ liked: new Set((data ?? []).map((row) => row.product_id)), isInitialized: true });
+      if (active) useLikesStore.setState({ isInitialized: true });
+    });
+  return () => {
+    active = false;
   };
-  void load();
-  const channel = supabase.channel(`likes-${uid}-${crypto.randomUUID()}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'product_likes', filter: `user_id=eq.${uid}` }, () => { void load(); })
-    .subscribe();
-  return () => { active = false; void supabase.removeChannel(channel); };
 }
 
 export async function toggleLike(productId: string) {
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) throw new Error('Please wait a moment and try again.');
-  const wasLiked = useLikesStore.getState().liked.has(productId);
-  const next = new Set(useLikesStore.getState().liked);
-  if (wasLiked) next.delete(productId); else next.add(productId);
+  // Update the screen right away; the server's answer confirms it.
+  const before = useLikesStore.getState().liked;
+  const next = new Set(before);
+  if (next.has(productId)) next.delete(productId);
+  else next.add(productId);
   useLikesStore.setState({ liked: next });
-  const result = wasLiked
-    ? await supabase.from('product_likes').delete().eq('product_id', productId).eq('user_id', user.id)
-    : await supabase.from('product_likes').insert({ product_id: productId, user_id: user.id });
-  if (result.error) {
-    const undo = new Set(useLikesStore.getState().liked);
-    if (wasLiked) undo.add(productId); else undo.delete(productId);
-    useLikesStore.setState({ liked: undo });
-    throw result.error;
+  try {
+    const { liked, likeCount } = await api<{ liked: boolean; likeCount: number }>(`/products/${productId}/like`, { method: 'POST' });
+    const confirmed = new Set(useLikesStore.getState().liked);
+    if (liked) confirmed.add(productId);
+    else confirmed.delete(productId);
+    useLikesStore.setState({ liked: confirmed });
+    useProductStore.setState((s) => ({ products: s.products.map((p) => (p.id === productId ? { ...p, likeCount } : p)) }));
+  } catch (error) {
+    useLikesStore.setState({ liked: before });
+    throw error;
   }
 }
 

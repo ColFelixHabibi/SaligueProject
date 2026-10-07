@@ -134,7 +134,7 @@ export default function SellPage() {
             const clip = sound ? await makeClip(sound.buffer, sound.start) : null;
             if (clip && sound) newProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
             const productId = await addProduct(newProduct);
-            if (clip && sound && user) await saveProductSound(productId, user.uid, sound.name, clip);
+            if (clip && sound && user) await saveProductSound(productId, sound.name, clip);
 
             toast({
                 title: 'Product Listed!',

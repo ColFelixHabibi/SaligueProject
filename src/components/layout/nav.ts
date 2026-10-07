@@ -4,7 +4,7 @@ import { Compass, Flame, PlusSquare, User, Wand2 } from 'lucide-react';
 export const NAV = [
   { href: '/', label: 'For You', icon: Flame },
   { href: '/search', label: 'Explore', icon: Compass },
-  { href: '/mirror', label: 'Mirror', icon: Wand2 },
+  { href: '/mirror', label: 'Fitting Room', icon: Wand2 },
   { href: '/sell', label: 'Sell', icon: PlusSquare },
   { href: '/me', label: 'Me', icon: User },
 ] as const;

@@ -27,6 +27,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ContactButtons } from '@/components/contact-buttons';
 import { ShopAddress } from '@/components/shop-address';
 import { categoryLabel } from '@/lib/categories';
+import { completeTheLook } from '@/lib/outfit';
+import { useOutfitStore } from '@/hooks/use-outfit-store';
+import { formatPrice } from '@/lib/orders';
+import { productHref } from '@/lib/links';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -41,6 +45,19 @@ export default function ProductView({ id }: { id: string | null }) {
   const relatedProducts = product
     ? allProducts.filter((p) => p.category === product.category && p.id !== product.id && p.status === 'active').slice(0, 4)
     : [];
+
+  // "Complete the look": the best match in stock for each missing piece of the outfit.
+  const lookItems = product && product.status === 'active'
+    ? completeTheLook(allProducts, [product], 1).map((row) => row.items[0]).slice(0, 4)
+    : [];
+  const wearLook = () => {
+    if (!product) return;
+    const { restore, clear, wear } = useOutfitStore.getState();
+    restore();
+    clear();
+    [product, ...lookItems].forEach((p) => wear(p));
+    router.push('/mirror');
+  };
 
   // INDECIANA items are only shown on INDECIANA's own page.
   useEffect(() => {
@@ -135,7 +152,7 @@ export default function ProductView({ id }: { id: string | null }) {
 
               <Button size="lg" variant="secondary" className="w-full text-lg h-14 mt-6" asChild>
                 <Link href={`/mirror?item=${product.id}`}>
-                  <Wand2 className="mr-2 h-6 w-6" /> Try it on — see yourself wearing it
+                  <Wand2 className="mr-2 h-6 w-6" /> Wear it — see yourself in the full outfit
                 </Link>
               </Button>
 
@@ -217,6 +234,38 @@ export default function ProductView({ id }: { id: string | null }) {
         </div>
       </div>
       
+      {lookItems.length > 0 && (
+        <Card className="mt-12">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-2xl"><Wand2 className="h-6 w-6 text-primary" /> Complete the look</CardTitle>
+            <CardDescription>Picked by AI from items in stock to go with this one.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {[product, ...lookItems].map((p, i) => (
+                <div key={p.id} className="flex items-center gap-2">
+                  {i > 0 && <span className="text-xl font-bold text-muted-foreground">+</span>}
+                  <Link href={p.id === product.id ? '#' : productHref(p)} className="block w-24 rounded-lg border bg-muted p-1 sm:w-28">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.cutout || p.image} alt={p.name} className="aspect-square w-full object-contain" />
+                    <p className="truncate px-1 text-xs font-medium">{p.name}</p>
+                    <p className="px-1 text-xs font-bold text-primary">{formatPrice(Number(p.price))}</p>
+                  </Link>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <span className="text-sm text-muted-foreground sm:mr-auto">
+                Whole look: <b className="text-foreground">{formatPrice([product, ...lookItems].reduce((sum, p) => sum + Number(p.price), 0))}</b>
+              </span>
+              <Button size="lg" onClick={wearLook}>
+                <Wand2 className="mr-2 h-5 w-5" /> Wear the whole look
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {relatedProducts.length > 0 && (
         <div className="mt-16">
           <h2 className="text-3xl font-bold text-center mb-8">Related Products</h2>

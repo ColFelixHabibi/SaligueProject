@@ -67,7 +67,7 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
           <div className="flex flex-col items-center text-center">
             <Upload className="mb-2 h-12 w-12" />
             <span>Click to upload a photo of the item</span>
-            <span className="text-sm">AI removes the background so buyers can try it on</span>
+            <span className="text-sm">AI removes the background so buyers can wear it in their outfit</span>
           </div>
         )}
       </label>

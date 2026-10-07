@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LogOut, ShoppingBag, User } from 'lucide-react';
+import { Bell, LogOut, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
+import { useNotificationStore } from '@/hooks/use-notification-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { logout } from '@/lib/auth-actions';
@@ -44,6 +45,7 @@ export default function Header() {
   const pathname = usePathname();
   const { user } = useAuth();
   const { cartItems } = useCart();
+  const unread = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const cartCount = cartItems.reduce((n, i) => n + i.quantity, 0);
@@ -77,11 +79,21 @@ export default function Header() {
             href="/indeciana"
             className={cn(
               'mr-1 rounded-full px-3 py-1.5 font-serif text-[11px] tracking-[0.2em] transition-colors sm:text-xs',
-              pathname.includes('/indeciana') ? 'bg-primary text-primary-foreground' : 'bg-neutral-950 text-white hover:bg-neutral-800'
+              pathname.includes('/indeciana') ? 'bg-primary text-primary-foreground' : 'border border-foreground bg-background text-foreground hover:bg-muted'
             )}
           >
             INDECIANA
           </Link>
+          {user && (
+            <Button variant="ghost" size="icon" className="relative" asChild>
+              <Link href={pathname.startsWith('/dashboard') ? '/dashboard/notifications' : '/notifications'} aria-label={`Notifications, ${unread} unread`}>
+                <Bell className="h-5 w-5" />
+                {unread > 0 && (
+                  <Badge className="absolute -right-0.5 -top-0.5 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">{unread > 9 ? '9+' : unread}</Badge>
+                )}
+              </Link>
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />

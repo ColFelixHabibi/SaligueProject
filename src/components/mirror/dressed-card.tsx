@@ -5,7 +5,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Download, Loader2, MapPin, Sparkles, Store } from 'lucide-react';
+import { Check, Download, Loader2, MapPin, Shirt, Sparkles, Store } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,41 +16,14 @@ import type { Product } from '@/lib/types';
 import type { Point } from '@/lib/ai/pose';
 import { categoryLabel, isCategory } from '@/lib/categories';
 import { dressPerson } from '@/lib/ai/dress';
-import { context2d, createCanvas, loadImage, trimTransparent } from '@/lib/ai/canvas';
-import { removeBackground } from '@/lib/ai/segment';
+import type { Parsing } from '@/lib/ai/parse';
+import { enqueue, itemCutout } from '@/lib/ai/cutout';
 import { REALISTIC_CATEGORIES, realisticTryOn } from '@/lib/ai/studio';
 import { productHref } from '@/lib/links';
 
-// Dressing is CPU heavy; run one at a time so the page stays responsive.
-let queue: Promise<unknown> = Promise.resolve();
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const run = queue.then(task, task);
-  queue = run.catch(() => {});
-  return run;
-}
-
-const itemCutouts = new Map<string, Promise<HTMLCanvasElement>>();
-
-function toCanvas(img: HTMLImageElement) {
-  const canvas = createCanvas(img.naturalWidth, img.naturalHeight);
-  context2d(canvas).drawImage(img, 0, 0);
-  return canvas;
-}
-
-// The item without background: stored by the seller, or computed here for older listings.
-function itemCutout(product: Product) {
-  let cutout = itemCutouts.get(product.id);
-  if (!cutout) {
-    cutout = product.cutout
-      ? loadImage(product.cutout).then(toCanvas)
-      : loadImage(product.image).then(async (img) => trimTransparent(await removeBackground(img, 'item')));
-    cutout.catch(() => itemCutouts.delete(product.id));
-    itemCutouts.set(product.id, cutout);
-  }
-  return cutout;
-}
-
 interface DressedCardProps {
+  // What the shopper is wearing in the photo, so it can be taken off before dressing.
+  parsing?: Parsing | null;
   product: Product;
   person: HTMLCanvasElement;
   landmarks: Point[] | null;
@@ -60,9 +33,12 @@ interface DressedCardProps {
   studio: boolean;
   // Called with the look image when the shopper picks this look.
   onChoose?: (image: string) => void;
+  // Adds the item to the full outfit; `worn` is true when it is already part of it.
+  onWear?: () => void;
+  worn?: boolean;
 }
 
-export function DressedCard({ product, person, landmarks, personUrl, studio, onChoose }: DressedCardProps) {
+export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn }: DressedCardProps) {
   const [dressedUrl, setDressedUrl] = useState<string | null>(null);
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState(false);
@@ -98,7 +74,7 @@ export function DressedCard({ product, person, landmarks, personUrl, studio, onC
       const item = await itemCutout(product);
       if (cancelled) return;
       const category = isCategory(product.category) ? product.category : 'top';
-      const result = dressPerson(person, landmarks, item, category);
+      const result = dressPerson(person, landmarks, item, category, parsing);
       if (cancelled) return;
       setDressedUrl(result.canvas.toDataURL('image/png'));
       setNote(result.note);
@@ -109,7 +85,7 @@ export function DressedCard({ product, person, landmarks, personUrl, studio, onC
     return () => {
       cancelled = true;
     };
-  }, [product, person, landmarks]);
+  }, [product, person, landmarks, parsing]);
 
   return (
     <Card className="overflow-hidden flex flex-col">
@@ -183,9 +159,15 @@ export function DressedCard({ product, person, landmarks, personUrl, studio, onC
             {realisticError && <p className="text-xs text-destructive">{realisticError}</p>}
           </div>
         )}
+        {onWear && (
+          <Button size="sm" variant={worn ? 'secondary' : 'default'} className="w-full" onClick={onWear} disabled={worn}>
+            {worn ? <Check className="mr-2 h-4 w-4" /> : <Shirt className="mr-2 h-4 w-4" />}
+            {worn ? 'In your outfit' : 'Wear it with my outfit'}
+          </Button>
+        )}
         <div className="mt-auto flex gap-2 pt-1">
           {onChoose ? (
-            <Button size="sm" className="flex-1" onClick={() => shownUrl && onChoose(shownUrl)} disabled={!shownUrl}>
+            <Button size="sm" variant="outline" className="flex-1" onClick={() => shownUrl && onChoose(shownUrl)} disabled={!shownUrl}>
               <MapPin className="mr-1.5 h-4 w-4" /> Choose & find seller
             </Button>
           ) : (

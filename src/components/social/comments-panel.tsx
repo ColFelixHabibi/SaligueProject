@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/auth-provider';
-import { supabase } from '@/lib/supabase';
+import { api, onServerEvent } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -30,31 +30,27 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
 
   useEffect(() => {
     let active = true;
-    const load = async () => {
-      const { data, error } = await supabase.from('product_comments').select('*')
-        .eq('product_id', productId).order('created_at', { ascending: false }).limit(50);
-      if (!active) return;
-      if (error) { setComments([]); return; }
-      setComments((data ?? []).map((row) => ({ id: row.id, uid: row.user_id, name: row.name, text: row.text, createdAt: row.created_at })));
-    };
+    const load = () =>
+      api<Comment[]>(`/products/${productId}/comments`)
+        .then((list) => active && setComments(list))
+        .catch(() => active && setComments([]));
     void load();
-    const channel = supabase.channel(`comments-${productId}-${crypto.randomUUID()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_comments', filter: `product_id=eq.${productId}` }, () => { void load(); })
-      .subscribe();
-    return () => { active = false; void supabase.removeChannel(channel); };
+    const stop = onServerEvent('comments', (data: { productId?: string }) => {
+      if (data.productId === productId) void load();
+    });
+    return () => {
+      active = false;
+      stop();
+    };
   }, [productId]);
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = text.trim();
     if (!value) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
     setSending(true);
     try {
-      const name = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Guest';
-      const { error } = await supabase.from('product_comments').insert({ product_id: productId, user_id: user.id, name: name.slice(0, 60), text: value.slice(0, 500) });
-      if (error) throw error;
+      await api(`/products/${productId}/comments`, { body: { text: value } });
       setText('');
     } catch (error) {
       toast({ variant: 'destructive', title: 'Comment not sent', description: friendlyError(error) });
@@ -64,8 +60,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
   };
 
   const remove = async (id: string) => {
-    const { error } = await supabase.from('product_comments').delete().eq('id', id);
-    if (error) toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) });
+    await api(`/comments/${id}`, { method: 'DELETE' }).catch((error) => toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) }));
   };
 
   return (
