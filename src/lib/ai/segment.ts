@@ -29,6 +29,13 @@ function toTensorData(
   return data;
 }
 
+let running: Promise<unknown> = Promise.resolve();
+function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const next = running.then(task, task);
+  running = next.catch(() => {});
+  return next;
+}
+
 // Runs the matting/segmentation network and returns a mask in [0, 1] with its size.
 async function predictMask(source: ImageSource, kind: CutoutKind, onProgress?: Progress) {
   const ort = await loadOrt();
@@ -53,7 +60,8 @@ async function predictMask(source: ImageSource, kind: CutoutKind, onProgress?: P
   }
 
   const input = new ort.Tensor('float32', toTensorData(source, width, height, mean, std), [1, 3, height, width]);
-  const outputs = await session.run({ [session.inputNames[0]]: input });
+  // A model can only run one image at a time; queue overlapping requests.
+  const outputs = await runExclusive(() => session.run({ [session.inputNames[0]]: input }));
   const outputName = session.outputNames.includes('1959') ? '1959' : session.outputNames[0];
   const raw = outputs[outputName].data as Float32Array;
 

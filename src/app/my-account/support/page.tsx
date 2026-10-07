@@ -24,12 +24,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Phone } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 
 export default function SupportPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, authUid } = useAuth();
   const [subject, setSubject] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [contact, setContact] = React.useState('');
@@ -49,8 +48,8 @@ export default function SupportPage() {
     setIsSubmitting(true);
     
     try {
-      await addDoc(collection(db, 'supportRequests'), {
-        userId: user?.uid ?? null,
+      const { error } = await supabase.from('support_requests').insert({
+        user_id: authUid,
         name: user?.displayName ?? '',
         email: user?.email ?? '',
         contact,
@@ -58,8 +57,8 @@ export default function SupportPage() {
         message,
         source: 'buyer-account',
         status: 'open',
-        createdAt: serverTimestamp(),
       });
+      if (error) throw error;
       toast({
         title: 'Request Sent!',
         description: 'Our support team has received your request and will get back to you shortly.',

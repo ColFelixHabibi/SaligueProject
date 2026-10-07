@@ -18,6 +18,8 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
+import { SoundField, type ChosenSound } from '@/components/sound-field';
+import { makeClip, saveProductSound } from '@/lib/audio';
 import Link from 'next/link';
 import { MapPin } from 'lucide-react';
 import { isShopComplete } from '@/lib/types';
@@ -29,6 +31,7 @@ export default function SellPage() {
     const [photo, setPhoto] = useState<PreparedItemPhoto | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
+    const [sound, setSound] = useState<ChosenSound | null>(null);
     const initialFormValues = {
         title: '',
         description: '',
@@ -69,6 +72,7 @@ export default function SellPage() {
         setFormValues(initialFormValues);
         setPhoto(null);
         setCategory('');
+        setSound(null);
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -127,7 +131,10 @@ export default function SellPage() {
                 createdAt: new Date().toISOString(),
             };
 
-            await addProduct(newProduct);
+            const clip = sound ? await makeClip(sound.buffer, sound.start) : null;
+            if (clip && sound) newProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
+            const productId = await addProduct(newProduct);
+            if (clip && sound && user) await saveProductSound(productId, user.uid, sound.name, clip);
 
             toast({
                 title: 'Product Listed!',
@@ -168,6 +175,8 @@ export default function SellPage() {
               <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
 
               <CategoryField value={category} onChange={setCategory} />
+
+              <SoundField value={sound} onChange={setSound} />
 
               <div className="space-y-2">
                   <Label htmlFor="title" className="text-lg font-medium">Product Title</Label>

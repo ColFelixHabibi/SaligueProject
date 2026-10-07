@@ -172,20 +172,6 @@ function SearchContent() {
         </CardContent>
       </Card>
 
-      {!results && products.some((p) => p.official && p.status === 'active') && (
-        <Link
-          href="/indeciana"
-          className="group mb-10 flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-neutral-950 p-6 text-white md:p-10"
-        >
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-primary">Official collection</p>
-            <p className="mt-2 font-serif text-3xl tracking-[0.2em] md:text-5xl">INDECIANA</p>
-            <p className="mt-2 text-sm text-white/70">Discover the house collection</p>
-          </div>
-          <ArrowRight className="h-8 w-8 shrink-0 transition-transform group-hover:translate-x-1" />
-        </Link>
-      )}
-
       <h2 className="mb-6 text-2xl font-bold">{results ? 'Search results' : 'All items'}</h2>
       {!isInitialized ? (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">

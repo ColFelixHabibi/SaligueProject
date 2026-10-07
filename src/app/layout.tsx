@@ -4,6 +4,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/header';
 import Footer from '@/components/layout/footer';
+import Sidebar from '@/components/layout/sidebar';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
@@ -51,7 +52,8 @@ export default function RootLayout({
         <AuthProvider>
           <div className="relative flex min-h-screen flex-col">
             <Header />
-            <main className="flex-1 pb-16 md:pb-0">{children}</main>
+            <Sidebar />
+            <main className="flex-1 pb-16 md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
             <Footer />
           </div>
           <Toaster />

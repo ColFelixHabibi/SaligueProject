@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { signOut } from 'firebase/auth';
 import { LogOut, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -23,15 +22,15 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { auth } from '@/lib/firebase';
+import { logout } from '@/lib/auth-actions';
 import { cn } from '@/lib/utils';
 import { NAV, isActive } from './nav';
 
-export function Logo({ light }: { light?: boolean }) {
+export function Logo({ light, compact }: { light?: boolean; compact?: boolean }) {
   return (
     <span className="flex items-center gap-2">
       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-lg font-extrabold text-primary-foreground">S</span>
-      <span className="flex flex-col leading-none">
+      <span className={cn('flex flex-col leading-none', compact && 'hidden')}>
         <span className={cn('text-xl font-extrabold tracking-tight', light ? 'text-white' : 'text-foreground')}>Saligue</span>
         <span className={cn('text-[9px] font-semibold uppercase tracking-[0.25em]', light ? 'text-white/70' : 'text-primary')}>by INDECIANA</span>
       </span>
@@ -56,7 +55,7 @@ export default function Header() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await logout();
       toast({ title: 'Logged out' });
       router.push('/');
     } catch (error) {
@@ -65,27 +64,24 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    // Phones only; tablets and computers use the side menu (sidebar.tsx), like TikTok.
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4">
         {/* Brand only: "For You" is the way home, so the menu never repeats a link. */}
         <Logo />
 
-        <nav className="hidden items-center gap-1 md:flex">
-          {NAV.map(({ href, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'rounded-full px-4 py-2 text-sm font-semibold transition-colors',
-                isActive(href, pathname) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
 
         <div className="flex items-center gap-1">
+          {/* INDECIANA's own boutique: its single entry point in the app. */}
+          <Link
+            href="/indeciana"
+            className={cn(
+              'mr-1 rounded-full px-3 py-1.5 font-serif text-[11px] tracking-[0.2em] transition-colors sm:text-xs',
+              pathname.includes('/indeciana') ? 'bg-primary text-primary-foreground' : 'bg-neutral-950 text-white hover:bg-neutral-800'
+            )}
+          >
+            INDECIANA
+          </Link>
           <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />

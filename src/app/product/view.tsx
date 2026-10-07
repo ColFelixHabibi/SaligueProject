@@ -103,7 +103,7 @@ export default function ProductView({ id }: { id: string | null }) {
               alt={product.name}
               width={600}
               height={800}
-              className="object-cover w-full aspect-[3/4]"
+              className="aspect-[3/4] w-full bg-muted object-contain p-4"
               data-ai-hint={aiHint}
             />
           </Card>

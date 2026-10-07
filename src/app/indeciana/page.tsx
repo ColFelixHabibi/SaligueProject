@@ -10,7 +10,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ShopAddress } from '@/components/shop-address';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
-import { VideoMaker } from '@/components/social/video-maker';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
@@ -41,7 +40,6 @@ function IndecianaStore() {
   const { addToCart } = useCart();
   const [filter, setFilter] = useState('');
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [videoOpen, setVideoOpen] = useState(false);
 
   const collection = useMemo(() => products.filter((p) => p.official && p.status === 'active'), [products]);
   const categories = useMemo(() => [...new Set(collection.map((p) => p.category))], [collection]);
@@ -84,11 +82,11 @@ function IndecianaStore() {
               <div>
                 <div className="overflow-hidden bg-white">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={selected.image} alt={selected.name} className="aspect-[4/5] w-full object-cover" />
+                  <img src={selected.image} alt={selected.name} className="aspect-[4/5] w-full object-contain p-4" />
                 </div>
                 <div className="mt-2 rounded-md bg-white text-foreground">
                   <div className="px-2 py-1">
-                    <ActionRail product={selected} variant="bar" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} onMakeVideo={() => setVideoOpen(true)} />
+                    <ActionRail product={selected} variant="bar" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
                   </div>
                   {commentsOpen && <CommentsPanel productId={selected.id} sellerId={selected.sellerId} className="border-t p-3" />}
                 </div>
@@ -150,7 +148,7 @@ function IndecianaStore() {
                   <button key={p.id} type="button" onClick={() => select(p.id)} className="group text-left">
                     <div className={cn('overflow-hidden bg-white', p.id === selected.id && 'ring-2 ring-primary ring-offset-4 ring-offset-neutral-950')}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.image} alt={p.name} loading="lazy" className="aspect-[4/5] w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                      <img src={p.image} alt={p.name} loading="lazy" className="aspect-[4/5] w-full object-contain p-3 transition-transform duration-500 group-hover:scale-105" />
                     </div>
                     <p className="mt-3 truncate text-sm tracking-wide">{p.name}</p>
                     <p className="text-sm text-white/60">{formatPrice(Number(p.price))}</p>
@@ -169,15 +167,6 @@ function IndecianaStore() {
         </section>
       </div>
 
-      {selected && (
-        <VideoMaker
-          open={videoOpen}
-          onOpenChange={setVideoOpen}
-          imageUrl={selected.cutout || selected.image}
-          title={selected.name}
-          subtitle={`${formatPrice(Number(selected.price))} · INDECIANA`}
-        />
-      )}
     </div>
   );
 }

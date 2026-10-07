@@ -20,7 +20,6 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { PAYMENT_METHODS, formatPrice, placeOrders } from '@/lib/orders';
-import { auth } from '@/lib/firebase';
 import type { DeliveryAddress, PaymentMethod } from '@/lib/types';
 
 const DELIVERY_KEY = 'saligue-delivery-address';
@@ -38,7 +37,7 @@ const FIELDS: { id: keyof DeliveryAddress; label: string; placeholder: string; r
 export default function CheckoutPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, authUid } = useAuth();
   const { cartItems, clearCart } = useCart();
   const [delivery, setDelivery] = useState<DeliveryAddress>({ fullName: '', phone: '', country: 'Rwanda', city: '', street: '' });
   const [payment, setPayment] = useState<PaymentMethod>('mobile_money');
@@ -72,7 +71,7 @@ export default function CheckoutPage() {
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     // Guests can order too: they have a silent guest account, and their orders show under "My orders".
-    if (!auth.currentUser) {
+    if (!authUid) {
       toast({ variant: 'destructive', title: 'One moment', description: 'Still connecting. Please try again.' });
       return;
     }

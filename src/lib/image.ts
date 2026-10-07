@@ -5,8 +5,7 @@ import { removeBackground } from './ai/segment';
 import { embedImage } from './ai/embed';
 import type { Progress } from './ai/models';
 
-// Product documents hold their photos inline and Firestore caps a document at 1 MiB,
-// so the photo, cut-out and embedding together must stay well under that.
+// Keep inline photos small enough for fast listing uploads and catalog reads.
 const PHOTO_MAX_LENGTH = 450_000;
 const CUTOUT_MAX_LENGTH = 350_000;
 

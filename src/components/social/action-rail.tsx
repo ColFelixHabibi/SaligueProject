@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bookmark, Clapperboard, Heart, MessageCircle, Share2, Wand2 } from 'lucide-react';
+import { Bookmark, Heart, MessageCircle, Share2, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { toggleLike, useLiked } from '@/hooks/use-likes';
 import { useWishlist } from '@/hooks/use-wishlist';
@@ -20,16 +20,15 @@ interface ActionRailProps {
   product: Product;
   commentsOpen: boolean;
   onToggleComments: () => void;
-  onMakeVideo?: () => void;
   // "overlay": white icons in a column over an image (feed); "bar": a compact row below an image (cards).
   variant: 'overlay' | 'bar';
 }
 
 /**
- * Like (public count) · Save (private) · Comments · Share · Try on · Video.
+ * Like (public count) · Comments · Save (private) · Try on · Share.
  * Works for guests too — no login needed.
  */
-export function ActionRail({ product, commentsOpen, onToggleComments, onMakeVideo, variant }: ActionRailProps) {
+export function ActionRail({ product, commentsOpen, onToggleComments, variant }: ActionRailProps) {
   const { toast } = useToast();
   const liked = useLiked(product.id);
   const { wishlistItems, addToWishlist, removeFromWishlist } = useWishlist();
@@ -83,12 +82,6 @@ export function ActionRail({ product, commentsOpen, onToggleComments, onMakeVide
         <Wand2 className={icon} />
         <span>Try on</span>
       </Link>
-      {onMakeVideo && (
-        <button type="button" className={button} onClick={onMakeVideo} aria-label="Make a video">
-          <Clapperboard className={icon} />
-          <span>Video</span>
-        </button>
-      )}
       <button type="button" className={button} onClick={share} aria-label="Share">
         <Share2 className={icon} />
         <span>Share</span>

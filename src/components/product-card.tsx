@@ -7,7 +7,6 @@ import { BadgeCheck, MapPin } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
-import { VideoMaker } from '@/components/social/video-maker';
 import { categoryLabel } from '@/lib/categories';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
@@ -22,14 +21,13 @@ interface ProductCardProps {
 /** Product tile for grids: photo, social actions, comments that open below the photo, and the essentials. */
 export default function ProductCard({ product, className }: ProductCardProps) {
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [videoOpen, setVideoOpen] = useState(false);
   const href = productHref(product);
 
   return (
     <Card className={cn('group flex w-full flex-col overflow-hidden', className)}>
       <Link href={href} className="relative block aspect-[4/5] overflow-hidden bg-muted">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={product.image} alt={product.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        <img src={product.image} alt={product.name} loading="lazy" className="h-full w-full object-contain p-3 transition-transform duration-500 group-hover:scale-105" />
         {product.official && (
           <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-foreground/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-background">
             <BadgeCheck className="h-3 w-3" /> INDECIANA
@@ -43,7 +41,6 @@ export default function ProductCard({ product, className }: ProductCardProps) {
           variant="bar"
           commentsOpen={commentsOpen}
           onToggleComments={() => setCommentsOpen((o) => !o)}
-          onMakeVideo={() => setVideoOpen(true)}
         />
       </div>
 
@@ -61,13 +58,6 @@ export default function ProductCard({ product, className }: ProductCardProps) {
         </p>
       </div>
 
-      <VideoMaker
-        open={videoOpen}
-        onOpenChange={setVideoOpen}
-        imageUrl={product.cutout || product.image}
-        title={product.name}
-        subtitle={[formatPrice(Number(product.price)), product.shop?.name].filter(Boolean).join(' · ')}
-      />
     </Card>
   );
 }

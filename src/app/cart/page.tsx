@@ -42,7 +42,7 @@ export default function CartPage() {
                         alt={item.name}
                         width={80}
                         height={100}
-                        className="rounded-md object-cover"
+                        className="h-[100px] w-20 rounded-md bg-muted object-contain p-1"
                       />
                       <div className="flex-1">
                         <Link href={productHref(item)} className="font-semibold hover:underline">

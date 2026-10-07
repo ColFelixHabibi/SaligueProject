@@ -5,9 +5,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clapperboard, Download, Loader2, Sparkles, Store } from 'lucide-react';
-import { VideoMaker } from '@/components/social/video-maker';
-import { formatPrice } from '@/lib/orders';
+import { Download, Loader2, MapPin, Sparkles, Store } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -60,9 +58,11 @@ interface DressedCardProps {
   personUrl: string;
   // True when Saligue AI Studio is reachable.
   studio: boolean;
+  // Called with the look image when the shopper picks this look.
+  onChoose?: (image: string) => void;
 }
 
-export function DressedCard({ product, person, landmarks, personUrl, studio }: DressedCardProps) {
+export function DressedCard({ product, person, landmarks, personUrl, studio, onChoose }: DressedCardProps) {
   const [dressedUrl, setDressedUrl] = useState<string | null>(null);
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState(false);
@@ -86,7 +86,6 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
     }
   };
   const shownUrl = realisticUrl ?? dressedUrl;
-  const [videoOpen, setVideoOpen] = useState(false);
   const [note, setNote] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -185,12 +184,13 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
           </div>
         )}
         <div className="mt-auto flex gap-2 pt-1">
-          <Button variant="secondary" size="sm" className="flex-1" asChild>
-            <Link href={productHref(product)}>View item</Link>
-          </Button>
-          {shownUrl && (
-            <Button variant="outline" size="sm" onClick={() => setVideoOpen(true)} aria-label="Make a video">
-              <Clapperboard className="h-4 w-4" />
+          {onChoose ? (
+            <Button size="sm" className="flex-1" onClick={() => shownUrl && onChoose(shownUrl)} disabled={!shownUrl}>
+              <MapPin className="mr-1.5 h-4 w-4" /> Choose & find seller
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" className="flex-1" asChild>
+              <Link href={productHref(product)}>View item</Link>
             </Button>
           )}
           {shownUrl && (
@@ -203,15 +203,6 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
           )}
         </div>
       </CardContent>
-      {shownUrl && (
-        <VideoMaker
-          open={videoOpen}
-          onOpenChange={setVideoOpen}
-          imageUrl={shownUrl}
-          title={product.name}
-          subtitle={[formatPrice(Number(product.price)), product.shop?.name].filter(Boolean).join(' · ')}
-        />
-      )}
     </Card>
   );
 }

@@ -14,37 +14,37 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getAuth, updateProfile, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import React, { useState, useEffect } from 'react';
-import { app } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 
 export default function BuyerSettingsPage() {
-  const auth = getAuth(app);
   const { toast } = useToast();
+  const { user } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
 
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordSaving, setIsPasswordSaving] = useState(false);
 
   useEffect(() => {
-    if (auth.currentUser) {
-      setDisplayName(auth.currentUser.displayName || '');
-      setEmail(auth.currentUser.email || '');
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setEmail(user.email || '');
     }
-  }, [auth.currentUser]);
+  }, [user]);
 
   const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser) return;
+    if (!user) return;
     
     try {
-      await updateProfile(auth.currentUser, {
-        displayName: displayName,
-      });
+      const { error: authError } = await supabase.auth.updateUser({ data: { display_name: displayName } });
+      if (authError) throw authError;
+      const { error: profileError } = await supabase.from('profiles').update({ display_name: displayName }).eq('id', user.uid);
+      if (profileError) throw profileError;
       toast({
         title: 'Success',
         description: 'Your profile has been updated.',
@@ -62,7 +62,7 @@ export default function BuyerSettingsPage() {
     e.preventDefault();
     setIsPasswordSaving(true);
 
-    if (!auth.currentUser) {
+    if (!user) {
         toast({ variant: 'destructive', title: 'Error', description: 'Not logged in.' });
         setIsPasswordSaving(false);
         return;
@@ -72,27 +72,22 @@ export default function BuyerSettingsPage() {
         setIsPasswordSaving(false);
         return;
     }
-    if (!currentPassword || !newPassword) {
+    if (!newPassword) {
         toast({ variant: 'destructive', title: 'Error', description: 'Please fill all password fields.' });
         setIsPasswordSaving(false);
         return;
     }
 
     try {
-        const user = auth.currentUser;
-        if (user.email) {
-            const credential = EmailAuthProvider.credential(user.email, currentPassword);
-            await reauthenticateWithCredential(user, credential);
-            await updatePassword(user, newPassword);
+        const { error: passwordError } = await supabase.auth.updateUser({ password: newPassword });
+        if (passwordError) throw passwordError;
             
             toast({
                 title: 'Success',
                 description: 'Your password has been changed successfully.',
             });
-            setCurrentPassword('');
             setNewPassword('');
             setConfirmPassword('');
-        }
     } catch (error: any) {
         toast({
             variant: 'destructive',
@@ -135,21 +130,9 @@ export default function BuyerSettingsPage() {
         <form onSubmit={handlePasswordChange}>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
-            <CardDescription>
-              Update your password here. Please enter your current password to make changes.
-            </CardDescription>
+            <CardDescription>Set or update the password for this account.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword">Current Password</Label>
-                <Input 
-                  id="currentPassword" 
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
                 <Input 

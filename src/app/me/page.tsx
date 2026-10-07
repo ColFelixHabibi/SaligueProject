@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { signOut } from 'firebase/auth';
 import { Bookmark, ChevronRight, LayoutDashboard, LogOut, MapPin, Package, Settings, ShoppingBag, Store } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,7 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
 import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { auth } from '@/lib/firebase';
+import { logout } from '@/lib/auth-actions';
 
 function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
   const body = (
@@ -87,7 +86,7 @@ export default function MePage() {
             icon={LogOut}
             label="Log out"
             onClick={async () => {
-              await signOut(auth);
+              await logout();
               router.push('/');
             }}
           />

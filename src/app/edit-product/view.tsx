@@ -17,6 +17,8 @@ import { useRouter } from 'next/navigation';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
+import { SoundField, type ChosenSound } from '@/components/sound-field';
+import { makeClip, saveProductSound } from '@/lib/audio';
 
 
 export default function EditProductView({ id }: { id: string | null }) {
@@ -27,6 +29,8 @@ export default function EditProductView({ id }: { id: string | null }) {
     const [photo, setPhoto] = useState<Partial<PreparedItemPhoto> | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
+    // A new sound replaces the current one; leaving it empty keeps the current sound.
+    const [sound, setSound] = useState<ChosenSound | null>(null);
     const initialFormValues = {
         name: '',
         description: '',
@@ -114,6 +118,13 @@ export default function EditProductView({ id }: { id: string | null }) {
                 createdAt: product.createdAt || new Date().toISOString(),
             };
 
+            if (sound) {
+                const clip = await makeClip(sound.buffer, sound.start);
+                updatedProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
+                await saveProductSound(product.id, user.uid, sound.name, clip);
+            } else if (product.sound) {
+                updatedProduct.sound = product.sound;
+            }
             await updateProduct(product.id, updatedProduct);
 
             toast({
@@ -147,6 +158,9 @@ export default function EditProductView({ id }: { id: string | null }) {
               <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
 
               <CategoryField value={category} onChange={setCategory} />
+
+              {product?.sound && !sound && <p className="text-sm text-muted-foreground">Current sound: ♪ {product.sound.name}. Choose another below to replace it.</p>}
+              <SoundField value={sound} onChange={setSound} />
 
               <div className="space-y-2">
                   <Label htmlFor="name" className="text-lg font-medium">Product Title</Label>

@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { AtSign, KeyRound, User, Store } from 'lucide-react';
+import { AtSign, User, Store } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { registerWithEmail } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
@@ -36,7 +36,6 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
     const { role, setRole } = useUserRoleStore();
     const id = useId();
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
     const [name, setName] = useState('');
     const [busy, setBusy] = useState(false);
 
@@ -44,8 +43,11 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
         e.preventDefault();
         setBusy(true);
         try {
-            await registerWithEmail(name, email, password);
+            const result = await registerWithEmail(name, email);
             onOpenChange(false);
+            if (result?.confirmationRequired) {
+                toast({ title: 'Check your email', description: 'Confirm your email, then set your password in account settings.' });
+            }
         } catch (error: any) {
             toast({
                 variant: 'destructive',
@@ -95,13 +97,7 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                             </div>
                         </div>
 
-                        <div className="space-y-2">
-                            <Label htmlFor={`${id}-password-register`} className="text-lg font-medium">Password</Label>
-                            <div className="relative">
-                                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                                <Input id={`${id}-password-register`} type="password" placeholder="••••••••" className="pl-10 h-12 text-base" required value={password} onChange={(e) => setPassword(e.target.value)} />
-                            </div>
-                        </div>
+                        <p className="text-sm text-muted-foreground">Confirm your email, then choose a password in account settings.</p>
 
                         <div className="flex items-center justify-between rounded-lg border p-4">
                             <div className="flex items-center space-x-3">
@@ -117,7 +113,7 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                             />
                         </div>
 
-                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Creating account…' : 'Create Account'}</Button>
+                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Sending confirmation…' : 'Continue with Email'}</Button>
                     </form>
                     <GoogleButton label="Sign up with Google" onDone={() => onOpenChange(false)} />
                     </div>

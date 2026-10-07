@@ -4,7 +4,6 @@
 import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
-import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { Loader2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { auth, db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 import { isShopComplete, type Shop } from '@/lib/types';
 
 const EMPTY: Shop = { name: '', phone: '', whatsapp: '', country: 'Rwanda', city: '', district: '', street: '', landmark: '', mapUrl: '', hours: '' };
@@ -30,7 +29,6 @@ const FIELDS: { id: keyof Shop; label: string; placeholder: string; required?: b
   { id: 'hours', label: 'Opening hours', placeholder: 'Mon–Sat 8:00–20:00', wide: true },
 ];
 
-// Firestore rejects undefined; store empty optional fields as absent.
 function compact(shop: Shop): Shop {
   return Object.fromEntries(Object.entries(shop).map(([k, v]) => [k, String(v ?? '').trim()]).filter(([, v]) => v)) as Shop;
 }
@@ -48,8 +46,8 @@ export function ShopProfileForm() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const cleaned = compact(shop);
     if (!isShopComplete(cleaned)) {
       toast({ variant: 'destructive', title: 'Missing details', description: 'Shop name, phone, country, city and street are required.' });
@@ -57,14 +55,15 @@ export function ShopProfileForm() {
     }
     setSaving(true);
     try {
-      await setDoc(doc(db, 'users', uid), { shop: cleaned }, { merge: true });
+      const { error: profileError } = await supabase.from('profiles').update({ shop: cleaned }).eq('id', user.id);
+      if (profileError) throw profileError;
       // Keep the address on already-listed items up to date.
-      const mine = await getDocs(query(collection(db, 'products'), where('sellerId', '==', uid)));
-      const batch = writeBatch(db);
-      mine.docs.forEach((d) => batch.update(d.ref, { shop: cleaned }));
-      if (!mine.empty) await batch.commit();
+      const { data: mine, error: productsError } = await supabase.from('products')
+        .update({ shop: cleaned }).eq('seller_id', user.id).select('id');
+      if (productsError) throw productsError;
       useUserRoleStore.setState({ shop: cleaned });
-      toast({ title: 'Shop saved', description: `Your address is shown on ${mine.size} item${mine.size === 1 ? '' : 's'}.` });
+      const count = mine?.length ?? 0;
+      toast({ title: 'Shop saved', description: `Your address is shown on ${count} item${count === 1 ? '' : 's'}.` });
     } catch (error: any) {
       console.error('Failed to save shop:', error);
       toast({ variant: 'destructive', title: 'Could not save', description: friendlyError(error) });

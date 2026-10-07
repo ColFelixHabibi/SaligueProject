@@ -24,7 +24,7 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const payment = PAYMENT_METHODS.find((m) => m.value === order.paymentMethod);
-  const when = order.createdAt ? new Date(order.createdAt.seconds * 1000).toLocaleString() : 'Just now';
+  const when = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Just now';
   const momo = order.shop?.whatsapp || order.shop?.phone;
 
   const change = async (changes: Parameters<typeof updateOrder>[1]) => {

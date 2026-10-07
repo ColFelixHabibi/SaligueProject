@@ -1,11 +1,10 @@
 'use client';
 
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 import { context2d, createCanvas, fitWithin, loadImage } from './canvas';
 
 // Saligue AI Studio: Saligue's own GPU server (ai-server/) running Leffa and SDXL Inpainting.
-// Its address comes from a ?ai= link, this device's saved setting, or config/ai in Firestore (set by INDECIANA).
+// Its address comes from a ?ai= link, this device's saved setting, or the public app_config table.
 
 const STORAGE_KEY = 'saligue-ai-studio-url';
 
@@ -42,8 +41,8 @@ async function findStudioUrl(): Promise<string | null> {
     // Storage unavailable.
   }
   try {
-    const config = await getDoc(doc(db, 'config', 'ai'));
-    return clean(config.data()?.studioUrl);
+    const { data } = await supabase.from('app_config').select('value').eq('key', 'ai').maybeSingle();
+    return clean(data?.value?.studioUrl);
   } catch {
     return null;
   }

@@ -28,9 +28,11 @@ export type Product = {
   official?: boolean;
   // Number of people who liked the item (see use-likes.ts).
   likeCount?: number;
+  // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
+  sound?: { name: string; duration: number };
 };
 
-export type Comment = { id: string; uid: string; name: string; text: string; createdAt?: { seconds: number } | null };
+export type Comment = { id: string; uid: string; name: string; text: string; createdAt?: string | null };
 
 // A seller's shop: shown with every item so buyers know exactly where the shop is.
 export type Shop = {
@@ -88,5 +90,5 @@ export type Order = {
   paymentMethod: PaymentMethod;
   paymentStatus: 'unpaid' | 'paid';
   status: OrderStatus;
-  createdAt?: { seconds: number } | null;
+  createdAt?: string | null;
 };

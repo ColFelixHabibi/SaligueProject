@@ -12,18 +12,12 @@ concurrency:
   group: apps
   cancel-in-progress: true
 
-env:
-  # Firebase web config is public by design; access is controlled by firestore.rules.
-  NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyCpVDhsHXKU14IEV_ppYc2ltvysHV9Ulh8
-  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: studio-7983619446-3b874.firebaseapp.com
-  NEXT_PUBLIC_FIREBASE_PROJECT_ID: studio-7983619446-3b874
-  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: studio-7983619446-3b874.firebasestorage.app
-  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "441434718560"
-  NEXT_PUBLIC_FIREBASE_APP_ID: 1:441434718560:web:409478362aa5854164de05
-
 jobs:
   android:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,6 +29,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
+      - name: Check Supabase configuration
+        run: test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
       # Static site with the AI models bundled, copied into the native projects.
       - run: npm run build:app
       - name: Build test APK
@@ -59,6 +55,9 @@ jobs:
 
   ios:
     runs-on: macos-15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,6 +65,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Check Supabase configuration
+        run: test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
       - run: npm run build:app
       # Proves the iOS app compiles. Installing on iPhones needs an Apple Developer account for signing.
       - name: Build for iOS Simulator

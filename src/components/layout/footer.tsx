@@ -30,13 +30,6 @@ export default function Footer() {
         </div>
       </nav>
 
-      {/* Computers: a quiet footer; navigation lives in the top bar. */}
-      <footer className="hidden border-t bg-muted/40 md:block">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-6 text-sm text-muted-foreground">
-          <span>© {new Date().getFullYear()} Saligue by INDECIANA. All rights reserved.</span>
-          <span>AI runs on your device — your photos stay with you.</span>
-        </div>
-      </footer>
     </>
   );
 }

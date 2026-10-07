@@ -253,7 +253,7 @@ export default function ProductsPage() {
                       <TableCell className="hidden sm:table-cell">
                         <Image
                           alt={product.name}
-                          className="aspect-square rounded-md object-cover"
+                          className="aspect-square rounded-md bg-muted object-contain p-1"
                           height="64"
                           src={product.image}
                           width="64"

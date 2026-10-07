@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { supabase } from './supabase';
 import type { DeliveryAddress, Order, OrderStatus, PaymentMethod, Product } from './types';
 
 export const PAYMENT_METHODS: { value: PaymentMethod; label: string; description: string }[] = [
@@ -10,94 +9,61 @@ export const PAYMENT_METHODS: { value: PaymentMethod; label: string; description
   { value: 'cash_on_delivery', label: 'Cash on delivery', description: 'Pay when the item reaches you.' },
   { value: 'pickup', label: 'Pick up at the shop', description: 'Collect and pay at the shop address.' },
 ];
-
 export const ORDER_STATUSES: { value: OrderStatus; label: string }[] = [
-  { value: 'placed', label: 'Placed' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'shipped', label: 'On the way' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'placed', label: 'Placed' }, { value: 'confirmed', label: 'Confirmed' },
+  { value: 'shipped', label: 'On the way' }, { value: 'delivered', label: 'Delivered' }, { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export const formatPrice = (amount: number) => `$${amount.toFixed(2)}`;
 export const shortOrderId = (id: string) => id.slice(0, 6).toUpperCase();
 
-/** Creates one order per shop from the cart items. Returns the new order IDs. */
-export async function placeOrders(
-  items: (Product & { quantity: number })[],
-  delivery: DeliveryAddress,
-  paymentMethod: PaymentMethod
-): Promise<string[]> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Please log in to place an order.');
-
-  const bySeller = new Map<string, (Product & { quantity: number })[]>();
-  for (const item of items) {
-    if (!item.sellerId) continue;
-    bySeller.set(item.sellerId, [...(bySeller.get(item.sellerId) ?? []), item]);
-  }
-
-  const cleanDelivery = Object.fromEntries(
-    Object.entries(delivery).map(([k, v]) => [k, String(v ?? '').trim()]).filter(([, v]) => v)
-  ) as DeliveryAddress;
-
-  const batch = writeBatch(db);
-  const ids: string[] = [];
-  bySeller.forEach((sellerItems, sellerId) => {
-    const ref = doc(collection(db, 'orders'));
-    ids.push(ref.id);
-    const lines = sellerItems.map((i) => ({ productId: i.id, name: i.name, price: Number(i.price), quantity: i.quantity }));
-    batch.set(ref, {
-      buyerId: user.uid,
-      buyerName: user.displayName || delivery.fullName,
-      buyerEmail: user.email || '',
-      sellerId,
-      shop: sellerItems[0].shop ?? null,
-      items: lines,
-      total: lines.reduce((sum: number, l) => sum + l.price * l.quantity, 0),
-      delivery: cleanDelivery,
-      paymentMethod,
-      paymentStatus: 'unpaid',
-      status: 'placed',
-      createdAt: serverTimestamp(),
-    });
+export async function placeOrders(items: (Product & { quantity: number })[], delivery: DeliveryAddress, paymentMethod: PaymentMethod): Promise<string[]> {
+  const cleanDelivery = Object.fromEntries(Object.entries(delivery)
+    .map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value));
+  const { data, error } = await supabase.rpc('place_orders', {
+    p_items: items.map((item) => ({ productId: item.id, quantity: item.quantity })),
+    p_delivery: cleanDelivery,
+    p_payment_method: paymentMethod,
   });
-  await batch.commit();
-  return ids;
+  if (error) throw error;
+  return data ?? [];
 }
 
 export function updateOrder(id: string, changes: Partial<Pick<Order, 'status' | 'paymentStatus'>>) {
-  return updateDoc(doc(db, 'orders', id), changes);
+  const update = {
+    ...(changes.status ? { status: changes.status } : {}),
+    ...(changes.paymentStatus ? { payment_status: changes.paymentStatus } : {}),
+  };
+  return supabase.from('orders').update(update).eq('id', id).then(({ error }) => { if (error) throw error; });
 }
 
-/** Live list of the signed-in user's orders, as buyer or as seller, newest first. */
 export function useOrders(as: 'buyer' | 'seller') {
   const [orders, setOrders] = useState<Order[] | null>(null);
-  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
-
-  useEffect(() => auth.onAuthStateChanged((u) => setUid(u?.uid ?? null)), []);
-
   useEffect(() => {
-    if (!uid) {
-      setOrders([]);
-      return;
-    }
-    const q = query(collection(db, 'orders'), where(as === 'buyer' ? 'buyerId' : 'sellerId', '==', uid));
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        const list = snapshot.docs.map((d) => ({ ...(d.data() as Omit<Order, 'id'>), id: d.id }));
-        // Orders just placed have no server time yet; treat them as newest.
-        const time = (o: Order) => o.createdAt?.seconds ?? Date.now() / 1000;
-        list.sort((a, b) => time(b) - time(a));
-        setOrders(list);
-      },
-      (error) => {
-        console.error('Failed to load orders:', error);
-        setOrders([]);
-      }
-    );
-  }, [as, uid]);
-
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const load = async (uid: string) => {
+      const field = as === 'buyer' ? 'buyer_id' : 'seller_id';
+      const { data, error } = await supabase.from('orders').select('*').eq(field, uid).order('created_at', { ascending: false });
+      if (!active) return;
+      if (error) { console.error('Failed to load orders:', error); setOrders([]); return; }
+      setOrders((data ?? []).map((row) => ({
+        id: row.id, buyerId: row.buyer_id, buyerName: row.buyer_name, buyerEmail: row.buyer_email,
+        sellerId: row.seller_id, shop: row.shop, items: row.items, total: Number(row.total),
+        delivery: row.delivery, paymentMethod: row.payment_method, paymentStatus: row.payment_status,
+        status: row.status, createdAt: row.created_at,
+      })) as Order[]);
+    };
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!active) return;
+      if (!user) { setOrders([]); return; }
+      void load(user.id);
+      const field = as === 'buyer' ? 'buyer_id' : 'seller_id';
+      channel = supabase.channel(`orders-${as}-${user.id}-${crypto.randomUUID()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `${field}=eq.${user.id}` }, () => { void load(user.id); })
+        .subscribe();
+    });
+    return () => { active = false; if (channel) void supabase.removeChannel(channel); };
+  }, [as]);
   return orders;
 }

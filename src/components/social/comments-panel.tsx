@@ -1,56 +1,60 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
-import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import { Loader2, Send, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { auth, db } from '@/lib/firebase';
+import { useAuth } from '@/components/auth/auth-provider';
+import { supabase } from '@/lib/supabase';
 import { friendlyError } from '@/lib/errors';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-function timeAgo(seconds?: number) {
-  if (!seconds) return 'now';
-  const diff = Date.now() / 1000 - seconds;
-  if (diff < 60) return 'now';
+function timeAgo(value?: string | null) {
+  if (!value) return 'now';
+  const diff = (Date.now() - new Date(value).getTime()) / 1000;
+  if (!Number.isFinite(diff) || diff < 60) return 'now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
   return `${Math.floor(diff / 86400)}d`;
 }
 
-/** Live comments for a product, shown below its image. Anyone can comment, no login needed. */
 export function CommentsPanel({ productId, sellerId, className }: { productId: string; sellerId?: string; className?: string }) {
   const { toast } = useToast();
+  const { authUid } = useAuth();
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const uid = auth.currentUser?.uid;
 
   useEffect(() => {
-    const q = query(collection(db, 'products', productId, 'comments'), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(
-      q,
-      (snapshot) => setComments(snapshot.docs.map((d) => ({ ...(d.data() as Omit<Comment, 'id'>), id: d.id }))),
-      () => setComments([])
-    );
+    let active = true;
+    const load = async () => {
+      const { data, error } = await supabase.from('product_comments').select('*')
+        .eq('product_id', productId).order('created_at', { ascending: false }).limit(50);
+      if (!active) return;
+      if (error) { setComments([]); return; }
+      setComments((data ?? []).map((row) => ({ id: row.id, uid: row.user_id, name: row.name, text: row.text, createdAt: row.created_at })));
+    };
+    void load();
+    const channel = supabase.channel(`comments-${productId}-${crypto.randomUUID()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_comments', filter: `product_id=eq.${productId}` }, () => { void load(); })
+      .subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, [productId]);
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user = auth.currentUser;
-    if (!text.trim() || !user) return;
+    const value = text.trim();
+    if (!value) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     setSending(true);
     try {
-      await addDoc(collection(db, 'products', productId, 'comments'), {
-        uid: user.uid,
-        name: (user.isAnonymous ? 'Guest' : user.displayName || user.email?.split('@')[0] || 'Saligue user').slice(0, 60),
-        text: text.trim().slice(0, 500),
-        createdAt: serverTimestamp(),
-      });
+      const name = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Guest';
+      const { error } = await supabase.from('product_comments').insert({ product_id: productId, user_id: user.id, name: name.slice(0, 60), text: value.slice(0, 500) });
+      if (error) throw error;
       setText('');
     } catch (error) {
       toast({ variant: 'destructive', title: 'Comment not sent', description: friendlyError(error) });
@@ -59,37 +63,31 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
     }
   };
 
+  const remove = async (id: string) => {
+    const { error } = await supabase.from('product_comments').delete().eq('id', id);
+    if (error) toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) });
+  };
+
   return (
     <div className={cn('space-y-3', className)}>
       <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
-        {comments === null ? (
-          <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-        ) : comments.length === 0 ? (
+        {comments === null ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /> : comments.length === 0 ? (
           <p className="py-2 text-center text-sm text-muted-foreground">No comments yet. Be the first!</p>
-        ) : (
-          comments.map((c) => (
-            <div key={c.id} className="flex items-start gap-2">
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="text-xs">{c.name.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1 text-sm">
-                <span className="font-semibold">{c.name}</span>{' '}
-                <span className="text-xs text-muted-foreground">{timeAgo(c.createdAt?.seconds)}</span>
-                <p className="break-words">{c.text}</p>
-              </div>
-              {(c.uid === uid || sellerId === uid) && (
-                <button
-                  type="button"
-                  aria-label="Delete comment"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteDoc(doc(db, 'products', productId, 'comments', c.id)).catch(() => {})}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              )}
+        ) : comments.map((comment) => (
+          <div key={comment.id} className="flex items-start gap-2">
+            <Avatar className="h-7 w-7"><AvatarFallback className="text-xs">{comment.name.charAt(0).toUpperCase()}</AvatarFallback></Avatar>
+            <div className="min-w-0 flex-1 text-sm">
+              <span className="font-semibold">{comment.name}</span>{' '}
+              <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+              <p className="break-words">{comment.text}</p>
             </div>
-          ))
-        )}
+            {(comment.uid === authUid || sellerId === authUid) && (
+              <button type="button" aria-label="Delete comment" className="text-muted-foreground hover:text-destructive" onClick={() => void remove(comment.id)}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ))}
       </div>
       <form onSubmit={send} className="flex gap-2">
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment…" maxLength={500} className="h-10" />

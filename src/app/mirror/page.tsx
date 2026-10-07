@@ -19,7 +19,9 @@ import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORIES } from '@/lib/categories';
 import type { Product } from '@/lib/types';
-import { aiSearch, keywordSearch } from '@/lib/search';
+import { aiSearch, describeSearch, type ParsedDescription } from '@/lib/search';
+import { categoryLabel } from '@/lib/categories';
+import { LocateSellerDialog } from '@/components/mirror/locate-seller';
 import { context2d, createCanvas, fileToImage, fitWithin, loadImage, trimTransparent } from '@/lib/ai/canvas';
 import { removeBackground } from '@/lib/ai/segment';
 import { detectPose } from '@/lib/ai/pose';
@@ -145,17 +147,31 @@ function Mirror() {
   );
   const shown = results ?? defaults;
 
+  const [parsed, setParsed] = useState<ParsedDescription | null>(null);
+  const [chosen, setChosen] = useState<{ product: Product; image: string } | null>(null);
+
   const runSearch = async (query: { text: string; category: string; imageEmbedding?: number[] }) => {
     const id = ++searchId.current;
     if (!query.text.trim() && !query.category && !query.imageEmbedding) {
       setResults(null);
+      setParsed(null);
       return;
     }
-    if (!query.imageEmbedding) setResults(keywordSearch(products, query));
     setSearchBusy('AI is searching…');
     try {
-      const found = await aiSearch(products, query, setSearchBusy);
-      if (id === searchId.current) setResults(found);
+      if (query.imageEmbedding) {
+        const found = await aiSearch(products, query, setSearchBusy);
+        if (id === searchId.current) {
+          setResults(found);
+          setParsed(null);
+        }
+      } else {
+        const { results: found, parsed: understood } = await describeSearch(products, query.text, setSearchBusy);
+        if (id === searchId.current) {
+          setResults(found);
+          setParsed(understood);
+        }
+      }
     } catch (error) {
       console.error('AI search failed, keeping keyword results:', error);
     } finally {
@@ -176,21 +192,6 @@ function Mirror() {
     runSearch({ text, category: next });
   };
 
-  const handleItemPhoto = async (file: File) => {
-    setSearchBusy('Reading item photo…');
-    try {
-      const img = await fileToImage(file);
-      const cutout = trimTransparent(await removeBackground(img, 'item', setSearchBusy));
-      setQueryPhoto(cutout.toDataURL('image/png'));
-      const embedding = await embedImage(cutout, setSearchBusy);
-      setText('');
-      await runSearch({ text: '', category, imageEmbedding: embedding });
-    } catch (error: any) {
-      console.error('Photo search failed:', error);
-      toast({ variant: 'destructive', title: 'Photo search failed', description: friendlyError(error) });
-      setSearchBusy(null);
-    }
-  };
 
   const clearSearch = () => {
     searchId.current++;
@@ -198,13 +199,14 @@ function Mirror() {
     setCategory('');
     setQueryPhoto(null);
     setResults(null);
+    setParsed(null);
     setSearchBusy(null);
   };
 
-  const itemPhotoRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-10">
+      {chosen && <LocateSellerDialog product={chosen.product} image={chosen.image} onClose={() => setChosen(null)} />}
       <div className="mb-6 text-center md:mb-10">
         <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-4xl font-extrabold tracking-tight text-transparent md:text-5xl">
           Mirror My-Self
@@ -265,59 +267,40 @@ function Mirror() {
         <div className="min-w-0 space-y-6">
           <Card>
             <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">2. Search clothes, shoes, anything</h2>
-              <form onSubmit={handleSubmit} className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    onFocus={warmUpSearch}
-                    placeholder="e.g. red dress, white sneakers, denim jacket"
-                    className="h-11 pl-10"
-                    enterKeyHint="search"
-                  />
-                </div>
-                <Button type="submit" className="h-11" disabled={!!searchBusy}>
-                  {searchBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-                </Button>
-              </form>
-
-              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-                {CATEGORIES.map((c) => (
-                  <Button
-                    key={c.value}
-                    type="button"
-                    size="sm"
-                    variant={category === c.value ? 'default' : 'outline'}
-                    className="shrink-0 rounded-full"
-                    onClick={() => handleCategory(c.value)}
-                  >
-                    {c.label}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <Button type="button" variant="secondary" onClick={() => itemPhotoRef.current?.click()} disabled={!!searchBusy}>
-                  <Sparkles className="mr-2 h-4 w-4" /> Search with a photo of an item
-                </Button>
-                <input
-                  ref={itemPhotoRef}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (file) handleItemPhoto(file);
+              <h2 className="text-lg font-semibold">2. Describe what you want to wear</h2>
+              <form onSubmit={handleSubmit} className="space-y-2">
+                <Textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onFocus={warmUpSearch}
+                  placeholder="Type, size, colour, brand… e.g. “size M blue jeans by Levi's” or “white sneakers 42”"
+                  className="min-h-20 text-base"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
                   }}
                 />
-                {queryPhoto && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={queryPhoto} alt="Item you searched with" className={cn('h-12 w-12 rounded border object-contain', checkerboard)} />
-                )}
-                {(results || queryPhoto) && (
+                <Button type="submit" className="w-full" disabled={!!searchBusy || !text.trim()}>
+                  {searchBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                  Show me wearing it
+                </Button>
+              </form>
+              {parsed && (parsed.category || parsed.size || parsed.color || parsed.brand) && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="text-muted-foreground">Understood:</span>
+                  {[parsed.category && categoryLabel(parsed.category), parsed.size && `Size ${parsed.size}`, parsed.color, parsed.brand]
+                    .filter(Boolean)
+                    .map((label) => (
+                      <span key={label as string} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium capitalize text-primary">{label}</span>
+                    ))}
+                </div>
+              )}
+
+
+              <div className="flex flex-wrap items-center gap-3">
+                {results && (
                   <Button type="button" variant="ghost" size="sm" onClick={clearSearch}>
                     <X className="mr-1 h-4 w-4" /> Clear
                   </Button>
@@ -396,7 +379,7 @@ function Mirror() {
             ) : person ? (
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map((product) => (
-                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} personUrl={personUrl!} studio={studio} />
+                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} personUrl={personUrl!} studio={studio} onChoose={(image) => setChosen({ product, image })} />
                 ))}
               </div>
             ) : (

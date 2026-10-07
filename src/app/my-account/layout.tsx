@@ -29,8 +29,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import { getAuth, signOut } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+import { logout } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
@@ -46,7 +45,6 @@ export default function BuyerDashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const auth = getAuth(app);
   const { toast } = useToast();
   const { user, role, isAuthLoading } = useAuth();
   const { searchQuery, setSearchQuery } = useDashboardSearchStore();
@@ -62,7 +60,7 @@ export default function BuyerDashboardLayout({
   }, [user, role, isAuthLoading, router]);
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await logout();
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
     router.push('/');
   };

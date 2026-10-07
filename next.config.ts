@@ -5,7 +5,7 @@ import type {NextConfig} from 'next';
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 const nextConfig: NextConfig = {
-  // Static site: all AI runs in the browser and data comes from Firebase, so no server is needed.
+  // Static export keeps the app deployable to GitHub Pages; Supabase supplies hosted auth and data.
   output: 'export',
   basePath,
   trailingSlash: true,
@@ -28,9 +28,6 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  allowedDevOrigins: [
-    'https://6000-firebase-studio-1757425340606.cluster-lu4mup47g5gm4rtyvhzpwbfadi.cloudworkstations.dev',
-  ],
 };
 
 export default nextConfig;

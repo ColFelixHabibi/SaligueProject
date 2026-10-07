@@ -1,58 +1,50 @@
-
 'use client';
 
 import { create } from 'zustand';
-import { collectionGroup, doc, increment, onSnapshot, query, serverTimestamp, where, writeBatch } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 
-// Likes are public (a count on each product); Saves are the private wishlist (see use-wishlist.ts).
-// A like is products/{productId}/likes/{uid} plus the product's likeCount, written together.
-
-interface LikesState {
-  liked: Set<string>;
-}
-
-export const useLikesStore = create<LikesState>()(() => ({ liked: new Set() }));
+interface LikesState { liked: Set<string>; isInitialized: boolean }
+export const useLikesStore = create<LikesState>()(() => ({ liked: new Set(), isInitialized: false }));
 
 export function subscribeToLikes(uid: string | null) {
   if (!uid) {
-    useLikesStore.setState({ liked: new Set() });
+    useLikesStore.setState({ liked: new Set(), isInitialized: true });
     return () => {};
   }
-  return onSnapshot(
-    query(collectionGroup(db, 'likes'), where('uid', '==', uid)),
-    (snapshot) => {
-      useLikesStore.setState({ liked: new Set(snapshot.docs.map((d) => d.ref.parent.parent!.id)) });
-    },
-    (error) => console.error('Failed to load likes:', error)
-  );
+  let active = true;
+  useLikesStore.setState({ liked: new Set(), isInitialized: false });
+  const load = async () => {
+    const { data, error } = await supabase.from('product_likes').select('product_id').eq('user_id', uid);
+    if (!active) return;
+    if (error) {
+      console.error('Failed to load likes:', error);
+      useLikesStore.setState({ isInitialized: true });
+      return;
+    }
+    useLikesStore.setState({ liked: new Set((data ?? []).map((row) => row.product_id)), isInitialized: true });
+  };
+  void load();
+  const channel = supabase.channel(`likes-${uid}-${crypto.randomUUID()}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'product_likes', filter: `user_id=eq.${uid}` }, () => { void load(); })
+    .subscribe();
+  return () => { active = false; void supabase.removeChannel(channel); };
 }
 
 export async function toggleLike(productId: string) {
-  const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error('Please wait a moment and try again.');
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('Please wait a moment and try again.');
   const wasLiked = useLikesStore.getState().liked.has(productId);
-  const likeRef = doc(db, 'products', productId, 'likes', uid);
-  const productRef = doc(db, 'products', productId);
-
-  // Update the screen right away; the live listener corrects it if the write fails.
   const next = new Set(useLikesStore.getState().liked);
-  if (wasLiked) next.delete(productId);
-  else next.add(productId);
+  if (wasLiked) next.delete(productId); else next.add(productId);
   useLikesStore.setState({ liked: next });
-
-  const batch = writeBatch(db);
-  if (wasLiked) batch.delete(likeRef);
-  else batch.set(likeRef, { uid, createdAt: serverTimestamp() });
-  batch.update(productRef, { likeCount: increment(wasLiked ? -1 : 1) });
-  try {
-    await batch.commit();
-  } catch (error) {
+  const result = wasLiked
+    ? await supabase.from('product_likes').delete().eq('product_id', productId).eq('user_id', user.id)
+    : await supabase.from('product_likes').insert({ product_id: productId, user_id: user.id });
+  if (result.error) {
     const undo = new Set(useLikesStore.getState().liked);
-    if (wasLiked) undo.add(productId);
-    else undo.delete(productId);
+    if (wasLiked) undo.add(productId); else undo.delete(productId);
     useLikesStore.setState({ liked: undo });
-    throw error;
+    throw result.error;
   }
 }
 

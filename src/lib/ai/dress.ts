@@ -35,6 +35,8 @@ type Placement = {
   mirror?: boolean;
   // Draw this image instead of the whole item (e.g. one shoe of a pair).
   image?: HTMLCanvasElement;
+  // Part of the person's photo to remove first (their own shoe), as a polygon in photo pixels.
+  erase?: { x: number; y: number }[];
 };
 
 // Rotation that lines an upright garment up with the body axis running from `top` down to `bottom`.
@@ -140,58 +142,73 @@ function placementsFor(category: Category, lm: Point[], item: HTMLCanvasElement)
         const shoe = shoes[i];
         // Foot length from the landmarks, but at least ~half the shin (feet facing the camera look short).
         const shin = dist(f.knee, f.ankle);
-        const footLen = Math.max(dist(f.heel, f.toe) * 1.35, shin * 0.5, torso * 0.2);
-        const facing = f.toe.x - f.heel.x;
-        const turned = Math.abs(facing) > footLen * 0.25;
+        const footLen = Math.max(dist(f.heel, f.toe) * 1.3, shin * 0.5, torso * 0.2);
+        const pointsRight = f.toe.x >= f.heel.x;
+        // Tilt the shoe along the foot (heel → toe), measured in the direction the foot points.
+        const along = pointsRight ? Math.atan2(f.toe.y - f.heel.y, f.toe.x - f.heel.x) : Math.atan2(f.heel.y - f.toe.y, f.heel.x - f.toe.x);
+        const angle = Math.max(-0.6, Math.min(0.6, along));
+        const ground = Math.max(f.heel.y, f.toe.y) + footLen * 0.06;
+        // The old shoe: everything around the foot below the trouser hem.
+        const m = footLen * 0.32;
+        const top = f.ankle.y - footLen * 0.05;
+        const left = Math.min(f.heel.x, f.toe.x, f.ankle.x) - m;
+        const right = Math.max(f.heel.x, f.toe.x, f.ankle.x) + m;
         return [{
           image: shoe,
           x: (f.heel.x + f.toe.x) / 2,
-          y: Math.max(f.heel.y, f.toe.y) + footLen * 0.08,
+          y: ground,
           width: footLen,
+          angle,
           anchor: 'bottom' as const,
           // Turn the shoe so its toe points the same way as the foot.
-          mirror: turned && toePointsRight(shoe) !== facing > 0,
+          mirror: toePointsRight(shoe) !== pointsRight,
+          erase: [
+            { x: left, y: top },
+            { x: right, y: top },
+            { x: right, y: ground + m * 0.5 },
+            { x: left, y: ground + m * 0.5 },
+          ],
         }];
       });
     }
-    case 'hat': {
-      const le = lm[LM.leftEar], re = lm[LM.rightEar];
-      if (!visible(le, re)) return 'Your head needs to be visible in the photo.';
-      const earW = dist(le, re);
-      const eyes = mid(lm[LM.leftEye], lm[LM.rightEye]);
-      return [{ x: mid(le, re).x, y: eyes.y - earW * 0.25, width: earW * 2.0, anchor: 'bottom', angle: tilt(re, le) }];
-    }
-    case 'eyewear': {
-      const le = lm[LM.leftEye], re = lm[LM.rightEye];
-      if (!visible(le, re)) return 'Your face needs to be visible in the photo.';
-      const eyeW = dist(le, re);
-      const eyes = mid(le, re);
-      return [{ x: eyes.x, y: eyes.y, width: eyeW * 2.4, anchor: 'center', angle: tilt(re, le) }];
-    }
-    case 'bag': {
-      if (!visible(lh, rh, ls, rs)) return 'Your upper body needs to be visible in the photo.';
-      const side = rh.x < lh.x ? rh : lh; // hip on the left of the picture
-      return [{ x: side.x - hipW * 0.7, y: hips.y - torso * 0.25, width: torso * 0.75, anchor: 'top' }];
-    }
-    case 'accessory':
-    default: {
-      const wrist = lm[LM.rightWrist].visibility >= lm[LM.leftWrist].visibility ? lm[LM.rightWrist] : lm[LM.leftWrist];
-      if (!visible(wrist)) return 'Your hands need to be visible in the photo.';
-      return [{ x: wrist.x, y: wrist.y, width: Math.max(shoulderW * 0.45, 24), anchor: 'center' }];
-    }
+    default:
+      // Hats, glasses, bags and accessories are shown beside the person (see BESIDE).
+      return 'This item is shown next to you.';
   }
 }
 
 // Fallback when the item can't be fitted: show it next to the person at a sensible size.
-function sideBySide(person: HTMLCanvasElement, item: HTMLCanvasElement, note: string): DressResult {
-  const itemHeight = person.height * 0.45;
+const BESIDE = new Set<Category>(['hat', 'eyewear', 'bag', 'accessory']);
+// Item height beside the person, as a share of the person's height (roughly life-size).
+const BESIDE_SIZE: Partial<Record<Category, number>> = { hat: 0.16, eyewear: 0.09, bag: 0.3, accessory: 0.14 };
+
+/** A copy of the person with some areas removed (e.g. their own shoes), with soft edges. */
+function withErased(person: HTMLCanvasElement, areas: { x: number; y: number }[][]) {
+  if (!areas.length) return person;
+  const copy = createCanvas(person.width, person.height);
+  const ctx = context2d(copy);
+  ctx.drawImage(person, 0, 0);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.filter = `blur(${Math.max(2, Math.round(person.height * 0.004))}px)`;
+  ctx.fillStyle = '#000';
+  for (const area of areas) {
+    ctx.beginPath();
+    area.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fill();
+  }
+  return copy;
+}
+
+function sideBySide(person: HTMLCanvasElement, item: HTMLCanvasElement, note?: string, share = 0.45): DressResult {
+  const itemHeight = person.height * share;
   const itemWidth = (item.width / item.height) * itemHeight;
   const gap = person.width * 0.05;
   const canvas = createCanvas(person.width + gap + itemWidth, person.height);
   const ctx = context2d(canvas);
   ctx.drawImage(person, 0, 0);
   ctx.drawImage(item, person.width + gap, (person.height - itemHeight) / 2, itemWidth, itemHeight);
-  return { canvas: trimTransparent(canvas, 12), fitted: false, note };
+  return { canvas: trimTransparent(canvas, 12), fitted: !note, note };
 }
 
 /**
@@ -205,16 +222,83 @@ export function dressPerson(
   category: Category
 ): DressResult {
   const trimmedItem = trimTransparent(item, 0);
+  // Bags, hats, glasses and other accessories are shown next to the person, never pasted onto them.
+  if (BESIDE.has(category)) return sideBySide(person, trimmedItem, undefined, BESIDE_SIZE[category]);
   if (!landmarks) return sideBySide(person, trimmedItem, 'No body was detected in your photo.');
 
   const placements = placementsFor(category, landmarks, trimmedItem);
   if (typeof placements === 'string') return sideBySide(person, trimmedItem, placements);
 
-  // Leave room around the person in case an item (like a hat or bag) extends past the photo.
+  // Leave room around the person in case an item extends past the photo.
   const pad = Math.round(Math.max(person.width, person.height) * 0.15);
   const canvas = createCanvas(person.width + pad * 2, person.height + pad * 2);
   const ctx = context2d(canvas);
-  ctx.drawImage(person, pad, pad);
-  for (const p of placements) drawItem(ctx, trimmedItem, { ...p, x: p.x + pad, y: p.y + pad });
+  ctx.drawImage(withErased(person, placements.flatMap((p) => (p.erase ? [p.erase] : []))), pad, pad);
+
+  // The garment goes on its own layer so it can be fitted to the body before being added.
+  const layer = createCanvas(canvas.width, canvas.height);
+  const layerCtx = context2d(layer);
+  for (const p of placements) drawItem(layerCtx, trimmedItem, { ...p, x: p.x + pad, y: p.y + pad });
+  if (WORN.has(category)) wearOnBody(layer, person, pad);
+  ctx.drawImage(layer, 0, 0);
   return { canvas: trimTransparent(canvas, 12), fitted: true };
+}
+
+// Clothes that cover the body: trimmed to the body outline and shaded with the photo's light.
+const WORN = new Set<Category>(['top', 'outerwear', 'dress', 'bottom']);
+
+/**
+ * Makes a garment look worn rather than pasted on:
+ * - keeps it within the person's outline (slightly widened, since clothes sit on top of the body);
+ * - carries the photo's light and shadows (folds, body shading) onto the garment.
+ */
+function wearOnBody(layer: HTMLCanvasElement, person: HTMLCanvasElement, pad: number) {
+  const { width, height } = layer;
+  const grow = Math.max(2, Math.round(Math.max(person.width, person.height) * 0.012));
+
+  // Body outline, slightly widened, in layer coordinates.
+  const outline = createCanvas(width, height);
+  const outlineCtx = context2d(outline);
+  // Widen the outline by drawing the person several times, blurred: any trace of body counts as inside.
+  for (const radius of [grow, grow * 2, grow * 4]) {
+    outlineCtx.filter = `blur(${radius}px)`;
+    outlineCtx.drawImage(person, pad, pad);
+  }
+  outlineCtx.filter = 'none';
+
+  // Light and shadow of the photo, softened so only broad shading (not the old clothes' details) carries over.
+  const light = createCanvas(width, height);
+  const lightCtx = context2d(light);
+  lightCtx.filter = `grayscale(1) blur(${grow * 3}px)`;
+  lightCtx.drawImage(person, pad, pad);
+  lightCtx.filter = 'none';
+
+  const garment = context2d(layer).getImageData(0, 0, width, height);
+  const body = outlineCtx.getImageData(0, 0, width, height).data;
+  const shade = lightCtx.getImageData(0, 0, width, height).data;
+  const g = garment.data;
+
+  // Average brightness under the garment, so shading darkens and lightens around it rather than overall.
+  let sum = 0, count = 0;
+  for (let i = 0; i < g.length; i += 4) {
+    if (g[i + 3] > 32 && shade[i + 3] > 32) {
+      sum += shade[i];
+      count++;
+    }
+  }
+  const mean = count ? sum / count : 128;
+
+  for (let i = 0; i < g.length; i += 4) {
+    if (!g[i + 3]) continue;
+    // Keep the garment wherever there is body (crisply), and drop parts sticking out past the person.
+    const inside = Math.min(1, body[i + 3] / 24);
+    g[i + 3] = Math.round(g[i + 3] * inside);
+    if (shade[i + 3] > 32) {
+      const factor = Math.min(1.12, Math.max(0.72, Math.pow(Math.max(shade[i], 1) / mean, 0.45)));
+      g[i] = Math.min(255, g[i] * factor);
+      g[i + 1] = Math.min(255, g[i + 1] * factor);
+      g[i + 2] = Math.min(255, g[i + 2] * factor);
+    }
+  }
+  context2d(layer).putImageData(garment, 0, 0);
 }

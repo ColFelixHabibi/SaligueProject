@@ -1,24 +1,29 @@
 # Saligue — Mirror My-Self
 
-A fashion marketplace where shoppers add a photo of themselves, search for clothes, shoes or accessories, and see themselves wearing each item, with the item's owner and contact details.
+A fashion marketplace where shoppers can search for clothes, shoes, or accessories and preview items on a photo of themselves. Sellers list products, manage orders, and share shop contact details.
 
-All AI runs **on the user's device** (browser / installed app). There are no AI API keys and photos of shoppers are never uploaded.
+AI features run on the user's device (browser or installed app). Shopper photos are not uploaded by the try-on flow.
 
-## How it works
+## AI features
 
-| Step | Model (license) | Code |
+| Step | Model | Code |
 |---|---|---|
-| Remove the background from the shopper's photo, keeping their pixels unchanged | [MODNet](https://huggingface.co/Xenova/modnet) (Apache-2.0) | `src/lib/ai/segment.ts` |
-| Cut out a seller's item photo | [U-2-Netp](https://huggingface.co/BritishWerewolf/U-2-Netp) (Apache-2.0) | `src/lib/ai/segment.ts` |
-| Find shoulders, hips, feet, head | [MediaPipe Pose Landmarker lite](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker) (Apache-2.0) | `src/lib/ai/pose.ts` |
-| Place the item on the body | Geometry from the landmarks | `src/lib/ai/dress.ts` |
-| Search by text or by photo | [MobileCLIP-S0](https://huggingface.co/Xenova/mobileclip_s0) (Apple sample code license) via Transformers.js | `src/lib/ai/embed.ts`, `src/lib/search.ts` |
+| Remove the background from a shopper photo | MODNet | `src/lib/ai/segment.ts` |
+| Cut out a seller's item photo | U-2-Netp | `src/lib/ai/segment.ts` |
+| Detect body landmarks | MediaPipe Pose Landmarker lite | `src/lib/ai/pose.ts` |
+| Place garments on the body | Landmark geometry | `src/lib/ai/dress.ts` |
+| Search by text or photo | MobileCLIP-S0 / Transformers.js | `src/lib/ai/embed.ts`, `src/lib/search.ts` |
 
-Models are downloaded on first use and cached by the browser.
+Models are downloaded on first use and cached by the browser. Product photos and their cut-outs are stored with the product in Supabase; try-on photos remain on the shopper's device.
 
-When a seller lists an item, the app stores the original photo, the background-free cut-out and a 512-number MobileCLIP embedding with the product, so shoppers' devices only run the models for their own photo and search query.
+## Supabase setup
 
-Data (accounts, products, carts, wishlists, support requests) is in Firebase Auth + Cloud Firestore. Access rules are in `firestore.rules`.
+1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql) in its SQL Editor.
+2. In **Authentication → Providers**, enable Anonymous, Email, and Google sign-in. Enable identity linking so guest accounts can be upgraded to Google accounts.
+3. Add `http://localhost:9002/**` and the deployed site URL to **Authentication → URL Configuration → Redirect URLs**. Configure Google OAuth in the provider settings and add the Supabase callback URL shown there (`https://<project-ref>.supabase.co/auth/v1/callback`) as an authorized redirect URI in Google Cloud.
+4. Copy `.env.example` to `.env.local` and set the project's URL and anon key.
+
+For GitHub Pages, add repository secrets named `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` so the workflow can include them in the static build.
 
 ## Develop
 
@@ -27,18 +32,14 @@ npm install
 npm run dev        # http://localhost:9002
 ```
 
-Create `.env.local` with the Firebase web config (`NEXT_PUBLIC_FIREBASE_API_KEY`, `..._AUTH_DOMAIN`, `..._PROJECT_ID`, `..._STORAGE_BUCKET`, `..._MESSAGING_SENDER_ID`, `..._APP_ID`).
-
 ## Publish
 
-The site is a static export (`output: 'export'`). Every push to `main` builds it and publishes it to GitHub Pages via `.github/workflows/pages.yml`. To preview a production build locally:
+The site is a static export (`output: 'export'`). Pushes to `main` build and publish it to GitHub Pages. To preview a production build locally:
 
 ```bash
 npm run build && npm run preview   # http://localhost:9003
 ```
 
-Deploy security rules with `firebase deploy --only firestore:rules`.
-
 ## Android and iOS
 
-The site is an installable web app (manifest + service worker): open the link on a phone and choose **Add to Home Screen** (iPhone: Share → Add to Home Screen; Android: menu → Install app). It opens full-screen with its own icon.
+The site is installable as a web app. Open the published link on a phone and choose **Add to Home Screen** (iPhone: Share → Add to Home Screen; Android: menu → Install app). It opens full-screen with its own icon.

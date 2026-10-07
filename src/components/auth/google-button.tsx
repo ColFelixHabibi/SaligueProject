@@ -37,7 +37,6 @@ export function GoogleButton({ label = 'Continue with Google', onDone }: { label
       await continueWithGoogle();
       onDone?.();
     } catch (error: any) {
-      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') return;
       toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) });
     } finally {
       setBusy(false);
