@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -18,6 +20,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { PAYMENT_METHODS, formatPrice, placeOrders } from '@/lib/orders';
+import { auth } from '@/lib/firebase';
 import type { DeliveryAddress, PaymentMethod } from '@/lib/types';
 
 const DELIVERY_KEY = 'saligue-delivery-address';
@@ -68,8 +71,9 @@ export default function CheckoutPage() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      setLoginOpen(true);
+    // Guests can order too: they have a silent guest account, and their orders show under "My orders".
+    if (!auth.currentUser) {
+      toast({ variant: 'destructive', title: 'One moment', description: 'Still connecting. Please try again.' });
       return;
     }
     setPlacing(true);
@@ -82,10 +86,10 @@ export default function CheckoutPage() {
       }
       await clearCart();
       toast({ title: 'Order placed!', description: shops.length > 1 ? `${shops.length} shops have received your order.` : 'The shop has received your order.' });
-      router.push('/my-account/orders');
+      router.push('/orders');
     } catch (error: any) {
       console.error('Placing order failed:', error);
-      toast({ variant: 'destructive', title: 'Could not place order', description: error.message });
+      toast({ variant: 'destructive', title: 'Could not place order', description: friendlyError(error) });
     } finally {
       setPlacing(false);
     }
@@ -188,10 +192,15 @@ export default function CheckoutPage() {
               </div>
               <p className="text-xs text-muted-foreground">Delivery cost, if any, is agreed with the shop.</p>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex-col gap-2">
               <Button type="submit" size="lg" className="w-full" disabled={placing}>
-                {placing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {user ? 'Place order' : 'Log in to place order'}
+                {placing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Place order
               </Button>
+              {!user && (
+                <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setLoginOpen(true)}>
+                  Have an account? <span className="font-semibold text-primary">Log in</span> (optional)
+                </button>
+              )}
             </CardFooter>
           </Card>
         </div>

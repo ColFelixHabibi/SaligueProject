@@ -11,8 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+
+import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
@@ -41,7 +41,7 @@ export default function SellPage() {
     };
     const [formValues, setFormValues] = useState(initialFormValues);
 
-    const [user, setUser] = useState<User | null>(null);
+    const { user } = useAuth();
     const { role, shop } = useUserRoleStore();
     const hasShop = isShopComplete(shop);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,13 +49,6 @@ export default function SellPage() {
     const [loginOpen, setLoginOpen] = useState(false);
     const [registerOpen, setRegisterOpen] = useState(false);
     
-    useEffect(() => {
-        const auth = getAuth(app);
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-        });
-        return () => unsubscribe();
-    }, []);
 
     const openRegister = () => {
         setLoginOpen(false);

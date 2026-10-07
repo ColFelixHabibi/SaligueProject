@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { Loader2, MapPin } from 'lucide-react';
@@ -65,7 +67,7 @@ export function ShopProfileForm() {
       toast({ title: 'Shop saved', description: `Your address is shown on ${mine.size} item${mine.size === 1 ? '' : 's'}.` });
     } catch (error: any) {
       console.error('Failed to save shop:', error);
-      toast({ variant: 'destructive', title: 'Could not save', description: error.message });
+      toast({ variant: 'destructive', title: 'Could not save', description: friendlyError(error) });
     } finally {
       setSaving(false);
     }

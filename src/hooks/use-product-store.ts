@@ -47,7 +47,8 @@ export const useProductStore = create<ProductState>()(() => ({
   },
   updateProduct: async (id, updatedProduct) => {
     // id and sellerId are never changed by an edit.
-    const { id: _id, sellerId: _sellerId, official: _official, ...fields } = updatedProduct;
+    // likeCount is changed only by likes, so an edit never overwrites new likes.
+    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, ...fields } = updatedProduct;
     await updateDoc(doc(productsCollection, id), withoutUndefined(fields));
   },
   deleteProduct: async (id) => {

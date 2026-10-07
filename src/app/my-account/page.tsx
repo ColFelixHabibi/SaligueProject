@@ -12,8 +12,8 @@ import { useWishlist } from '@/hooks/use-wishlist';
 import ProductCard from '@/components/product-card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+
+import { useAuth } from '@/components/auth/auth-provider';
 import React, { useState, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Heart, ShoppingBag } from 'lucide-react';
@@ -21,15 +21,8 @@ import { Heart, ShoppingBag } from 'lucide-react';
 
 export default function BuyerDashboardPage() {
   const { wishlistItems } = useWishlist();
-  const [user, setUser] = useState<User | null>(null);
+  const { user } = useAuth();
   
-  useEffect(() => {
-    const auth = getAuth(app);
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribe();
-  }, []);
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';

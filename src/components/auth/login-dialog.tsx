@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,8 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AtSign, KeyRound, Store } from 'lucide-react';
 import React, { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+import { loginWithEmail } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
@@ -41,19 +42,22 @@ export function LoginDialog({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const { role, setRole } = useUserRoleStore();
-  const auth = getAuth(app);
+  const [busy, setBusy] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Success is handled by onAuthStateChanged in AuthProvider
+      await loginWithEmail(email, password);
+      onOpenChange(false);
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Login Failed',
-        description: error.message,
+        description: friendlyError(error),
       });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -109,9 +113,9 @@ export function LoginDialog({
                             />
                         </div>
 
-                        <Button type="submit" size="lg" className="w-full text-lg h-14">Log In</Button>
+                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Logging in…' : 'Log In'}</Button>
                         </form>
-                        <GoogleButton />
+                        <GoogleButton onDone={() => onOpenChange(false)} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Don't have an account?{' '}

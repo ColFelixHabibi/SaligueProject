@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useState } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -34,7 +36,7 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
       onPhotoChange(await prepareItemPhoto(file, setBusy));
     } catch (error: any) {
       console.error('Preparing item photo failed:', error);
-      toast({ variant: 'destructive', title: 'Image Error', description: error.message });
+      toast({ variant: 'destructive', title: 'Image Error', description: friendlyError(error) });
     } finally {
       setBusy(null);
       onBusyChange?.(false);

@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Camera, Download, ImageUp, Loader2, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from 'lucide-react';
@@ -23,8 +25,6 @@ import { removeBackground } from '@/lib/ai/segment';
 import { detectPose } from '@/lib/ai/pose';
 import { embedImage, warmUpSearch } from '@/lib/ai/embed';
 import { cn } from '@/lib/utils';
-
-const DEFAULT_LOOKS = 8;
 
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
@@ -76,7 +76,7 @@ function Mirror() {
     try {
       setOutfitUrl(await dressAsDescribed(personUrl, outfitText.trim()));
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not create the outfit', description: error.message });
+      toast({ variant: 'destructive', title: 'Could not create the outfit', description: friendlyError(error) });
     } finally {
       setOutfitBusy(false);
     }
@@ -124,7 +124,7 @@ function Mirror() {
       }
     } catch (error: any) {
       console.error('Processing photo failed:', error);
-      toast({ variant: 'destructive', title: 'Could not process photo', description: error.message });
+      toast({ variant: 'destructive', title: 'Could not process photo', description: friendlyError(error) });
     } finally {
       setPersonBusy(null);
     }
@@ -138,12 +138,11 @@ function Mirror() {
   const [queryPhoto, setQueryPhoto] = useState<string | null>(null);
   const searchId = useRef(0);
 
-  const defaults = useMemo(() => {
-    const active = products.filter((p) => p.status === 'active');
-    const picked = itemId ? active.filter((p) => p.id === itemId) : [];
-    const rest = active.filter((p) => p.id !== itemId).slice(0, DEFAULT_LOOKS - picked.length);
-    return [...picked, ...rest];
-  }, [products, itemId]);
+  // Only what the shopper asked for: the item they tapped "Try on" for, or their search results.
+  const defaults = useMemo(
+    () => (itemId ? products.filter((p) => p.id === itemId && p.status === 'active') : []),
+    [products, itemId]
+  );
   const shown = results ?? defaults;
 
   const runSearch = async (query: { text: string; category: string; imageEmbedding?: number[] }) => {
@@ -188,7 +187,7 @@ function Mirror() {
       await runSearch({ text: '', category, imageEmbedding: embedding });
     } catch (error: any) {
       console.error('Photo search failed:', error);
-      toast({ variant: 'destructive', title: 'Photo search failed', description: error.message });
+      toast({ variant: 'destructive', title: 'Photo search failed', description: friendlyError(error) });
       setSearchBusy(null);
     }
   };
@@ -368,7 +367,7 @@ function Mirror() {
           <div>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold">
-                {results ? `${results.length} ${results.length === 1 ? 'look' : 'looks'} found` : personUrl ? 'Looks for you' : 'Latest items'}
+                {results ? `${results.length} ${results.length === 1 ? 'look' : 'looks'} found` : shown.length ? 'Your look' : 'Your looks'}
               </h2>
               {!personUrl && shown.length > 0 && (
                 <span className="text-sm text-muted-foreground">Add your photo to see yourself in them</span>
@@ -391,7 +390,7 @@ function Mirror() {
                     </Button>
                   </>
                 ) : (
-                  <p>No items listed yet.</p>
+                  <p className="px-6">Search above (or describe what you want) and only the matching items will be put on you.</p>
                 )}
               </div>
             ) : person ? (

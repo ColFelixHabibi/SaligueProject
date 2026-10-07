@@ -11,6 +11,11 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // Signed in with an email or Google account (not a silent guest).
+    function isRegistered() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
     // INDECIANA's official accounts. The flag is set by an administrator (Firebase console), never by the app.
     function isOfficial() {
       return signedIn()
@@ -33,10 +38,52 @@ service cloud.firestore {
 
     // Marketplace listings: public to read, only the seller who listed an item can change it.
     match /products/{productId} {
+      function likePath() {
+        return /databases/$(database)/documents/products/$(productId)/likes/$(request.auth.uid);
+      }
+      function likeCountAfter() {
+        return getAfter(/databases/$(database)/documents/products/$(productId)).data.get('likeCount', 0);
+      }
+      function likeCountBefore() {
+        return get(/databases/$(database)/documents/products/$(productId)).data.get('likeCount', 0);
+      }
+      // Anyone (guests too) may move likeCount by one, together with their own like document.
+      function isLikeChange() {
+        return signedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount'])
+          && ((request.resource.data.likeCount == resource.data.get('likeCount', 0) + 1 && existsAfter(likePath()) && !exists(likePath()))
+            || (request.resource.data.likeCount == resource.data.get('likeCount', 0) - 1 && !existsAfter(likePath()) && exists(likePath())));
+      }
+
       allow read: if true;
-      allow create: if signedIn() && isValidProduct(request.resource.data);
-      allow update: if isUser(resource.data.sellerId) && isValidProduct(request.resource.data);
+      allow create: if isRegistered() && isValidProduct(request.resource.data);
+      allow update: if (isUser(resource.data.sellerId) && isValidProduct(request.resource.data)) || isLikeChange();
       allow delete: if isUser(resource.data.sellerId);
+
+      match /likes/{uid} {
+        allow read: if true;
+        allow create: if isUser(uid) && request.resource.data.uid == uid && likeCountAfter() == likeCountBefore() + 1;
+        allow delete: if isUser(uid) && likeCountAfter() == likeCountBefore() - 1;
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 60;
+        allow delete: if signedIn()
+          && (resource.data.uid == request.auth.uid
+            || get(/databases/$(database)/documents/products/$(productId)).data.sellerId == request.auth.uid);
+      }
+    }
+
+    // "Which items did I like?" across all products.
+    match /{path=**}/likes/{uid} {
+      allow read: if true;
     }
 
     // Each user's profile (role), cart and wishlist are private to them.

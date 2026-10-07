@@ -29,7 +29,7 @@ export function keywordSearch(products: Product[], query: SearchQuery): Product[
   if (words.length === 0) return pool.slice(0, MAX_RESULTS);
   return pool
     .map((p) => ({ p, score: keywordScore(p, words) }))
-    .filter((r) => r.score > 0)
+    .filter((r) => r.score === 1)
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_RESULTS)
     .map((r) => r.p);
@@ -57,11 +57,12 @@ export async function aiSearch(products: Product[], query: SearchQuery, onProgre
     return { p, keywords, visual };
   });
 
-  // Keep strong visual matches relative to the best one, plus anything matching the words.
+  // Keep strong visual matches (relative to the best one, above an absolute floor so unrelated
+  // items never appear), plus items matching every word of the query.
   const best = Math.max(0, ...scored.map((s) => s.visual));
   const visualFloor = query.imageEmbedding ? Math.max(0.55, best - 0.15) : Math.max(0.2, best - 0.05);
   return scored
-    .filter((s) => s.keywords > 0 || (s.visual > 0 && s.visual >= visualFloor))
+    .filter((s) => s.keywords === 1 || (s.visual > 0 && s.visual >= visualFloor))
     .sort((a, b) => b.visual + b.keywords * 0.1 - (a.visual + a.keywords * 0.1))
     .slice(0, MAX_RESULTS)
     .map((s) => s.p);

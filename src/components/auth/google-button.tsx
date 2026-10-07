@@ -1,12 +1,13 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useEffect, useState } from 'react';
-import { GoogleAuthProvider, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { auth } from '@/lib/firebase';
+import { continueWithGoogle } from '@/lib/auth-actions';
 
 function GoogleLogo() {
   return (
@@ -20,7 +21,7 @@ function GoogleLogo() {
 }
 
 /** "Continue with Google". New accounts get the buyer/seller role chosen in the dialog. */
-export function GoogleButton({ label = 'Continue with Google' }: { label?: string }) {
+export function GoogleButton({ label = 'Continue with Google', onDone }: { label?: string; onDone?: () => void }) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   // Google's sign-in window can't open inside the installed Android/iOS app's web view.
@@ -32,22 +33,12 @@ export function GoogleButton({ label = 'Continue with Google' }: { label?: strin
 
   const handleClick = async () => {
     setBusy(true);
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
     try {
-      await signInWithPopup(auth, provider);
-      // Success (toast, redirect, profile) is handled by AuthProvider.
+      await continueWithGoogle();
+      onDone?.();
     } catch (error: any) {
-      if (error.code === 'auth/popup-blocked') {
-        await signInWithRedirect(auth, provider);
-        return;
-      }
       if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') return;
-      const description =
-        error.code === 'auth/unauthorized-domain'
-          ? `Google sign-in isn't allowed on ${window.location.hostname} yet. Add it under Firebase → Authentication → Settings → Authorized domains.`
-          : error.message;
-      toast({ variant: 'destructive', title: 'Google sign-in failed', description });
+      toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) });
     } finally {
       setBusy(false);
     }

@@ -1,9 +1,13 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Download, Loader2, Sparkles, Store } from 'lucide-react';
+import { Clapperboard, Download, Loader2, Sparkles, Store } from 'lucide-react';
+import { VideoMaker } from '@/components/social/video-maker';
+import { formatPrice } from '@/lib/orders';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,12 +80,13 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
     try {
       setRealisticUrl(await realisticTryOn(personUrl, product.image, product.category));
     } catch (error: any) {
-      setRealisticError(error.message);
+      setRealisticError(friendlyError(error));
     } finally {
       setRealisticBusy(false);
     }
   };
   const shownUrl = realisticUrl ?? dressedUrl;
+  const [videoOpen, setVideoOpen] = useState(false);
   const [note, setNote] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -184,6 +189,11 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
             <Link href={productHref(product)}>View item</Link>
           </Button>
           {shownUrl && (
+            <Button variant="outline" size="sm" onClick={() => setVideoOpen(true)} aria-label="Make a video">
+              <Clapperboard className="h-4 w-4" />
+            </Button>
+          )}
+          {shownUrl && (
             <Button variant="outline" size="sm" asChild>
               <a href={shownUrl} download={`saligue-${product.name.replace(/\W+/g, '-').toLowerCase()}.png`}>
                 <Download className="h-4 w-4" />
@@ -193,6 +203,15 @@ export function DressedCard({ product, person, landmarks, personUrl, studio }: D
           )}
         </div>
       </CardContent>
+      {shownUrl && (
+        <VideoMaker
+          open={videoOpen}
+          onOpenChange={setVideoOpen}
+          imageUrl={shownUrl}
+          title={product.name}
+          subtitle={[formatPrice(Number(product.price)), product.shop?.name].filter(Boolean).join(' · ')}
+        />
+      )}
     </Card>
   );
 }

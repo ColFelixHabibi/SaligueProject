@@ -26,7 +26,11 @@ export type Product = {
   shop?: Shop;
   // Listed by INDECIANA's official account: shown as recommended and opened on INDECIANA's own page.
   official?: boolean;
+  // Number of people who liked the item (see use-likes.ts).
+  likeCount?: number;
 };
+
+export type Comment = { id: string; uid: string; name: string; text: string; createdAt?: { seconds: number } | null };
 
 // A seller's shop: shown with every item so buyers know exactly where the shop is.
 export type Shop = {

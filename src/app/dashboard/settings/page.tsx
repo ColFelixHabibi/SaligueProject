@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -52,7 +54,7 @@ export default function SettingsPage() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to update profile: ' + error.message,
+        description: friendlyError(error),
       });
     }
   };
@@ -96,7 +98,7 @@ export default function SettingsPage() {
         toast({
             variant: 'destructive',
             title: 'Error changing password',
-            description: error.message,
+            description: friendlyError(error),
         });
     } finally {
         setIsPasswordSaving(false);

@@ -1,9 +1,12 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Search, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Loader2, Search, Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -69,7 +72,7 @@ function SearchContent() {
       await run({ text: '', category, imageEmbedding: embedding });
     } catch (error: any) {
       console.error('Photo search failed:', error);
-      toast({ variant: 'destructive', title: 'Photo search failed', description: error.message });
+      toast({ variant: 'destructive', title: 'Photo search failed', description: friendlyError(error) });
       setBusy(null);
     }
   };
@@ -88,9 +91,9 @@ function SearchContent() {
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
       <div className="mb-10 text-center">
-        <h1 className="font-headline text-4xl font-extrabold tracking-tight text-primary md:text-5xl">Find Your Style</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-muted-foreground">
-          Describe what you want or upload a photo of an item. AI on your device finds the closest matches.
+        <h1 className="font-headline text-4xl font-extrabold tracking-tight md:text-5xl">Explore</h1>
+        <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
+          Describe what you want or search with a photo — AI on your device finds the closest matches.
         </p>
       </div>
 
@@ -169,7 +172,21 @@ function SearchContent() {
         </CardContent>
       </Card>
 
-      <h2 className="mb-8 text-center text-3xl font-bold">{results ? 'Search Results' : 'All Items'}</h2>
+      {!results && products.some((p) => p.official && p.status === 'active') && (
+        <Link
+          href="/indeciana"
+          className="group mb-10 flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-neutral-950 p-6 text-white md:p-10"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-primary">Official collection</p>
+            <p className="mt-2 font-serif text-3xl tracking-[0.2em] md:text-5xl">INDECIANA</p>
+            <p className="mt-2 text-sm text-white/70">Discover the house collection</p>
+          </div>
+          <ArrowRight className="h-8 w-8 shrink-0 transition-transform group-hover:translate-x-1" />
+        </Link>
+      )}
+
+      <h2 className="mb-6 text-2xl font-bold">{results ? 'Search results' : 'All items'}</h2>
       {!isInitialized ? (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (

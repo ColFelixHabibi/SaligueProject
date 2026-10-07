@@ -11,8 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+
+import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
@@ -39,19 +39,12 @@ export default function EditProductView({ id }: { id: string | null }) {
     };
     const [formValues, setFormValues] = useState(initialFormValues);
 
-    const [user, setUser] = useState<User | null>(null);
+    const { user } = useAuth();
     const { role } = useUserRoleStore();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
     const product = products.find(p => p.id === id);
 
-    useEffect(() => {
-        const auth = getAuth(app);
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-        });
-        return () => unsubscribe();
-    }, []);
 
     useEffect(() => {
         // Fill the form once; later live updates must not overwrite the seller's unsaved edits.

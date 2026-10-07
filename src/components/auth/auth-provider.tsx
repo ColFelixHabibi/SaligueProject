@@ -1,20 +1,22 @@
 
 'use client';
 
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
+import { setUpgradeListener } from '@/lib/auth-actions';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useUserRoleStore, type UserRole } from '@/hooks/use-user-role-store';
 import type { Shop } from '@/lib/types';
 import { subscribeToWishlist } from '@/hooks/use-wishlist';
 import { subscribeToCart } from '@/hooks/use-cart-store';
+import { subscribeToLikes } from '@/hooks/use-likes';
 import { subscribeToProducts } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '../ui/skeleton';
 
 interface AuthContextType {
+  // The signed-in account, or null for visitors (who still have a silent guest account for likes, saves and cart).
   user: User | null;
   role: 'seller' | 'buyer';
   isAuthLoading: boolean;
@@ -35,7 +37,7 @@ async function resolveProfile(user: User, pendingRole: UserRole | null): Promise
   const snapshot = await getDoc(ref);
   if (!snapshot.exists()) {
     const role = pendingRole ?? 'buyer';
-    await setDoc(ref, { role, email: user.email, createdAt: serverTimestamp() });
+    await setDoc(ref, { role, email: user.email ?? null, createdAt: serverTimestamp() });
     return { role, official: false, shop: null };
   }
   const data = snapshot.data();
@@ -43,6 +45,10 @@ async function resolveProfile(user: User, pendingRole: UserRole | null): Promise
   if (pendingRole && pendingRole !== role) {
     await setDoc(ref, { role: pendingRole }, { merge: true });
     role = pendingRole;
+  }
+  if (user.email && data.email !== user.email) {
+    // A guest who just registered: record their email on the profile.
+    await setDoc(ref, { email: user.email }, { merge: true });
   }
   return { role, official: data.official === true, shop: data.shop ?? null };
 }
@@ -72,70 +78,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const { role, isInitialized: isRoleInitialized } = useUserRoleStore();
-  const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => subscribeToProducts(), []);
 
   useEffect(() => {
     let isFirstCallback = true;
-    let previousUser: User | null = null;
+    // Previous account as (uid, registered) so we notice logins and guest upgrades.
+    let previous: { uid: string; registered: boolean } | null = null;
     let unsubscribeUserData = () => {};
 
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-        // A sign-in that happens after the page has loaded (not a restored session).
-        const isFreshSignIn = !isFirstCallback && !previousUser && !!currentUser;
+    const handle = async (currentUser: User | null) => {
+      if (!currentUser) {
+        // No account on this device yet: create a silent guest so likes, saves and cart work right away.
+        previous = null;
         isFirstCallback = false;
-        previousUser = currentUser;
+        setUser(null);
+        useUserRoleStore.setState({ role: 'buyer', official: false, shop: null, isInitialized: true });
+        setIsAuthLoading(false);
+        signInAnonymously(auth).catch((error) => console.error('Guest sign-in failed:', error));
+        return;
+      }
 
+      const registered = !currentUser.isAnonymous;
+      // Logged in or created an account after the page loaded (not a restored session).
+      const isFreshSignIn = !isFirstCallback && registered && !previous?.registered;
+      const uidChanged = previous?.uid !== currentUser.uid;
+      const upgradedGuest = !uidChanged && previous?.registered === false && registered;
+      isFirstCallback = false;
+      previous = { uid: currentUser.uid, registered };
+
+      if (uidChanged) {
         unsubscribeUserData();
-        const uid = currentUser?.uid ?? null;
-        const stopCart = subscribeToCart(uid);
-        const stopWishlist = subscribeToWishlist(uid);
+        const stopCart = subscribeToCart(currentUser.uid);
+        const stopWishlist = subscribeToWishlist(currentUser.uid);
+        const stopLikes = subscribeToLikes(currentUser.uid);
         unsubscribeUserData = () => {
           stopCart();
           stopWishlist();
+          stopLikes();
         };
+      }
 
-        let profile: Profile = { role: 'buyer', official: false, shop: null };
-        if (currentUser) {
-          try {
-            profile = await resolveProfile(currentUser, useUserRoleStore.getState().pendingRole);
-          } catch (error) {
-            console.error('Failed to load user profile:', error);
-          }
-        }
-        const currentRole = profile.role;
-        useUserRoleStore.setState({ ...profile, pendingRole: null, isInitialized: true });
+      let profile: Profile = { role: 'buyer', official: false, shop: null };
+      try {
+        profile = await resolveProfile(currentUser, registered ? useUserRoleStore.getState().pendingRole : null);
+      } catch (error) {
+        console.error('Failed to load user profile:', error);
+      }
+      useUserRoleStore.setState({ ...profile, pendingRole: null, isInitialized: true });
 
-        if (currentUser && isFreshSignIn) {
-           const isNewUser = currentUser.metadata.creationTime === currentUser.metadata.lastSignInTime;
+      if (isFreshSignIn) {
+        const isNewUser = upgradedGuest || currentUser.metadata.creationTime === currentUser.metadata.lastSignInTime;
+        toast({
+          title: isNewUser ? 'Welcome to Saligue!' : 'Welcome back!',
+          description: profile.role === 'seller' ? 'You are signed in as a seller.' : `Signed in as ${currentUser.displayName || currentUser.email}.`,
+        });
+      }
 
-            if (isNewUser) {
-                 toast({
-                    title: 'Account Created!',
-                    description: `Welcome! You are signed up as a ${currentRole}.`,
-                });
-            } else {
-                toast({
-                    title: 'Login Successful!',
-                    description: `Welcome back, ${currentUser.displayName}! You are logged in as a ${currentRole}.`,
-                });
-            }
+      setUser(registered ? currentUser : null);
+      setIsAuthLoading(false);
+    };
 
-          // Logging in during checkout keeps the buyer on the checkout page.
-          if (!window.location.pathname.includes('/checkout')) {
-            const dashboardPath = currentRole === 'seller' ? '/dashboard' : '/my-account';
-            router.replace(dashboardPath);
-          }
-        }
-
-        setUser(currentUser);
-        setIsAuthLoading(false);
-    });
+    const unsubscribe = onAuthStateChanged(auth, handle);
+    // Upgrading a guest keeps the same account object, so listen for that explicitly.
+    setUpgradeListener(() => handle(auth.currentUser));
 
     return () => {
       unsubscribe();
+      setUpgradeListener(null);
       unsubscribeUserData();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

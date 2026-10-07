@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import { MapPin, Package, Phone } from 'lucide-react';
@@ -30,7 +32,7 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
     try {
       await updateOrder(order.id, changes);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not update order', description: error.message });
+      toast({ variant: 'destructive', title: 'Could not update order', description: friendlyError(error) });
     } finally {
       setSaving(false);
     }

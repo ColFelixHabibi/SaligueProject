@@ -33,7 +33,7 @@ function loadVision(onProgress?: Progress) {
     visionPromise = loadTransformers().then((t) =>
       Promise.all([
         t.AutoProcessor.from_pretrained(MODELS.clip),
-        t.CLIPVisionModelWithProjection.from_pretrained(MODELS.clip, { dtype: 'q8', device: 'wasm' }),
+        t.CLIPVisionModelWithProjection.from_pretrained(MODELS.clip, { dtype: 'fp32', device: 'wasm' }),
       ])
     );
     visionPromise.catch(() => (visionPromise = null));

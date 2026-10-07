@@ -48,3 +48,6 @@ firestore-debug.log
 
 # AI models bundled into the mobile apps (scripts/bundle-models.mjs)
 /public/models/
+
+# Personal Claude Code settings
+.claude/settings.local.json

@@ -1,6 +1,8 @@
 
 'use client';
 
+import { friendlyError } from '@/lib/errors';
+
 import { useState, useId } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,8 +18,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { AtSign, KeyRound, User, Store } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
-import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { app } from '@/lib/firebase';
+import { registerWithEmail } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { ScrollArea } from '../ui/scroll-area';
 import { Switch } from '../ui/switch';
@@ -37,20 +38,22 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
-    const auth = getAuth(app);
+    const [busy, setBusy] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setBusy(true);
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            await updateProfile(userCredential.user, { displayName: name });
-            // Success is handled by onAuthStateChanged in AuthProvider
+            await registerWithEmail(name, email, password);
+            onOpenChange(false);
         } catch (error: any) {
             toast({
                 variant: 'destructive',
                 title: 'Registration Failed',
-                description: error.message,
+                description: friendlyError(error),
             });
+        } finally {
+            setBusy(false);
         }
     };
 
@@ -114,9 +117,9 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                             />
                         </div>
 
-                        <Button type="submit" size="lg" className="w-full text-lg h-14">Create Account</Button>
+                        <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? 'Creating account…' : 'Create Account'}</Button>
                     </form>
-                    <GoogleButton label="Sign up with Google" />
+                    <GoogleButton label="Sign up with Google" onDone={() => onOpenChange(false)} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         Already have an account?{' '}

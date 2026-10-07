@@ -1,105 +1,43 @@
 
 'use client';
 
-import { useProductStore } from '@/hooks/use-product-store';
-import ProductCard from '@/components/product-card';
-import { Button } from '@/components/ui/button';
+import { useMemo } from 'react';
 import Link from 'next/link';
+import { PlusCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, Wand2 } from 'lucide-react';
+import { FeedSlide } from '@/components/social/feed-slide';
+import { useProductStore } from '@/hooks/use-product-store';
+import { useLikesStore } from '@/hooks/use-likes';
+import { useWishlistStore } from '@/hooks/use-wishlist';
+import { forYou } from '@/lib/recommend';
 
-export default function Home() {
+// "For You": a full-screen, swipeable feed ranked by what the visitor likes and saves.
+export default function ForYouPage() {
   const { products, isInitialized } = useProductStore();
-
-  const activeProducts = products.filter(p => p.status === 'active');
-  const recommended = activeProducts.filter(p => p.official).slice(0, 8);
-
-  if (!isInitialized) {
-    return (
-        <div className="container mx-auto py-8 px-4 md:py-12">
-            <div className="text-center mb-12">
-                <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight font-headline bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-                Saligue
-                </h1>
-                <p className="mt-4 text-lg md:text-xl text-muted-foreground">
-                Drip? AI’s got you.
-                </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                {Array.from({ length: 8 }).map((_, i) => (
-                    <div key={i} className="space-y-2">
-                        <Skeleton className="h-80 w-full" />
-                        <Skeleton className="h-6 w-3/4" />
-                        <Skeleton className="h-4 w-1/2" />
-                    </div>
-                ))}
-            </div>
-      </div>
-    );
-  }
+  const liked = useLikesStore((s) => s.liked);
+  const savedIds = useWishlistStore((s) => s.ids);
+  // Rank once per visit (and when the catalog changes), not on every like, so items don't jump around.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const feed = useMemo(() => forYou(products, liked, new Set(savedIds)), [products.length, isInitialized]);
+  const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
   return (
-    <div className="container mx-auto py-8 px-4 md:py-12">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight font-headline bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-          Saligue
-        </h1>
-        <p className="mt-4 text-lg md:text-xl text-muted-foreground">
-          Drip? AI’s got you.
-        </p>
-        <p className="mx-auto mt-2 max-w-xl text-muted-foreground">
-          Add your photo, search any item, and see yourself wearing it — then contact the owner directly.
-        </p>
-        <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-          <Button size="lg" asChild>
-            <Link href="/mirror"><Wand2 className="mr-2 h-5 w-5" /> Mirror My-Self</Link>
-          </Button>
-          <Button size="lg" variant="outline" asChild>
-            <Link href="/search"><Search className="mr-2 h-5 w-5" /> AI Search</Link>
+    <div className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-black md:h-[calc(100dvh-4rem)]">
+      {!isInitialized ? (
+        <Skeleton className="h-full w-full rounded-none" />
+      ) : feed.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-white">
+          <p className="text-2xl font-bold">Nothing here yet</p>
+          <p className="text-white/70">Be the first to post an item on Saligue.</p>
+          <Button asChild>
+            <Link href="/sell"><PlusCircle className="mr-2 h-4 w-4" /> Sell an item</Link>
           </Button>
         </div>
-      </div>
-
-      {recommended.length > 0 && (
-        <section className="mb-12">
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">Recommended</p>
-              <h2 className="text-2xl font-extrabold tracking-wide">by INDECIANA</h2>
-            </div>
-            <Button variant="link" asChild><Link href="/indeciana">See all</Link></Button>
-          </div>
-          <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2">
-            {recommended.map((product) => (
-              <div key={product.id} className="w-64 shrink-0 snap-start">
-                <ProductCard product={product} />
-              </div>
-            ))}
-          </div>
-        </section>
+      ) : (
+        // Live data (like counts) from the store, order from the ranking.
+        feed.map((p) => byId.get(p.id)).filter(Boolean).map((p) => <FeedSlide key={p!.id} product={p!} />)
       )}
-
-      <div id="mirror-my-self">
-        {activeProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {activeProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-16 border-2 border-dashed rounded-lg">
-            <h2 className="text-2xl font-semibold text-muted-foreground">
-              No Products Yet
-            </h2>
-            <p className="mt-2 text-muted-foreground">
-              Be the first to list an item for sale!
-            </p>
-            <Button asChild className="mt-4">
-              <Link href="/sell">Sell Your First Item</Link>
-            </Button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
