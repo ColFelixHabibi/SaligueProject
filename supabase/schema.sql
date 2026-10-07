@@ -237,7 +237,10 @@ create policy "profiles update own" on public.profiles for update to authenticat
 drop policy if exists "products public read" on public.products;
 create policy "products public read" on public.products for select using (true);
 drop policy if exists "products seller insert" on public.products;
-create policy "products seller insert" on public.products for insert to authenticated with check (seller_id = auth.uid());
+-- Guests (anonymous sign-ins) can browse and buy, but selling needs a real account.
+create policy "products seller insert" on public.products for insert to authenticated with check (
+  seller_id = auth.uid() and coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false
+);
 drop policy if exists "products seller update" on public.products;
 create policy "products seller update" on public.products for update to authenticated using (seller_id = auth.uid()) with check (seller_id = auth.uid());
 drop policy if exists "products seller delete" on public.products;
