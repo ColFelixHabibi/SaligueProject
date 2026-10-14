@@ -21,8 +21,12 @@ import { enqueue, itemCutout } from '@/lib/ai/cutout';
 import { REALISTIC_CATEGORIES, realisticTryOn } from '@/lib/ai/studio';
 import { productHref } from '@/lib/links';
 
+// Items that replace what the person is wearing (see dressOutfit's fabric swap).
+const CLOTHES = new Set(['top', 'outerwear', 'dress', 'bottom']);
+
 interface DressedCardProps {
   // What the shopper is wearing in the photo, so it can be taken off before dressing.
+  // undefined while the photo is still being analysed: clothes then wait, so they're never pasted on top.
   parsing?: Parsing | null;
   product: Product;
   person: HTMLCanvasElement;
@@ -85,6 +89,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
       const item = await itemCutout(product);
       if (cancelled) return;
       const category = isCategory(product.category) ? product.category : 'top';
+      if (parsing === undefined && CLOTHES.has(category)) return;
       const result = dressPerson(person, landmarks, item, category, parsing);
       if (cancelled) return;
       setDressedUrl(result.canvas.toDataURL('image/png'));

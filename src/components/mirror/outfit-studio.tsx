@@ -76,7 +76,7 @@ interface OutfitStudioProps {
   onPhoto: (file: File) => void;
   onRemovePhoto: () => void;
   // What the shopper is wearing in the photo, so it can be taken off (null while unknown).
-  parsing: Parsing | null;
+  parsing: Parsing | null | undefined;
 }
 
 /**
@@ -128,6 +128,8 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
       if (cancelled) return;
       const pieces = await Promise.all(outfit.map(async (p) => ({ canvas: await itemCutout(p), category: outfitSlot(p) })));
       if (cancelled) return;
+      // Wait until the photo has been analysed, so clothes replace what is worn instead of going on top.
+      if (parsing === undefined && pieces.some((p) => REALISTIC_CATEGORIES.includes(p.category))) return;
       const result = dressOutfit(person, landmarks, pieces, { parsing, showMissing: false });
       if (cancelled) return;
       // Keep showing the previous look until the new one is ready, so changing one item doesn't flash.

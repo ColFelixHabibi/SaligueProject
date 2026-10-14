@@ -112,10 +112,11 @@ function Mirror() {
   );
 
   // What the shopper is wearing in the photo, so new clothes replace it instead of going on top.
-  const [parsing, setParsing] = useState<Parsing | null>(null);
+  // undefined while the photo is still being analysed; null if the analysis can't run on this device.
+  const [parsing, setParsing] = useState<Parsing | null | undefined>(undefined);
   const [parseBusy, setParseBusy] = useState<string | null>(null);
   useEffect(() => {
-    setParsing(null);
+    setParsing(undefined);
     if (!person) return;
     let cancelled = false;
     parseClothes(person, (message) => !cancelled && setParseBusy(message)).then((result) => {

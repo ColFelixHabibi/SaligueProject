@@ -402,6 +402,147 @@ function undress(person: HTMLCanvasElement, parsing: Parsing, worn: { item: HTML
   return copy;
 }
 
+// ---------------------------------------------------------------------------
+// Fabric swap: the clothes the person is wearing are re-woven in the new item's fabric.
+// ---------------------------------------------------------------------------
+
+// What the person wears that a new item of each kind replaces (see also REPLACED_PARTS).
+const FABRIC_PARTS: Partial<Record<Category, number[]>> = {
+  top: [PART.upperClothes],
+  outerwear: [PART.upperClothes],
+  bottom: [PART.pants, PART.skirt],
+  dress: [PART.upperClothes, PART.dress, PART.skirt, PART.pants],
+};
+
+/**
+ * A seamless tile of the item's fabric: the most solid square of the garment (a sleeve-free part of a top,
+ * one trouser leg…), mirrored both ways so it repeats without visible joins.
+ */
+function fabricTile(item: HTMLCanvasElement): HTMLCanvasElement | null {
+  const { width, height } = item;
+  const pixels = context2d(item).getImageData(0, 0, width, height).data;
+  const size = Math.max(4, Math.round(Math.min(width, height) * 0.2));
+  let best: { x: number; y: number; score: number } | null = null;
+  for (let gy = 0; gy <= 8; gy++) {
+    for (let gx = 0; gx <= 8; gx++) {
+      const x = Math.round(((width - size) * gx) / 8), y = Math.round(((height - size) * gy) / 8);
+      let solid = 0, total = 0, sum = 0, sumSq = 0;
+      for (let yy = y; yy < y + size; yy += 3) {
+        for (let xx = x; xx < x + size; xx += 3) {
+          const i = (yy * width + xx) * 4;
+          total++;
+          if (pixels[i + 3] <= 200) continue;
+          solid++;
+          const l = 0.3 * pixels[i] + 0.59 * pixels[i + 1] + 0.11 * pixels[i + 2];
+          sum += l;
+          sumSq += l * l;
+        }
+      }
+      if (solid / total < 0.95) continue;
+      // Prefer even fabric (no buttons, pockets or seams), then squares nearer the middle.
+      const spread = Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2));
+      const score = -spread / 16 - (0.15 * Math.hypot(gx - 4, gy - 4)) / 4;
+      if (!best || score > best.score) best = { x, y, score };
+    }
+  }
+  if (!best) return null;
+  const patch = cropCanvas(item, { x: best.x, y: best.y, width: size, height: size });
+  const tile = createCanvas(size * 2, size * 2);
+  const ctx = context2d(tile);
+  for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    ctx.save();
+    ctx.translate(sx < 0 ? size * 2 : 0, sy < 0 ? size * 2 : 0);
+    ctx.scale(sx, sy);
+    ctx.drawImage(patch, 0, 0);
+    ctx.restore();
+  }
+  return tile;
+}
+
+// Where the person wears what `category` replaces. A dress counts as a top above the hips and as a
+// skirt below them, so asking for only a top (or only a skirt) changes only that half.
+function wornArea(parsing: Parsing, category: Category, person: HTMLCanvasElement, lm: Point[] | null) {
+  const { width, height } = person;
+  const mask = partMask(parsing, FABRIC_PARTS[category] ?? [], width, height);
+  const hips = lm && visible(lm[LM.leftHip], lm[LM.rightHip]) ? mid(lm[LM.leftHip], lm[LM.rightHip]).y : null;
+  if (hips !== null && (category === 'top' || category === 'outerwear' || category === 'bottom')) {
+    const dressMask = partMask(parsing, [PART.dress], width, height);
+    const half = context2d(dressMask);
+    half.globalCompositeOperation = 'destination-out';
+    if (category === 'bottom') half.fillRect(0, 0, width, hips);
+    else half.fillRect(0, hips, width, height - hips);
+    context2d(mask).drawImage(dressMask, 0, 0);
+  }
+  return mask;
+}
+
+/**
+ * Replaces what the person wears (shirt, trousers, dress…) with the new item's fabric, keeping the
+ * photo's folds, light and silhouette. Changes `base` in place. Returns false when the photo shows
+ * nothing to replace (e.g. bare legs) or the item has no usable fabric, so the caller can fit it instead.
+ */
+function swapFabric(base: HTMLCanvasElement, person: HTMLCanvasElement, item: HTMLCanvasElement, category: Category, parsing: Parsing, lm: Point[] | null) {
+  const tile = fabricTile(item);
+  if (!tile) return false;
+  const { width, height } = person;
+  const area = context2d(wornArea(parsing, category, person, lm)).getImageData(0, 0, width, height).data;
+  const original = context2d(person).getImageData(0, 0, width, height).data;
+
+  // Size of the area, so the fabric's pattern is about as big on the body as on the garment.
+  let minX = width, maxX = 0, count = 0;
+  for (let i = 0, p = 0; i < area.length; i += 4, p++) {
+    if (area[i + 3] > 128 && original[i + 3] > 128) {
+      const x = p % width;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      count++;
+    }
+  }
+  if (count < width * height * 0.01) return false;
+
+  const fabric = createCanvas(width, height);
+  const fabricCtx = context2d(fabric);
+  const pattern = fabricCtx.createPattern(tile, 'repeat');
+  if (!pattern) return false;
+  const scale = (maxX - minX) / item.width;
+  pattern.setTransform(new DOMMatrix().translateSelf(minX, 0).scaleSelf(scale, scale));
+  fabricCtx.fillStyle = pattern;
+  fabricCtx.fillRect(0, 0, width, height);
+  const cloth = fabricCtx.getImageData(0, 0, width, height).data;
+
+  // Light and folds of the old clothes: brightness relative to its own average, broad and fine.
+  const blur = Math.max(2, Math.round(Math.max(width, height) * 0.02));
+  const lumCanvas = createCanvas(width, height);
+  const lumCtx = context2d(lumCanvas);
+  lumCtx.filter = `grayscale(1) blur(${blur}px)`;
+  lumCtx.drawImage(person, 0, 0);
+  const broad = lumCtx.getImageData(0, 0, width, height).data;
+  let sum = 0, sumSq = 0;
+  for (let i = 0; i < area.length; i += 4) {
+    if (area[i + 3] > 128 && original[i + 3] > 128) {
+      const l = 0.3 * original[i] + 0.59 * original[i + 1] + 0.11 * original[i + 2];
+      sum += l;
+      sumSq += l * l;
+    }
+  }
+  const mean = Math.max(1, sum / count);
+  const spread = Math.sqrt(Math.max(1, sumSq / count - mean * mean));
+
+  const out = context2d(base).getImageData(0, 0, width, height);
+  const px = out.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const m = (area[i + 3] / 255) * (original[i + 3] / 255);
+    if (m <= 0) continue;
+    const l = 0.3 * original[i] + 0.59 * original[i + 1] + 0.11 * original[i + 2];
+    const fold = (l - broad[i]) / (spread + 6);
+    const light = Math.pow(Math.max(broad[i], 1) / mean, 0.5);
+    const f = Math.min(1.4, Math.max(0.5, light * (1 + fold * 0.35)));
+    for (let c = 0; c < 3; c++) px[i + c] = px[i + c] * (1 - m) + Math.min(255, cloth[i + c] * f) * m;
+  }
+  context2d(base).putImageData(out, 0, 0);
+  return true;
+}
+
 /**
  * Dresses a person (transparent cut-out) in a whole outfit (transparent cut-outs) using body landmarks:
  * what they wore is taken off, then clothes go on the body, shoes on the feet, hats on the head,
@@ -415,10 +556,16 @@ export function dressOutfit(person: HTMLCanvasElement, landmarks: Point[] | null
     .sort((a, b) => LAYER_ORDER.indexOf(a.category) - LAYER_ORDER.indexOf(b.category));
 
   const worn: { item: HTMLCanvasElement; category: Category; placements: Placement[] }[] = [];
+  // Clothes the person already wears something in place of: re-woven in the new fabric.
+  const swapped: { item: HTMLCanvasElement; category: Category }[] = [];
   const beside: OutfitPiece[] = [];
   const missing: Category[] = [];
   const notes: string[] = [];
   for (const piece of ordered) {
+    if (parsing && FABRIC_PARTS[piece.category]) {
+      swapped.push({ item: piece.canvas, category: piece.category });
+      continue;
+    }
     if (BESIDE.has(piece.category)) {
       beside.push(piece);
       continue;
@@ -432,8 +579,6 @@ export function dressOutfit(person: HTMLCanvasElement, landmarks: Point[] | null
       worn.push({ item: piece.canvas, category: piece.category, placements });
     }
   }
-  const note = notes.join(' ') || undefined;
-
   // Leave room around the person in case an item extends past the photo.
   const pad = Math.round(Math.max(person.width, person.height) * 0.15);
   const canvas = createCanvas(person.width + pad * 2, person.height + pad * 2);
@@ -441,7 +586,26 @@ export function dressOutfit(person: HTMLCanvasElement, landmarks: Point[] | null
   const base = parsing
     ? undress(person, parsing, worn)
     : withErased(person, worn.flatMap((w) => w.placements.flatMap((p) => (p.erase ? [p.erase] : []))));
-  ctx.drawImage(base, pad, pad);
+  // The person's own clothes become the new ones. If the photo shows nothing to replace
+  // (e.g. a top over bare shoulders), the item is fitted onto the body instead.
+  const swapBase = base === person ? (() => {
+    const copy = createCanvas(person.width, person.height);
+    context2d(copy).drawImage(person, 0, 0);
+    return copy;
+  })() : base;
+  for (const piece of swapped) {
+    if (swapFabric(swapBase, person, piece.item, piece.category, parsing!, lm)) continue;
+    const placements = lm ? placementsFor(piece.category, lm, piece.item) : 'No body was detected in your photo.';
+    if (typeof placements === 'string') {
+      missing.push(piece.category);
+      if (showMissing) beside.push({ canvas: piece.item, category: piece.category });
+      if (!notes.includes(placements)) notes.push(placements);
+    } else {
+      worn.push({ item: piece.item, category: piece.category, placements });
+      worn.sort((a, b) => LAYER_ORDER.indexOf(a.category) - LAYER_ORDER.indexOf(b.category));
+    }
+  }
+  ctx.drawImage(swapBase, pad, pad);
 
   // Each item goes on its own layer so it can be fitted to the body before being added.
   for (const { item, category, placements } of worn) {
@@ -455,6 +619,7 @@ export function dressOutfit(person: HTMLCanvasElement, landmarks: Point[] | null
     ctx.drawImage(layer, 0, 0);
   }
 
+  const note = notes.join(' ') || undefined;
   const dressed = trimTransparent(canvas, 12);
   return { canvas: trimTransparent(besideItems(dressed, person.height, beside), 12), fitted: !note, note, missing };
 }
