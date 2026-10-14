@@ -7,6 +7,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { sendEmail } from './mail.mjs';
 import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
+import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -176,6 +177,9 @@ function productFields(body) {
   if (body.embedding !== undefined) fields.embedding = json(body.embedding);
   if (body.sound !== undefined) fields.sound = json(body.sound);
   if ((fields.image?.length ?? 0) > 1_500_000 || (fields.cutout?.length ?? 0) > 1_500_000) fail(413, 'too_large', 'This photo is too large.');
+  // Photos are kept as files; the database stores their links.
+  if (fields.image) fields.image = storeImage(fields.image);
+  if (fields.cutout) fields.cutout = storeImage(fields.cutout);
   return fields;
 }
 
@@ -270,6 +274,9 @@ function welcome(userId, name, role) {
 // Password recovery: a one-hour link sent by email. The answer is the same whether or not the email exists.
 route('POST', '/api/auth/forgot', ({ body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
+  // Limits reset emails to the same address too.
+  if (tooManyAttempts(`reset:${email}`)) return { ok: true };
+  noteFailedAttempt(`reset:${email}`);
   const account = EMAIL.test(email) ? db.prepare('select * from users where email = ? and is_guest = 0').get(email) : null;
   if (account) {
     const token = randomBytes(32).toString('base64url');
@@ -306,12 +313,24 @@ route('POST', '/api/auth/reset', ({ user, body }) => {
   return { token: createSession(reset.user_id), user: publicUser(db.prepare('select * from users where id = ?').get(reset.user_id)) };
 });
 
+// Password guessing: at most 10 failed attempts per email in 15 minutes.
+const failedLogins = new Map();
+function tooManyAttempts(key) {
+  const recent = (failedLogins.get(key) ?? []).filter((t) => t > Date.now() - 15 * 60_000);
+  failedLogins.set(key, recent);
+  return recent.length >= 10;
+}
+const noteFailedAttempt = (key) => failedLogins.set(key, [...(failedLogins.get(key) ?? []), Date.now()]);
+
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
+  if (tooManyAttempts(email)) fail(429, 'too_many_attempts', 'Too many tries. Wait 15 minutes or reset your password.');
   const account = db.prepare('select * from users where email = ?').get(email);
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
+    noteFailedAttempt(email);
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
+  failedLogins.delete(email);
   if (body.role === 'seller' || body.role === 'buyer') db.prepare('update users set role = ? where id = ?').run(body.role, account.id);
   if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
   return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
@@ -764,6 +783,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname);
   if (!isApi) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     return serveStatic(req, res, url.pathname);
@@ -782,6 +802,9 @@ const server = http.createServer(async (req, res) => {
     send(res, 500, { error: { code: 'server_error', message: 'Something went wrong. Please try again.' } });
   }
 });
+
+const moved = moveImagesToFiles();
+if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 
 server.listen(PORT, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);

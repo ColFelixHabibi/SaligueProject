@@ -5,7 +5,7 @@ import type {NextConfig} from 'next';
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
 const nextConfig: NextConfig = {
-  // Static export keeps the app deployable to GitHub Pages; Supabase supplies hosted auth and data.
+  // Static export: served by Saligue's own server (server/), or hosted elsewhere such as GitHub Pages.
   output: 'export',
   basePath,
   trailingSlash: true,
@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   images: {
-    // Static export has no image optimization server; product photos are data URLs anyway.
+    // Static export has no image optimization server; product photos come from the Saligue server.
     unoptimized: true,
   },
   webpack: (config) => {

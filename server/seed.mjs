@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { db, json, now, transaction } from './db.mjs';
+import { storeImage } from './media.mjs';
 
 const DEMO_DOMAIN = '@demo.saligue.app';
 
@@ -252,7 +253,7 @@ if (process.argv.includes('--remove')) {
         db.prepare(`insert into products (id, name, price, image, cutout, category, seller, seller_id, seller_email, status,
             description, size, color, brand, condition, contact, shop, official, like_count, sound, created_at)
           values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)`).run(
-          id, item.name, item.price, item.image, item.image, item.category, shop.name, sellerId, email,
+          id, item.name, item.price, storeImage(item.image), storeImage(item.image), item.category, shop.name, sellerId, email,
           `${item.name} by ${item.brand}. Demo item for trying Saligue.`, item.size ?? null, item.color, item.brand,
           shop.shop.whatsapp, json(shop.shop), shop.official ? 1 : 0, Math.floor(Math.random() * 40),
           sound ? json({ name: sound[0], duration: sound[1].duration }) : null, created

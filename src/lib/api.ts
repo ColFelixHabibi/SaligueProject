@@ -5,6 +5,11 @@
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
 const TOKEN_KEY = 'saligue-session';
 
+/** Full address of a picture stored on the Saligue server ("/media/…"), also when the website is hosted elsewhere. */
+export function mediaUrl<T extends string | undefined>(path: T): T {
+  return (path?.startsWith('/media/') ? `${API_ORIGIN}${path}` : path) as T;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);

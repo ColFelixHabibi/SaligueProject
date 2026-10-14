@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import type { Product } from '@/lib/types';
-import { api, onServerEvent } from '@/lib/api';
+import { api, mediaUrl, onServerEvent } from '@/lib/api';
 
 interface ProductState {
   products: Product[];
@@ -15,7 +15,7 @@ interface ProductState {
 }
 
 async function reload() {
-  const products = await api<Product[]>('/products');
+  const products = (await api<Product[]>('/products')).map((p) => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout) }));
   useProductStore.setState({ products, isInitialized: true, error: null });
 }
 

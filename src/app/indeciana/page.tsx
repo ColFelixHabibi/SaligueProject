@@ -78,7 +78,7 @@ function IndecianaStore() {
           </div>
         ) : (
           <>
-            <div className="grid gap-10 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
               <div>
                 <div className="overflow-hidden bg-muted">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -109,7 +109,7 @@ function IndecianaStore() {
                       </div>
                     ))}
                 </dl>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Button size="lg" className="h-14 rounded-none bg-foreground text-base text-background hover:bg-foreground/90" asChild>
                     <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Wear it</Link>
                   </Button>

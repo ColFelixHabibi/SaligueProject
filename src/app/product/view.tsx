@@ -67,7 +67,7 @@ export default function ProductView({ id }: { id: string | null }) {
   if (!isInitialized || product?.official) {
     return (
       <div className="container mx-auto py-8 px-4 md:py-12">
-        <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
           <Skeleton className="w-full aspect-[3/4]" />
           <div className="space-y-4">
             <Skeleton className="h-10 w-3/4" />
@@ -112,7 +112,7 @@ export default function ProductView({ id }: { id: string | null }) {
 
   return (
     <div className="container mx-auto py-8 px-4 md:py-12">
-      <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
         <div>
           <Card className="overflow-hidden">
             <Image
@@ -150,7 +150,7 @@ export default function ProductView({ id }: { id: string | null }) {
                 {product.description || `This is a high-quality ${product.name} from ${product.seller}. Perfect for any occasion and crafted with the finest materials.`}
               </CardDescription>
 
-              <Button size="lg" variant="secondary" className="w-full text-lg h-14 mt-6" asChild>
+              <Button size="lg" variant="secondary" className="mt-6 h-auto min-h-14 w-full whitespace-normal py-3 text-lg" asChild>
                 <Link href={`/mirror?item=${product.id}`}>
                   <Wand2 className="mr-2 h-6 w-6" /> Wear it — see yourself in the full outfit
                 </Link>

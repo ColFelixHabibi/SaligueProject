@@ -54,13 +54,13 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant }:
   const overlay = variant === 'overlay';
   const button = cn(
     'flex items-center gap-1.5 text-xs font-semibold transition-transform active:scale-90',
-    overlay ? 'flex-col text-foreground' : 'rounded-full px-2 py-1.5 text-foreground hover:bg-muted'
+    overlay ? 'flex-col text-foreground' : 'min-w-0 rounded-full px-1.5 py-1.5 text-foreground hover:bg-muted'
   );
   // On the feed each icon sits in a white circle so it reads on any photo.
   const icon = overlay ? 'h-11 w-11 rounded-full bg-background/90 p-2.5 shadow' : 'h-5 w-5';
 
   return (
-    <div className={cn(overlay ? 'flex flex-col items-center gap-5' : 'flex items-center justify-between gap-1')}>
+    <div className={cn(overlay ? 'flex flex-col items-center gap-5' : 'flex flex-wrap items-center justify-between gap-x-1')}>
       <button type="button" className={button} onClick={() => run(() => toggleLike(product.id))} aria-pressed={liked} aria-label="Like">
         <Heart className={cn(icon, liked && 'fill-primary text-primary')} />
         <span>{likeCount > 0 ? compact(likeCount) : 'Like'}</span>

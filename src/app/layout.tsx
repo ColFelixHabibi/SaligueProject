@@ -53,7 +53,7 @@ export default function RootLayout({
           <div className="relative flex min-h-screen flex-col">
             <Header />
             <Sidebar />
-            <main className="flex-1 pb-16 md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
+            <main className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
             <Footer />
           </div>
           <Toaster />
