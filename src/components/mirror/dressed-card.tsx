@@ -36,9 +36,11 @@ interface DressedCardProps {
   // Adds the item to the full outfit; `worn` is true when it is already part of it.
   onWear?: () => void;
   worn?: boolean;
+  // Redraw the look with the realistic AI straight away (clothes only), instead of waiting for a tap.
+  auto?: boolean;
 }
 
-export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn }: DressedCardProps) {
+export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn, auto }: DressedCardProps) {
   const [dressedUrl, setDressedUrl] = useState<string | null>(null);
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState(false);
@@ -61,7 +63,16 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
       setRealisticBusy(false);
     }
   };
-  const shownUrl = realisticUrl ?? dressedUrl;
+  useEffect(() => {
+    if (auto && canBeRealistic) makeRealistic();
+    // Once per item and photo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, canBeRealistic, product, personUrl]);
+
+  // Clothes are only shown once the AI has really dressed the person in them; the pasted-on
+  // preview is a fallback when the AI isn't available. Shoes, hats, glasses and bags are placed on the device.
+  const waitingForAi = canBeRealistic && !realisticUrl && (realisticBusy || (auto && !realisticError));
+  const shownUrl = realisticUrl ?? (waitingForAi ? personUrl : dressedUrl);
   const [note, setNote] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -109,16 +120,20 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
           alt={product.name}
           className="absolute bottom-2 right-2 h-16 w-16 rounded-md border bg-background/90 object-contain p-1 shadow"
         />
-        {realisticBusy && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/70 text-sm font-medium">
+        {waitingForAi && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/60 p-4 text-center text-sm font-medium backdrop-blur-[2px]">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            Saligue AI is redrawing the outfit…
+            {realisticBusy ? 'Saligue AI is dressing you in it…' : 'Waiting for Saligue AI…'}
+            <span className="text-xs font-normal text-muted-foreground">About 20 seconds per look</span>
           </div>
         )}
         {realisticUrl && (
           <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">AI realistic</span>
         )}
-        {note && dressedUrl && !realisticUrl && (
+        {canBeRealistic && realisticError && !realisticUrl && dressedUrl && (
+          <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium text-muted-foreground shadow">Quick preview</span>
+        )}
+        {note && dressedUrl && !realisticUrl && !waitingForAi && (
           <p className="absolute left-2 right-20 bottom-2 rounded bg-background/90 px-2 py-1 text-xs text-muted-foreground">{note}</p>
         )}
       </div>

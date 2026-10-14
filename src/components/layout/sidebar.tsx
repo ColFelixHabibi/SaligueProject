@@ -93,7 +93,7 @@ export default function Sidebar() {
           title="INDECIANA"
           className={cn(
             'mt-3 flex items-center justify-center rounded-lg py-3 font-serif tracking-[0.25em] transition-colors',
-            inIndeciana ? 'bg-primary text-primary-foreground' : 'bg-neutral-950 text-white hover:bg-neutral-800'
+            inIndeciana ? 'bg-primary text-primary-foreground' : 'border border-foreground bg-background text-foreground hover:bg-muted'
           )}
         >
           <span className="text-lg lg:hidden">I</span>

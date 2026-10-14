@@ -3,6 +3,7 @@
 //   node server/seed.mjs            add the demo items (again: replaces the previous demo items)
 //   node server/seed.mjs --remove   remove the demo shops and their items
 import { randomUUID } from 'node:crypto';
+import { Mp3Encoder } from '@breezystack/lamejs';
 import { db, json, now, transaction } from './db.mjs';
 
 const DEMO_DOMAIN = '@demo.saligue.app';
@@ -182,6 +183,44 @@ const SHOPS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Sounds: short jingles made here, so the feed plays something like TikTok does.
+// ---------------------------------------------------------------------------
+
+const RATE = 22050;
+const NOTE = (n) => 440 * 2 ** ((n - 69) / 12);
+
+// A little looping tune: melody notes (MIDI numbers, null = rest) over a soft beat.
+function jingle(melody, bpm) {
+  const beat = 60 / bpm / 2;
+  const samples = new Float32Array(Math.ceil(melody.length * beat * RATE));
+  melody.forEach((note, i) => {
+    const start = Math.floor(i * beat * RATE);
+    const length = Math.floor(beat * RATE);
+    for (let j = 0; j < length && start + j < samples.length; j++) {
+      const t = j / RATE;
+      const envelope = Math.min(1, j / 200) * Math.exp(-3 * t / beat);
+      let v = note === null ? 0 : 0.3 * Math.sin(2 * Math.PI * NOTE(note) * t) + 0.1 * Math.sin(4 * Math.PI * NOTE(note) * t);
+      // Kick on every other step.
+      if (i % 2 === 0) v += 0.35 * Math.sin(2 * Math.PI * 60 * t * Math.exp(-t * 20)) * Math.exp(-t * 18);
+      samples[start + j] += v * envelope;
+    }
+  });
+  const pcm = Int16Array.from(samples, (v) => Math.max(-1, Math.min(1, v)) * 0x7fff);
+  const encoder = new Mp3Encoder(1, RATE, 48);
+  const parts = [];
+  for (let i = 0; i < pcm.length; i += 1152) parts.push(Buffer.from(encoder.encodeBuffer(pcm.subarray(i, i + 1152))));
+  parts.push(Buffer.from(encoder.flush()));
+  return { data: `data:audio/mpeg;base64,${Buffer.concat(parts).toString('base64')}`, duration: samples.length / RATE };
+}
+
+const SOUNDS = {
+  'Kitenge Summer Dress': ['Kigali Sunshine', jingle([72, 76, 79, 76, 74, 77, 81, 77, 72, 76, 79, 84, 83, 79, 76, null], 116)],
+  'White Sneakers': ['Street Steps', jingle([60, null, 63, 65, 67, null, 65, 63, 60, null, 58, 60, 63, null, 60, null], 100)],
+  'INDECIANA Red Evening Dress': ['INDECIANA Night', jingle([69, 72, 76, 72, 74, 77, 81, 77, 76, 72, 69, 72, 71, 74, 76, null], 92)],
+  'Denim Jacket': ['Weekend Denim', jingle([64, 67, 71, 67, 69, 72, 69, 67, 64, 62, 64, 67, 64, null, 62, null], 108)],
+};
+
 function remove() {
   const sellers = db.prepare(`select id from users where email like ?`).all(`%${DEMO_DOMAIN}`);
   transaction(() => {
@@ -208,13 +247,19 @@ if (process.argv.includes('--remove')) {
       shop.items.forEach((item, i) => {
         // Spread over the last few days so the feed has new and older items.
         const created = new Date(Date.now() - (i * 7 + count) * 3_600_000).toISOString();
+        const id = randomUUID();
+        const sound = SOUNDS[item.name];
         db.prepare(`insert into products (id, name, price, image, cutout, category, seller, seller_id, seller_email, status,
-            description, size, color, brand, condition, contact, shop, official, like_count, created_at)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?)`).run(
-          randomUUID(), item.name, item.price, item.image, item.image, item.category, shop.name, sellerId, email,
+            description, size, color, brand, condition, contact, shop, official, like_count, sound, created_at)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)`).run(
+          id, item.name, item.price, item.image, item.image, item.category, shop.name, sellerId, email,
           `${item.name} by ${item.brand}. Demo item for trying Saligue.`, item.size ?? null, item.color, item.brand,
-          shop.shop.whatsapp, json(shop.shop), shop.official ? 1 : 0, Math.floor(Math.random() * 40), created
+          shop.shop.whatsapp, json(shop.shop), shop.official ? 1 : 0, Math.floor(Math.random() * 40),
+          sound ? json({ name: sound[0], duration: sound[1].duration }) : null, created
         );
+        if (sound) {
+          db.prepare('insert into product_audio (product_id, data, name, duration) values (?, ?, ?, ?)').run(id, sound[1].data, sound[0], sound[1].duration);
+        }
         count++;
       });
     }

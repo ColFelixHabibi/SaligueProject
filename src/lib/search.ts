@@ -81,16 +81,10 @@ const sameSize = (productSize: string | undefined, wanted: string) =>
  * the remaining items by how well they look like the whole description.
  */
 export async function describeSearch(products: Product[], text: string, onProgress?: Progress): Promise<{ results: Product[]; parsed: ParsedDescription }> {
-  const parsed = parseDescription(text, products);
-  let pool = products.filter((p) => p.status === 'active');
-  if (parsed.category) pool = pool.filter((p) => p.category === parsed.category);
-  if (parsed.size) pool = pool.filter((p) => sameSize(p.size, parsed.size!));
-  if (parsed.brand) pool = pool.filter((p) => p.brand?.toLowerCase() === parsed.brand!.toLowerCase());
-  if (parsed.color) {
-    const colored = pool.filter((p) => p.color?.toLowerCase().includes(parsed.color!));
-    if (colored.length) pool = colored;
-  }
+  const { pool, parsed } = narrowByDescription(products, text);
   if (!pool.length) return { results: [], parsed };
+  // The AI can only rank items that have an AI fingerprint; skip loading it when none do.
+  if (!pool.some((p) => p.embedding?.length)) return { results: pool.slice(0, MAX_RESULTS), parsed };
 
   const narrowed = !!(parsed.category || parsed.size || parsed.brand);
   const meaningful = text.toLowerCase().split(/\s+/).filter((w) => w.length > 1 && !FILLER.has(w)).join(' ');
@@ -103,6 +97,27 @@ export async function describeSearch(products: Product[], text: string, onProgre
     results: scored.filter((s) => s.visual >= floor).sort((a, b) => b.visual - a.visual).slice(0, MAX_RESULTS).map((s) => s.p),
     parsed,
   };
+}
+
+/** Instant results for a description (type, size, brand, colour and words), shown while the AI ranking loads. */
+export function quickDescribeSearch(products: Product[], text: string): { results: Product[]; parsed: ParsedDescription } {
+  const { pool, parsed } = narrowByDescription(products, text);
+  const words = text.toLowerCase().split(/\s+/).filter((w) => w.length > 1 && !FILLER.has(w));
+  const ranked = words.length ? [...pool].sort((a, b) => keywordScore(b, words) - keywordScore(a, words)) : pool;
+  return { results: ranked.slice(0, MAX_RESULTS), parsed };
+}
+
+function narrowByDescription(products: Product[], text: string) {
+  const parsed = parseDescription(text, products);
+  let pool = products.filter((p) => p.status === 'active');
+  if (parsed.category) pool = pool.filter((p) => p.category === parsed.category);
+  if (parsed.size) pool = pool.filter((p) => sameSize(p.size, parsed.size!));
+  if (parsed.brand) pool = pool.filter((p) => p.brand?.toLowerCase() === parsed.brand!.toLowerCase());
+  if (parsed.color) {
+    const colored = pool.filter((p) => p.color?.toLowerCase().includes(parsed.color!));
+    if (colored.length) pool = colored;
+  }
+  return { pool, parsed };
 }
 
 /**

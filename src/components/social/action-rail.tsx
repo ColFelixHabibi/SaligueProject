@@ -20,7 +20,7 @@ interface ActionRailProps {
   product: Product;
   commentsOpen: boolean;
   onToggleComments: () => void;
-  // "overlay": white icons in a column over an image (feed); "bar": a compact row below an image (cards).
+  // "overlay": a column of round buttons over an image (feed); "bar": a compact row below an image (cards).
   variant: 'overlay' | 'bar';
 }
 
@@ -54,9 +54,10 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant }:
   const overlay = variant === 'overlay';
   const button = cn(
     'flex items-center gap-1.5 text-xs font-semibold transition-transform active:scale-90',
-    overlay ? 'flex-col text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]' : 'rounded-full px-2 py-1.5 text-foreground hover:bg-muted'
+    overlay ? 'flex-col text-foreground' : 'rounded-full px-2 py-1.5 text-foreground hover:bg-muted'
   );
-  const icon = overlay ? 'h-8 w-8' : 'h-5 w-5';
+  // On the feed each icon sits in a white circle so it reads on any photo.
+  const icon = overlay ? 'h-11 w-11 rounded-full bg-background/90 p-2.5 shadow' : 'h-5 w-5';
 
   return (
     <div className={cn(overlay ? 'flex flex-col items-center gap-5' : 'flex items-center justify-between gap-1')}>

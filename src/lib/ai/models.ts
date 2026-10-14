@@ -7,8 +7,8 @@ import { BASE_PATH } from '@/lib/paths';
 export const BUNDLED = process.env.NEXT_PUBLIC_BUNDLED_MODELS === '1';
 export const LOCAL_MODELS = `${BASE_PATH}/models`;
 
-const ORT_VERSION = '1.31.0-dev.20260914-8d85527a0';
-export const ORT_WASM_PATH = BUNDLED ? `${LOCAL_MODELS}/ort/` : `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+// The AI engine is served by the website itself (scripts/copy-ort.mjs), or shipped inside the apps.
+export const ORT_WASM_PATH = BUNDLED ? `${LOCAL_MODELS}/ort/` : `${BASE_PATH}/ort/`;
 
 // Open models that run on the user's device.
 export const MODELS = {
@@ -60,12 +60,13 @@ export async function fetchModel(url: string, onProgress?: Progress): Promise<Ar
   return buffer;
 }
 
-type OrtModule = typeof import('onnxruntime-web');
+type OrtModule = typeof import('onnxruntime-web/wasm');
 let ortPromise: Promise<OrtModule> | null = null;
 
 export function loadOrt(): Promise<OrtModule> {
   if (!ortPromise) {
-    ortPromise = import('onnxruntime-web').then((ort) => {
+    // The plain CPU build: half the download of the default (WebGPU-capable) one, which isn't used here.
+    ortPromise = import('onnxruntime-web/wasm').then((ort) => {
       ort.env.wasm.wasmPaths = ORT_WASM_PATH;
       // Multi-threading needs cross-origin isolation, which static hosting can't provide.
       ort.env.wasm.numThreads = 1;

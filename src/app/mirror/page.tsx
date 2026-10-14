@@ -22,7 +22,7 @@ import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORIES } from '@/lib/categories';
 import type { Product } from '@/lib/types';
-import { aiSearch, describeSearch, type ParsedDescription } from '@/lib/search';
+import { aiSearch, describeSearch, quickDescribeSearch, type ParsedDescription } from '@/lib/search';
 import { categoryLabel } from '@/lib/categories';
 import { LocateSellerDialog } from '@/components/mirror/locate-seller';
 import { context2d, createCanvas, fileToImage, fitWithin, loadImage, trimTransparent } from '@/lib/ai/canvas';
@@ -33,6 +33,9 @@ import { cn } from '@/lib/utils';
 
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
+
+// How many search results the realistic AI dresses the shopper in automatically (it has a daily limit).
+const AUTO_REALISTIC = 4;
 
 function Mirror() {
   const { toast } = useToast();
@@ -178,6 +181,15 @@ function Mirror() {
           setParsed(null);
         }
       } else {
+        // Matches by type, size, colour and brand right away; the AI then puts the closest looks first.
+        const quick = query.category && !query.text.trim()
+          ? { results: products.filter((p) => p.status === 'active' && p.category === query.category), parsed: { category: query.category } }
+          : quickDescribeSearch(products, query.text);
+        if (id === searchId.current) {
+          setResults(quick.results);
+          setParsed(quick.parsed);
+        }
+        if (query.category && !query.text.trim()) return;
         const { results: found, parsed: understood } = await describeSearch(products, query.text, setSearchBusy);
         if (id === searchId.current) {
           setResults(found);
@@ -327,8 +339,8 @@ function Mirror() {
               </div>
             ) : person ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {shown.map((product) => (
-                  <DressedCard key={product.id} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
+                {shown.map((product, index) => (
+                  <DressedCard key={product.id} auto={index < AUTO_REALISTIC} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
                 ))}
               </div>
             ) : (

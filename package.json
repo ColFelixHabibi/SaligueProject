@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-ort.mjs",
     "dev": "next dev -p 9002",
+    "prebuild": "node scripts/copy-ort.mjs",
     "build": "next build",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

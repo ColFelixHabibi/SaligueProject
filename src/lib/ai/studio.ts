@@ -110,11 +110,34 @@ export function getRealistic(): Promise<boolean> {
   return cloud;
 }
 
+// Quick fingerprint of a long data URL, for caching results.
+function fingerprint(text: string) {
+  let hash = 2166136261;
+  const step = Math.max(1, Math.floor(text.length / 4096));
+  for (let i = 0; i < text.length; i += step) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+// Looks already made in this visit, and one redraw at a time (the AI handles one picture at once).
+const looks = new Map<string, Promise<string>>();
+let lane: Promise<unknown> = Promise.resolve();
+
 /** Realistically redraws the garment on the person (Leffa). Returns an image data URL. */
-export async function realisticTryOn(personUrl: string, garmentUrl: string, category: string) {
-  const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category };
-  if (await getStudio()) return call('/api/tryon', body);
-  return (await api<{ image: string }>('/ai/tryon', { body })).image;
+export function realisticTryOn(personUrl: string, garmentUrl: string, category: string): Promise<string> {
+  const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}`;
+  let look = looks.get(key);
+  if (!look) {
+    const run = async () => {
+      const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category };
+      if (await getStudio()) return call('/api/tryon', body);
+      return (await api<{ image: string }>('/ai/tryon', { body })).image;
+    };
+    look = lane.then(run, run);
+    lane = look.catch(() => {});
+    looks.set(key, look);
+    look.catch(() => looks.delete(key));
+  }
+  return look;
 }
 
 /** Dresses the person as described (SDXL Inpainting), keeping face and body. Returns a JPEG data URL. */

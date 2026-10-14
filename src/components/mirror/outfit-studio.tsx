@@ -150,16 +150,21 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
   // then shoes, hats, glasses and bags are put on the redrawn photo on the device.
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState<string | null>(null);
-  useEffect(() => setRealisticUrl(null), [outfitKey, personUrl]);
+  const [realisticFailed, setRealisticFailed] = useState(false);
+  const runId = useRef(0);
   const redrawable = outfit.filter((p) => REALISTIC_CATEGORIES.includes(outfitSlot(p)));
   const makeRealistic = async () => {
     if (!personUrl || !person) return;
+    const id = ++runId.current;
+    const stale = () => id !== runId.current;
+    setRealisticFailed(false);
     try {
       let current = personUrl;
       const clothes = [...redrawable].sort((a, b) => REDRAW_ORDER.indexOf(outfitSlot(a)) - REDRAW_ORDER.indexOf(outfitSlot(b)));
       for (const [i, item] of clothes.entries()) {
         setRealisticBusy(`Saligue AI is dressing you (${i + 1}/${clothes.length})…`);
         current = await realisticTryOn(current, item.image, outfitSlot(item));
+        if (stale()) return;
       }
       const others = outfit.filter((p) => !redrawable.includes(p));
       if (others.length) {
@@ -177,13 +182,28 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
         ctx.drawImage(flat, 0, 0);
         current = out.toDataURL('image/jpeg', 0.92);
       }
-      setRealisticUrl(current);
+      if (!stale()) setRealisticUrl(current);
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not make it realistic', description: friendlyError(error) });
+      if (stale()) return;
+      setRealisticFailed(true);
+      toast({ variant: 'destructive', title: 'Showing a quick preview', description: friendlyError(error) });
     } finally {
-      setRealisticBusy(null);
+      if (!stale()) setRealisticBusy(null);
     }
   };
+
+  // Whenever the outfit or photo changes, the AI dresses the person in the clothes (after a short pause,
+  // so picking several items in a row makes one look, not many).
+  useEffect(() => {
+    setRealisticUrl(null);
+    setRealisticFailed(false);
+    runId.current++;
+    setRealisticBusy(null);
+    if (!studio || !person || !personUrl || !redrawable.length) return;
+    const timer = setTimeout(makeRealistic, 1500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outfitKey, personUrl, studio, person]);
 
   // One tap: wear the best match for every essential piece still missing (top, trousers, shoes).
   const completeAutomatically = () => {
@@ -205,8 +225,10 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
     }
   };
 
-  const shownUrl = realisticUrl ?? lookUrl ?? personUrl;
-  const busy = photoBusy ?? realisticBusy ?? (dressing && person ? 'Dressing you…' : null);
+  // Until the AI has dressed the person in the clothes, show their own photo rather than clothes pasted on top.
+  const waitingForAi = studio && !!person && redrawable.length > 0 && !realisticUrl && !realisticFailed;
+  const shownUrl = realisticUrl ?? (waitingForAi ? personUrl : lookUrl ?? personUrl);
+  const busy = photoBusy ?? realisticBusy ?? (waitingForAi ? 'Saligue AI is getting ready to dress you…' : dressing && person ? 'Dressing you…' : null);
 
   const slotButton = ({ category, label, icon: Icon }: (typeof SLOTS)[number]) => {
     const item = wornIn(category);
@@ -339,20 +361,16 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
                 <ShoppingBag className="mr-2 h-4 w-4" /> Add whole outfit to bag
               </Button>
             )}
-            {studio && person && redrawable.length > 0 && (realisticUrl ? (
-              <Button variant="ghost" size="sm" className="w-full" onClick={() => setRealisticUrl(null)}>
-                Show quick preview
+            {studio && person && redrawable.length > 0 && realisticFailed && (
+              <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={makeRealistic} disabled={!!realisticBusy}>
+                <Sparkles className="mr-2 h-4 w-4" /> Try the realistic AI again
               </Button>
-            ) : (
-              <div className="space-y-1">
-                <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={makeRealistic} disabled={!!realisticBusy || !lookUrl}>
-                  <Sparkles className="mr-2 h-4 w-4" /> Make it realistic
-                </Button>
-                <p className="text-center text-[11px] text-muted-foreground">
-                  AI redraws you wearing the clothes (about 20 s per piece). Sends your photo to Saligue&apos;s AI.
-                </p>
-              </div>
-            ))}
+            )}
+            {studio && person && redrawable.length > 0 && (
+              <p className="text-center text-[11px] text-muted-foreground">
+                Saligue AI redraws you wearing the clothes (about 20 s per piece). This sends your photo to Saligue&apos;s AI.
+              </p>
+            )}
           </div>
         </div>
       </div>

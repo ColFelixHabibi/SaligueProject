@@ -7,6 +7,7 @@ import { BadgeCheck, MapPin } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
+import { SoundChip } from '@/components/social/sound-chip';
 import { categoryLabel } from '@/lib/categories';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
@@ -33,6 +34,7 @@ export default function ProductCard({ product, className }: ProductCardProps) {
             <BadgeCheck className="h-3 w-3" /> INDECIANA
           </span>
         )}
+        <SoundChip product={product} className="absolute bottom-2 left-2" />
       </Link>
 
       <div className="border-b px-2 py-1">

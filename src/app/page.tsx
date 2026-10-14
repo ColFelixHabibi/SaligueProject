@@ -31,19 +31,19 @@ export default function ForYouPage() {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
   return (
-    <div className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-black md:h-dvh">
+    <div className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
       {!isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (
-        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-white">
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-2xl font-bold">Couldn’t load the feed</p>
-          <p className="text-white/70">Check your connection and try again.</p>
+          <p className="text-muted-foreground">Check your connection and try again.</p>
           <Button onClick={retryProducts}>Retry</Button>
         </div>
       ) : feed.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-white">
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-2xl font-bold">Nothing here yet</p>
-          <p className="text-white/70">Be the first to post an item on Saligue.</p>
+          <p className="text-muted-foreground">Be the first to post an item on Saligue.</p>
           <Button asChild>
             <Link href="/sell"><PlusCircle className="mr-2 h-4 w-4" /> Sell an item</Link>
           </Button>

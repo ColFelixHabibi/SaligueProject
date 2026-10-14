@@ -1,11 +1,51 @@
-
 'use client';
 
 import { create } from 'zustand';
 
-// Whether item sounds play aloud. Browsers only allow sound after the user taps once,
-// so it starts off and the speaker button turns it on for the whole visit.
-export const useSoundStore = create<{ soundOn: boolean; toggle: () => void }>()((set) => ({
-  soundOn: false,
-  toggle: () => set((s) => ({ soundOn: !s.soundOn })),
+// Whether item sounds play aloud, like TikTok: on by default. Browsers only allow sound after the
+// visitor's first tap, so until then sounds play muted and the first tap anywhere turns them up.
+interface SoundState {
+  soundOn: boolean;
+  // False until the browser allows sound (after the first tap or key press).
+  unlocked: boolean;
+  toggle: () => void;
+}
+
+const KEY = 'saligue-sound-off';
+
+function savedSoundOn() {
+  try {
+    return localStorage.getItem(KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+
+export const useSoundStore = create<SoundState>()((set, get) => ({
+  soundOn: true,
+  unlocked: false,
+  toggle: () => {
+    const soundOn = !get().soundOn;
+    set({ soundOn, unlocked: true });
+    try {
+      localStorage.setItem(KEY, soundOn ? '0' : '1');
+    } catch {
+      // Not remembered.
+    }
+  },
 }));
+
+if (typeof window !== 'undefined') {
+  // After the page has rendered, so the first render matches the prerendered HTML.
+  setTimeout(() => useSoundStore.setState({ soundOn: savedSoundOn() }), 0);
+  const unlock = () => {
+    useSoundStore.setState({ unlocked: true });
+    window.removeEventListener('pointerdown', unlock, true);
+    window.removeEventListener('keydown', unlock, true);
+  };
+  window.addEventListener('pointerdown', unlock, true);
+  window.addEventListener('keydown', unlock, true);
+}
+
+/** Whether sounds should be heard right now. */
+export const useAudible = () => useSoundStore((s) => s.soundOn && s.unlocked);

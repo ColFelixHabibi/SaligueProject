@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
 import { useCart } from '@/hooks/use-cart-store';
-import { useSoundStore } from '@/hooks/use-sound';
+import { useAudible, useSoundStore } from '@/hooks/use-sound';
 import { useToast } from '@/hooks/use-toast';
 import { loadProductSound } from '@/lib/audio';
 import { friendlyError } from '@/lib/errors';
@@ -17,9 +17,9 @@ import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-/** Plays an item's sound while its slide fills the screen (muted until the visitor turns sound on). */
+/** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
 function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null>) {
-  const soundOn = useSoundStore((s) => s.soundOn);
+  const audible = useAudible();
   const [visible, setVisible] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -39,28 +39,30 @@ function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null
       const audio = audioRef.current ?? new Audio(src);
       audioRef.current = audio;
       audio.loop = true;
-      audio.muted = !useSoundStore.getState().soundOn;
+      const { soundOn, unlocked } = useSoundStore.getState();
+      audio.muted = !(soundOn && unlocked);
       audio.play().catch(() => {});
     });
     return () => {
       cancelled = true;
       audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.currentTime = 0;
     };
   }, [visible, product.id, product.sound]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.muted = !soundOn;
+    audio.muted = !audible;
     if (visible && audio.paused) audio.play().catch(() => {});
-  }, [soundOn, visible]);
+  }, [audible, visible]);
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
 export function FeedSlide({ product }: { product: Product }) {
   const { toast } = useToast();
   const { addToCart } = useCart();
-  const { soundOn, toggle } = useSoundStore();
+  const { soundOn, unlocked, toggle } = useSoundStore();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const slideRef = useRef<HTMLElement>(null);
   useSlideSound(product, slideRef);
@@ -76,11 +78,11 @@ export function FeedSlide({ product }: { product: Product }) {
   };
 
   return (
-    <section ref={slideRef} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-black text-white">
+    <section ref={slideRef} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-muted text-foreground">
       <div className={cn('relative min-h-0 transition-[height] duration-300', commentsOpen ? 'h-[46%]' : 'h-full')}>
         {/* Blurred copy fills the screen; the item itself is shown whole. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
+        <img src={image} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl" />
         <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt={product.name} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
@@ -90,10 +92,11 @@ export function FeedSlide({ product }: { product: Product }) {
           <button
             type="button"
             onClick={toggle}
-            className="absolute right-3 top-3 z-10 rounded-full bg-black/40 p-2 backdrop-blur"
+            className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-2 text-xs font-semibold shadow backdrop-blur"
             aria-label={soundOn ? 'Turn sound off' : 'Turn sound on'}
           >
             {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            {soundOn && !unlocked && 'Tap for sound'}
           </button>
         )}
 
@@ -102,21 +105,21 @@ export function FeedSlide({ product }: { product: Product }) {
         </div>
 
         {!commentsOpen && (
-          <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-4 pr-20">
+          <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-background via-background/85 to-transparent p-4 pr-20 pt-16">
             {product.official && (
-              <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">
+              <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground">
                 <BadgeCheck className="h-3.5 w-3.5" /> Recommended by INDECIANA
               </span>
             )}
             <Link href={productHref(product)} className="block text-xl font-bold leading-tight hover:underline">{product.name}</Link>
             <p className="mt-1 text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
             {product.shop && (
-              <p className="mt-1 flex items-center gap-1 text-sm text-white/85">
+              <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4 shrink-0" /> {product.shop.name} · {product.shop.city}
               </p>
             )}
             {product.sound && (
-              <p className="mt-1 flex items-center gap-1 text-sm text-white/85">
+              <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                 <Music2 className="h-4 w-4 shrink-0" /> <span className="truncate">{product.sound.name}</span>
               </p>
             )}

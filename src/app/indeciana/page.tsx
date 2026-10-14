@@ -135,7 +135,7 @@ function IndecianaStore() {
                         key={c || 'all'}
                         type="button"
                         onClick={() => setFilter(c)}
-                        className={cn('border px-4 py-1.5 text-xs uppercase tracking-widest', filter === c ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:border-foreground')}
+                        className={cn('border px-4 py-1.5 text-xs uppercase tracking-widest', filter === c ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-foreground')}
                       >
                         {c ? categoryLabel(c) : 'All'}
                       </button>
