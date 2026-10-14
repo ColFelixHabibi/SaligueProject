@@ -78,6 +78,7 @@ export default function MePage() {
           {role === 'seller' ? (
             <>
               <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
+              <Row href="/dashboard/products" icon={Package} label="My products" />
               <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
               <Row href="/dashboard/settings#shop" icon={MapPin} label="Shop & address" detail={shop ? undefined : 'Add'} />
             </>
