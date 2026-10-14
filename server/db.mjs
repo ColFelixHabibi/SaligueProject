@@ -137,6 +137,14 @@ db.exec(`
     expires_at text not null
   );
 
+  create table if not exists reports (
+    product_id text not null references products(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    reason text not null,               -- not_fashion | fake | offensive | other
+    created_at text not null,
+    primary key (product_id, user_id)
+  );
+
   create table if not exists app_config (
     key text primary key,
     value text not null                 -- JSON
@@ -144,7 +152,7 @@ db.exec(`
 `);
 
 // Columns added after the first release.
-for (const [table, column, type] of [['users', 'terms_accepted_at', 'text']]) {
+for (const [table, column, type] of [['users', 'terms_accepted_at', 'text'], ['products', 'hidden', 'integer not null default 0']]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
 }

@@ -26,6 +26,8 @@ export type Product = {
   shop?: Shop;
   // Listed by INDECIANA's official account: shown as recommended and opened on INDECIANA's own page.
   official?: boolean;
+  // Hidden from shoppers after several reports (only its seller still sees it).
+  hidden?: boolean;
   // Number of people who liked the item (see use-likes.ts).
   likeCount?: number;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).

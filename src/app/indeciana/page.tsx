@@ -17,6 +17,7 @@ import { categoryLabel } from '@/lib/categories';
 import { formatPrice } from '@/lib/orders';
 import { BASE_PATH } from '@/lib/paths';
 import { cn } from '@/lib/utils';
+import { ReportButton } from '@/components/social/report-button';
 
 // INDECIANA's logo, if provided (public/brand/indeciana-logo.png). The wordmark is shown otherwise.
 const LOGO = `${BASE_PATH}/brand/indeciana-logo.png`;
@@ -110,13 +111,14 @@ function IndecianaStore() {
                     ))}
                 </dl>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Button size="lg" className="h-14 rounded-none bg-foreground text-base text-background hover:bg-foreground/90" asChild>
+                  <Button size="lg" className="h-14 rounded-none bg-primary text-base text-primary-foreground hover:bg-primary/90" asChild>
                     <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Wear it</Link>
                   </Button>
                   <Button size="lg" variant="outline" className="h-14 rounded-none border-foreground bg-transparent text-base text-foreground hover:bg-foreground hover:text-background" onClick={add}>
                     <ShoppingBag className="mr-2 h-5 w-5" /> Add to bag
                   </Button>
                 </div>
+                <ReportButton product={selected} />
                 {selected.shop && (
                   <div className="rounded-md border bg-card p-4 text-foreground">
                     <ShopAddress shop={selected.shop} email={selected.sellerEmail} />

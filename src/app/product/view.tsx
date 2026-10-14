@@ -31,6 +31,7 @@ import { completeTheLook } from '@/lib/outfit';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { formatPrice } from '@/lib/orders';
 import { productHref } from '@/lib/links';
+import { ReportButton } from '@/components/social/report-button';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -195,6 +196,7 @@ export default function ProductView({ id }: { id: string | null }) {
                   </DialogContent>
                 </Dialog>
               </div>
+              <ReportButton product={product} className="mt-4" />
 
             </CardContent>
           </Card>

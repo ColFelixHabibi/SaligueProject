@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORIES } from '@/lib/categories';
 import { prepareItemPhoto, type PreparedItemPhoto } from '@/lib/image';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const checkerboard =
@@ -33,7 +34,20 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
     setBusy('Preparing photo…');
     onBusyChange?.(true);
     try {
-      onPhotoChange(await prepareItemPhoto(file, setBusy));
+      const prepared = await prepareItemPhoto(file, setBusy);
+      // Saligue is fashion-only: the server's AI looks at the photo before the seller fills in the rest.
+      setBusy('Checking it is a fashion item…');
+      const check = await api<{ fashion: boolean; looksLike: string | null }>('/ai/fashion-check', { body: { image: prepared.cutout || prepared.image } })
+        .catch(() => ({ fashion: true, looksLike: null }));
+      if (!check.fashion) {
+        toast({
+          variant: 'destructive',
+          title: 'Only fashion can be sold on Saligue',
+          description: `This photo looks like ${check.looksLike}. Add a photo of clothes, shoes, a bag or an accessory.`,
+        });
+        return;
+      }
+      onPhotoChange(prepared);
     } catch (error: any) {
       console.error('Preparing item photo failed:', error);
       toast({ variant: 'destructive', title: 'Image Error', description: friendlyError(error) });
@@ -68,6 +82,7 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
             <Upload className="mb-2 h-12 w-12" />
             <span>Click to upload a photo of the item</span>
             <span className="text-sm">AI removes the background so buyers can wear it in their outfit</span>
+            <span className="mt-1 text-xs">Fashion only: clothes, shoes, bags and accessories</span>
           </div>
         )}
       </label>

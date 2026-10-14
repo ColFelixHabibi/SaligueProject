@@ -8,6 +8,7 @@ import { db, json, now, parse, transaction } from './db.mjs';
 import { sendEmail } from './mail.mjs';
 import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
+import { checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -150,6 +151,8 @@ function productOut(r) {
     contact: r.contact ?? undefined,
     shop: parse(r.shop) ?? undefined,
     official: !!r.official,
+    // Hidden from shoppers after several reports; only its seller still sees it.
+    hidden: !!r.hidden,
     likeCount: r.like_count,
     sound: parse(r.sound) ?? undefined,
     createdAt: r.created_at,
@@ -407,12 +410,38 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 });
 
 // Products
-route('GET', '/api/products', () => db.prepare('select * from products order by created_at desc').all().map(productOut));
+route('GET', '/api/products', ({ user }) =>
+  db.prepare('select * from products where hidden = 0 or seller_id = ? order by created_at desc').all(user?.id ?? '').map(productOut));
 
-route('POST', '/api/products', ({ user, body }) => {
+// Saligue is for fashion only: clothes, shoes, bags and accessories.
+const CATEGORIES = ['top', 'outerwear', 'dress', 'bottom', 'shoes', 'hat', 'eyewear', 'bag', 'accessory'];
+
+/** Refuses listings that aren't fashion (category, words, and what the photo shows). Returns the photo's AI fingerprint. */
+async function requireFashion(fields) {
+  if (fields.category !== undefined && !CATEGORIES.includes(fields.category)) fail(400, 'not_fashion', 'Choose one of the fashion categories.');
+  const word = notFashionWord(fields.name, fields.description);
+  if (word) fail(422, 'not_fashion', `Saligue is only for fashion: clothes, shoes, bags and accessories. Remove "${word}" or list a fashion item.`);
+  if (!fields.image) return null;
+  let result;
+  try {
+    result = await checkPhoto(fields.cutout || fields.image);
+  } catch (error) {
+    // The AI couldn't run (e.g. no internet to fetch it the first time): don't block sellers; reports still apply.
+    console.error('Fashion check skipped:', error.message);
+    return null;
+  }
+  if (!result.fashion) {
+    fail(422, 'not_fashion', `This photo looks like ${result.looksLike}, not a fashion item. Saligue is only for clothes, shoes, bags and accessories.`);
+  }
+  return result.embedding;
+}
+
+route('POST', '/api/products', async ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
   const fields = productFields(body);
   if (!fields.name || fields.price === undefined || !fields.image || !fields.category) fail(400, 'incomplete_product', 'Name, price, photo and category are required.');
+  const checked = await requireFashion(fields);
+  if (checked) fields.embedding = json(checked);
   const id = randomUUID();
   db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, seller, seller_id, seller_email, status,
       description, size, color, brand, condition, contact, shop, official, sound, created_at)
@@ -425,10 +454,17 @@ route('POST', '/api/products', ({ user, body }) => {
   return { id };
 });
 
-route('PATCH', '/api/products/([\\w-]+)', ({ user, params, body }) => {
+route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
-  ownProduct(user, params[0]);
+  const before = ownProduct(user, params[0]);
   const fields = productFields(body);
+  // Changed photo or words are checked again.
+  const checked = await requireFashion({
+    ...fields,
+    image: fields.image && fields.image !== before.image ? fields.image : undefined,
+    cutout: fields.cutout && fields.cutout !== before.cutout ? fields.cutout : undefined,
+  });
+  if (checked) fields.embedding = json(checked);
   const keys = Object.keys(fields);
   if (keys.length) {
     db.prepare(`update products set ${keys.map((k) => `${k} = ?`).join(', ')} where id = ?`).run(...keys.map((k) => fields[k]), params[0]);
@@ -465,6 +501,47 @@ route('POST', '/api/products/([\\w-]+)/like', ({ user, params }) => {
 });
 
 route('GET', '/api/me/likes', ({ user }) => (user ? db.prepare('select product_id from likes where user_id = ?').all(user.id).map((r) => r.product_id) : []));
+
+// Early check while a seller adds a photo, so they know before filling in the rest.
+route('POST', '/api/ai/fashion-check', async ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
+  const image = String(body.image ?? '');
+  if (!image.startsWith('data:image/') || image.length > 1_500_000) fail(400, 'invalid_image', 'This photo could not be checked.');
+  try {
+    const { fashion, looksLike } = await checkPhoto(image);
+    return { fashion, looksLike };
+  } catch {
+    return { fashion: true, looksLike: null };
+  }
+});
+
+// Reports: shoppers flag items that aren't fashion (or are fake or offensive). After 3 different
+// people report an item it is hidden until INDECIANA reviews it (node server/admin.mjs reports).
+const REPORT_REASONS = { not_fashion: 'not fashion', fake: 'fake or misleading', offensive: 'offensive', other: 'other problem' };
+const HIDE_AFTER_REPORTS = 3;
+route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const product = db.prepare('select id, name, seller_id, hidden from products where id = ?').get(params[0]);
+  if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  if (product.seller_id === user.id) fail(400, 'own_item', 'You cannot report your own item.');
+  const reason = REPORT_REASONS[body.reason] ? body.reason : 'other';
+  db.prepare('insert or ignore into reports (product_id, user_id, reason, created_at) values (?, ?, ?, ?)').run(product.id, user.id, reason, now());
+  const count = db.prepare('select count(*) as n from reports where product_id = ?').get(product.id).n;
+  if (count >= HIDE_AFTER_REPORTS && !product.hidden) {
+    db.prepare('update products set hidden = 1 where id = ?').run(product.id);
+    broadcast('products');
+    notify(product.seller_id, {
+      type: 'product',
+      title: `"${product.name}" is hidden after reports`,
+      body: 'Several shoppers reported this item. Saligue is only for fashion that is described honestly. INDECIANA will review it; edit or remove it if something is wrong.',
+      link: '/dashboard/products',
+    });
+    for (const { id } of db.prepare('select id from users where official = 1').all()) {
+      notify(id, { type: 'product', title: `Review needed: "${product.name}"`, body: `${count} reports. Check it with: node server/admin.mjs reports`, link: `/product?id=${product.id}`, email: false });
+    }
+  }
+  return { ok: true };
+});
 
 // Comments
 route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
@@ -803,6 +880,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+warmUpFashionCheck();
 const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 

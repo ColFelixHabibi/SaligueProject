@@ -264,6 +264,7 @@ export default function ProductsPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={product.status === 'active' ? 'outline' : 'secondary'} className="capitalize">{product.status}</Badge>
+                        {product.hidden && <Badge variant="destructive" className="ml-1">Hidden after reports</Badge>}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         ${Number(product.price).toFixed(2)}
