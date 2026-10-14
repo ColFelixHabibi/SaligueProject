@@ -2,6 +2,7 @@
 
 import { api } from '@/lib/api';
 import { context2d, createCanvas, fitWithin, loadImage } from './canvas';
+import { keepOnlyChanged } from './composite';
 
 // Saligue AI Studio: Saligue's own GPU server (ai-server/) running Leffa and SDXL Inpainting.
 // Its address comes from a ?ai= link, this device's saved setting, or the app setting INDECIANA saved on the server.
@@ -129,8 +130,12 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
   if (!look) {
     const run = async () => {
       const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category };
-      if (await getStudio()) return call('/api/tryon', body);
-      return (await api<{ image: string }>('/ai/tryon', { body })).image;
+      const image = (await getStudio()) ? await call('/api/tryon', body) : (await api<{ image: string }>('/ai/tryon', { body })).image;
+      // Only the asked-for piece changes; the rest of the photo stays as it was.
+      return keepOnlyChanged(body.person, image, category).catch((error) => {
+        console.error('Could not keep the rest of the photo:', error);
+        return image;
+      });
     };
     look = lane.then(run, run);
     lane = look.catch(() => {});
