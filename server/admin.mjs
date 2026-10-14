@@ -7,8 +7,10 @@
 //   node server/admin.mjs mail <smtp url> [from] send real emails, e.g. smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com
 //   node server/admin.mjs site <url>            the website's public address, used in links inside emails
 //   node server/admin.mjs reports               reported items (hidden ones first)
-//   node server/admin.mjs show <product id>     put a hidden item back after review
+//   node server/admin.mjs show <product id>     put a hidden item back after review (the AI learns look-alikes are fine)
+//   node server/admin.mjs remove <product id>   remove a reported item as not fashion (the AI learns to refuse look-alikes)
 import { db } from './db.mjs';
+import { learn } from './learn.mjs';
 
 const [command, email] = process.argv.slice(2);
 
@@ -29,8 +31,20 @@ if (command === 'official' || command === 'unofficial') {
 } else if (command === 'reports') {
   console.table(db.prepare(`select p.id, p.name, p.seller, p.hidden, count(r.user_id) as reports, group_concat(distinct r.reason) as reasons
     from reports r join products p on p.id = r.product_id group by p.id order by p.hidden desc, reports desc`).all());
+} else if (command === 'remove') {
+  // Here the second argument is a product id.
+  const product = db.prepare('select id, name, embedding from products where id = ?').get(String(email ?? ''));
+  if (!product) {
+    console.error('No item with this id.');
+    process.exit(1);
+  }
+  if (product.embedding) learn(JSON.parse(product.embedding), 'not_fashion', product.id);
+  db.prepare('delete from products where id = ?').run(product.id);
+  console.log(`Removed "${product.name}". Photos that look like it will be refused from now on.`);
 } else if (command === 'show') {
   // Here the second argument is a product id.
+  const shown = db.prepare('select embedding from products where id = ?').get(String(email ?? ''));
+  if (shown?.embedding) learn(JSON.parse(shown.embedding), 'fashion', String(email));
   db.prepare('update products set hidden = 0 where id = ?').run(String(email ?? ''));
   db.prepare('delete from reports where product_id = ?').run(String(email ?? ''));
   console.log('The item is visible again and its reports are cleared.');
@@ -45,5 +59,5 @@ if (command === 'official' || command === 'unofficial') {
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(command, JSON.stringify(config));
   console.log(command === 'mail' ? 'Emails will now be sent with this mail account.' : `Links in emails will point to ${value}.`);
 } else {
-  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | show <product id>');
+  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | show <product id> | remove <product id>');
 }

@@ -8,7 +8,7 @@ import { Loader2, Upload } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { CATEGORIES } from '@/lib/categories';
+import { CATEGORIES, typesOf } from '@/lib/categories';
 import { prepareItemPhoto, type PreparedItemPhoto } from '@/lib/image';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -16,14 +16,18 @@ import { cn } from '@/lib/utils';
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
 
+export type FashionSuggestion = { category: string; type: string | null; from: number };
+
 interface ItemPhotoFieldProps {
   photo: Partial<PreparedItemPhoto> | null;
   onPhotoChange: (photo: PreparedItemPhoto) => void;
   onBusyChange?: (busy: boolean) => void;
+  // What the AI thinks the item is, learned from similar items in the shop.
+  onSuggestion?: (suggestion: FashionSuggestion) => void;
 }
 
 /** Upload for an item photo. Removes the background and computes the AI fingerprint on the device. */
-export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhotoFieldProps) {
+export function ItemPhotoField({ photo, onPhotoChange, onBusyChange, onSuggestion }: ItemPhotoFieldProps) {
   const { toast } = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -37,8 +41,9 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
       const prepared = await prepareItemPhoto(file, setBusy);
       // Saligue is fashion-only: the server's AI looks at the photo before the seller fills in the rest.
       setBusy('Checking it is a fashion item…');
-      const check = await api<{ fashion: boolean; looksLike: string | null }>('/ai/fashion-check', { body: { image: prepared.cutout || prepared.image } })
-        .catch(() => ({ fashion: true, looksLike: null }));
+      const check = await api<{ fashion: boolean; looksLike: string | null; suggestion: FashionSuggestion | null }>('/ai/fashion-check', {
+        body: { image: prepared.cutout || prepared.image },
+      }).catch(() => ({ fashion: true, looksLike: null, suggestion: null }));
       if (!check.fashion) {
         toast({
           variant: 'destructive',
@@ -48,6 +53,7 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
         return;
       }
       onPhotoChange(prepared);
+      if (check.suggestion) onSuggestion?.(check.suggestion);
     } catch (error: any) {
       console.error('Preparing item photo failed:', error);
       toast({ variant: 'destructive', title: 'Image Error', description: friendlyError(error) });
@@ -94,20 +100,53 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange }: ItemPhoto
   );
 }
 
-export function CategoryField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+interface CategoryFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  type: string;
+  onTypeChange: (type: string) => void;
+  // Shown under the fields when the AI filled them in from the photo.
+  hint?: string | null;
+}
+
+/** Category and exact type of fashion item: both required. */
+export function CategoryField({ value, onChange, type, onTypeChange, hint }: CategoryFieldProps) {
+  const types = typesOf(value);
   return (
-    <div className="space-y-2">
-      <Label htmlFor="category" className="text-lg font-medium">Category</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id="category" className="h-12 text-base">
-          <SelectValue placeholder="What kind of item is it?" />
-        </SelectTrigger>
-        <SelectContent>
-          {CATEGORIES.map((c) => (
-            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label htmlFor="category" className="text-lg font-medium">Category *</Label>
+        <Select
+          value={value}
+          onValueChange={(next) => {
+            onChange(next);
+            if (!typesOf(next).includes(type)) onTypeChange('');
+          }}
+        >
+          <SelectTrigger id="category" className="h-12 text-base">
+            <SelectValue placeholder="Clothes, shoes, bag, accessory…" />
+          </SelectTrigger>
+          <SelectContent>
+            {CATEGORIES.map((c) => (
+              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="item-type" className="text-lg font-medium">Type *</Label>
+        <Select value={type} onValueChange={onTypeChange} disabled={!types.length}>
+          <SelectTrigger id="item-type" className="h-12 text-base">
+            <SelectValue placeholder={types.length ? 'Exact type of item' : 'Choose a category first'} />
+          </SelectTrigger>
+          <SelectContent>
+            {types.map((t) => (
+              <SelectItem key={t} value={t}>{t}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {hint && <p className="text-xs text-primary sm:col-span-2">✨ {hint}</p>}
     </div>
   );
 }

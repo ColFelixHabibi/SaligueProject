@@ -5,6 +5,12 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { AutoProcessor, AutoTokenizer, CLIPTextModelWithProjection, CLIPVisionModelWithProjection, RawImage } from '@huggingface/transformers';
 import { MEDIA_DIR } from './media.mjs';
+import { recall } from './learn.mjs';
+import TYPES from '../src/lib/fashion-types.json' with { type: 'json' };
+
+export { TYPES };
+// Every type of every category, to suggest what a photo shows before the shop has learned from its own items.
+const TYPE_LIST = Object.entries(TYPES).flatMap(([category, types]) => types.map((type) => ({ category, type })));
 
 const MODEL = 'Xenova/mobileclip_s0';
 
@@ -34,9 +40,10 @@ function load() {
         AutoTokenizer.from_pretrained(MODEL),
         CLIPTextModelWithProjection.from_pretrained(MODEL, { dtype: 'q8' }),
       ]);
-      const inputs = tokenizer([...FASHION, ...OTHER].map((l) => `a photo of ${l}`), { padding: 'max_length', truncation: true });
-      const { text_embeds } = await text(inputs);
-      return { processor, vision, labels: text_embeds.normalize().tolist() };
+      const embed = async (phrases) => (await text(tokenizer(phrases.map((l) => `a photo of ${l}`), { padding: 'max_length', truncation: true }))).text_embeds.normalize().tolist();
+      const labels = await embed([...FASHION, ...OTHER]);
+      const typeLabels = await embed(TYPE_LIST.map((t) => t.type.toLowerCase()));
+      return { processor, vision, labels, typeLabels };
     })();
     models.catch((error) => {
       console.error('Fashion check unavailable:', error.message);
@@ -62,8 +69,8 @@ function imageBytes(image) {
  * Looks at a product photo. Returns its AI fingerprint (used for search, so the stored one is the server's own)
  * and whether it shows a fashion item, with what it looks like most.
  */
-export async function checkPhoto(image) {
-  const { processor, vision, labels } = await load();
+export async function checkPhoto(image, excludeId = null) {
+  const { processor, vision, labels, typeLabels } = await load();
   // Square on white, like the app does, so nothing is cropped off.
   const { data, info } = await sharp(imageBytes(image))
     .flatten({ background: '#ffffff' })
@@ -81,8 +88,27 @@ export async function checkPhoto(image) {
   const total = weights.reduce((a, b) => a + b, 0);
   const fashion = weights.slice(0, FASHION.length).reduce((a, b) => a + b, 0) / total;
   const best = scores.indexOf(top);
-  const looksLike = best < FASHION.length ? FASHION[best] : OTHER[best - FASHION.length];
-  return { embedding, fashion: fashion >= MIN_FASHION, confidence: Math.round(fashion * 100) / 100, looksLike };
+  let looksLike = best < FASHION.length ? FASHION[best] : OTHER[best - FASHION.length];
+  let isFashion = fashion >= MIN_FASHION;
+
+  // What the shop has learned: photos like ones removed after review are refused, photos like
+  // items already accepted (listed, or put back after review) are allowed.
+  const memory = recall(embedding, excludeId);
+  if (memory.refused >= 0.92) {
+    isFashion = false;
+    looksLike = 'an item removed from Saligue before';
+  } else if (!isFashion && memory.allowed >= 0.9) {
+    isFashion = true;
+  }
+
+  // Category and type: from the most similar items in the shop when there are enough, otherwise from the AI alone.
+  let suggestion = memory.suggestion;
+  if (!suggestion?.type) {
+    const typeScores = typeLabels.map((l) => l.reduce((sum, v, i) => sum + v * embedding[i], 0));
+    const guess = TYPE_LIST[typeScores.indexOf(Math.max(...typeScores))];
+    suggestion = suggestion?.category ? { ...suggestion, type: TYPES[suggestion.category].find((t) => t === guess.type) ?? null } : { ...guess, from: 0 };
+  }
+  return { embedding, fashion: isFashion, confidence: Math.round(fashion * 100) / 100, looksLike, suggestion, learnedFrom: memory.suggestion?.from ?? 0 };
 }
 
 // Words that clearly mean a listing isn't fashion (checked as whole words in the name and description).

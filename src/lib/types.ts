@@ -11,6 +11,8 @@ export type Product = {
   embedding?: number[];
   // One of CATEGORIES in src/lib/categories.ts (older listings may hold other text).
   category: string;
+  // Exact type within the category, e.g. "Jeans" or "Watch" (see src/lib/fashion-types.json).
+  type?: string;
   seller: string;
   sellerId?: string;
   sellerEmail?: string;

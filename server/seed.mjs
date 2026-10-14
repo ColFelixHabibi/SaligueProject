@@ -222,6 +222,17 @@ const SOUNDS = {
   'Denim Jacket': ['Weekend Denim', jingle([64, 67, 71, 67, 69, 72, 69, 67, 64, 62, 64, 67, 64, null, 62, null], 108)],
 };
 
+// The exact type of each demo item (see src/lib/fashion-types.json).
+const DEMO_TYPES = {
+  'Classic White Tee': 'T-shirt', 'Black Crew T-shirt': 'T-shirt', 'Navy Striped Polo': 'Polo', 'Denim Jacket': 'Denim jacket',
+  'Black Bomber Jacket': 'Bomber', 'Slim Blue Jeans': 'Jeans', 'Black Tailored Trousers': 'Trousers', 'Beige Chinos': 'Chinos',
+  'Kitenge Summer Dress': 'Kitenge dress', 'White Sneakers': 'Sneakers', 'Black Leather Boots': 'Boots', 'Brown Loafers': 'Loafers',
+  'Black Baseball Cap': 'Cap', 'Straw Sun Hat': 'Hat', 'Black Sunglasses': 'Sunglasses', 'Round Gold Glasses': 'Glasses',
+  'Brown Leather Belt': 'Belt', 'INDECIANA Signature Blouse': 'Blouse', 'INDECIANA Trench Coat': 'Coat',
+  'INDECIANA Red Evening Dress': 'Evening dress', 'INDECIANA Navy Midi Dress': 'Midi dress', 'INDECIANA Pleated Skirt': 'Skirt',
+  'INDECIANA Pink Sneakers': 'Sneakers', 'INDECIANA Leather Handbag': 'Handbag', 'INDECIANA Black Tote': 'Tote', 'INDECIANA Gold Watch': 'Watch',
+};
+
 function remove() {
   const sellers = db.prepare(`select id from users where email like ?`).all(`%${DEMO_DOMAIN}`);
   transaction(() => {
@@ -250,10 +261,10 @@ if (process.argv.includes('--remove')) {
         const created = new Date(Date.now() - (i * 7 + count) * 3_600_000).toISOString();
         const id = randomUUID();
         const sound = SOUNDS[item.name];
-        db.prepare(`insert into products (id, name, price, image, cutout, category, seller, seller_id, seller_email, status,
+        db.prepare(`insert into products (id, name, price, image, cutout, category, type, seller, seller_id, seller_email, status,
             description, size, color, brand, condition, contact, shop, official, like_count, sound, created_at)
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)`).run(
-          id, item.name, item.price, storeImage(item.image), storeImage(item.image), item.category, shop.name, sellerId, email,
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)`).run(
+          id, item.name, item.price, storeImage(item.image), storeImage(item.image), item.category, DEMO_TYPES[item.name], shop.name, sellerId, email,
           `${item.name} by ${item.brand}. Demo item for trying Saligue.`, item.size ?? null, item.color, item.brand,
           shop.shop.whatsapp, json(shop.shop), shop.official ? 1 : 0, Math.floor(Math.random() * 40),
           sound ? json({ name: sound[0], duration: sound[1].duration }) : null, created

@@ -1,0 +1,11 @@
+{
+  "top": ["T-shirt", "Shirt", "Blouse", "Polo", "Sweater", "Hoodie", "Tank top", "Crop top", "Kitenge top"],
+  "outerwear": ["Jacket", "Denim jacket", "Leather jacket", "Coat", "Blazer", "Bomber", "Cardigan", "Raincoat"],
+  "dress": ["Casual dress", "Evening dress", "Maxi dress", "Midi dress", "Mini dress", "Kitenge dress", "Wedding dress", "Jumpsuit"],
+  "bottom": ["Jeans", "Trousers", "Chinos", "Shorts", "Skirt", "Leggings", "Joggers"],
+  "shoes": ["Sneakers", "Boots", "Heels", "Sandals", "Loafers", "Formal shoes", "Flats", "Slippers"],
+  "hat": ["Cap", "Hat", "Beanie", "Headwrap"],
+  "eyewear": ["Sunglasses", "Glasses"],
+  "bag": ["Handbag", "Tote", "Backpack", "Clutch", "Shoulder bag", "Wallet", "Travel bag"],
+  "accessory": ["Watch", "Necklace", "Bracelet", "Earrings", "Ring", "Belt", "Scarf", "Tie", "Hair accessory", "Socks", "Gloves"]
+}

@@ -29,6 +29,7 @@ export default function EditProductView({ id }: { id: string | null }) {
     const [photo, setPhoto] = useState<Partial<PreparedItemPhoto> | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
+    const [type, setType] = useState('');
     // A new sound replaces the current one; leaving it empty keeps the current sound.
     const [sound, setSound] = useState<ChosenSound | null>(null);
     const initialFormValues = {
@@ -66,6 +67,7 @@ export default function EditProductView({ id }: { id: string | null }) {
             });
             setPhoto({ image: product.image, cutout: product.cutout, embedding: product.embedding });
             setCategory(product.category);
+            setType(product.type ?? '');
         }
     }, [product, loadedProductId]);
 
@@ -106,6 +108,7 @@ export default function EditProductView({ id }: { id: string | null }) {
                 cutout: photo.cutout,
                 embedding: photo.embedding,
                 category: category || product.category,
+                type: type || product.type,
                 seller: user?.displayName || 'Anonymous Seller',
                 sellerEmail: user?.email || '',
                 status: product.status,
@@ -157,7 +160,7 @@ export default function EditProductView({ id }: { id: string | null }) {
               
               <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
 
-              <CategoryField value={category} onChange={setCategory} />
+              <CategoryField value={category} onChange={setCategory} type={type} onTypeChange={setType} />
 
               {product?.sound && !sound && <p className="text-sm text-muted-foreground">Current sound: ♪ {product.sound.name}. Choose another below to replace it.</p>}
               <SoundField value={sound} onChange={setSound} />

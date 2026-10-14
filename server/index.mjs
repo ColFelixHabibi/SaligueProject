@@ -8,7 +8,8 @@ import { db, json, now, parse, transaction } from './db.mjs';
 import { sendEmail } from './mail.mjs';
 import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
-import { checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
+import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
+import { learn, productsChanged } from './learn.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -96,6 +97,7 @@ function mergeGuestInto(guestId, accountId) {
 
 const listeners = new Set();
 function broadcast(event, data = {}) {
+  if (event === 'products') productsChanged();
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of listeners) res.write(message);
 }
@@ -139,6 +141,7 @@ function productOut(r) {
     cutout: r.cutout ?? undefined,
     embedding: parse(r.embedding) ?? undefined,
     category: r.category,
+    type: r.type ?? undefined,
     seller: r.seller,
     sellerId: r.seller_id,
     sellerEmail: r.seller_email ?? undefined,
@@ -160,7 +163,7 @@ function productOut(r) {
   return p;
 }
 
-const PRODUCT_TEXT = ['name', 'image', 'cutout', 'category', 'seller', 'description', 'size', 'color', 'brand', 'condition', 'contact'];
+const PRODUCT_TEXT = ['name', 'image', 'cutout', 'category', 'type', 'seller', 'description', 'size', 'color', 'brand', 'condition', 'contact'];
 
 function productFields(body) {
   const fields = {};
@@ -413,18 +416,26 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 route('GET', '/api/products', ({ user }) =>
   db.prepare('select * from products where hidden = 0 or seller_id = ? order by created_at desc').all(user?.id ?? '').map(productOut));
 
-// Saligue is for fashion only: clothes, shoes, bags and accessories.
-const CATEGORIES = ['top', 'outerwear', 'dress', 'bottom', 'shoes', 'hat', 'eyewear', 'bag', 'accessory'];
+// Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.
+const CATEGORIES = Object.keys(FASHION_TYPES);
 
-/** Refuses listings that aren't fashion (category, words, and what the photo shows). Returns the photo's AI fingerprint. */
-async function requireFashion(fields) {
-  if (fields.category !== undefined && !CATEGORIES.includes(fields.category)) fail(400, 'not_fashion', 'Choose one of the fashion categories.');
+/**
+ * Refuses listings that aren't fashion (category and type, words, and what the photo shows).
+ * `current` is the listing before an edit. Returns the photo's AI fingerprint.
+ */
+async function requireFashion(fields, current = {}, productId = null) {
+  const category = fields.category ?? current.category;
+  const type = fields.type ?? current.type;
+  if (fields.category !== undefined || fields.type !== undefined || !productId) {
+    if (!CATEGORIES.includes(category)) fail(400, 'not_fashion', 'Choose one of the fashion categories.');
+    if (!FASHION_TYPES[category].includes(type)) fail(400, 'type_required', `Choose the type of item: ${FASHION_TYPES[category].join(', ')}.`);
+  }
   const word = notFashionWord(fields.name, fields.description);
   if (word) fail(422, 'not_fashion', `Saligue is only for fashion: clothes, shoes, bags and accessories. Remove "${word}" or list a fashion item.`);
   if (!fields.image) return null;
   let result;
   try {
-    result = await checkPhoto(fields.cutout || fields.image);
+    result = await checkPhoto(fields.cutout || fields.image, productId);
   } catch (error) {
     // The AI couldn't run (e.g. no internet to fetch it the first time): don't block sellers; reports still apply.
     console.error('Fashion check skipped:', error.message);
@@ -438,15 +449,17 @@ async function requireFashion(fields) {
 
 route('POST', '/api/products', async ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
+  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only seller accounts can list items. Switch to selling in your account settings.');
+  if (!parse(user.shop)?.name) fail(403, 'shop_required', 'Add your shop name and full address before listing.');
   const fields = productFields(body);
   if (!fields.name || fields.price === undefined || !fields.image || !fields.category) fail(400, 'incomplete_product', 'Name, price, photo and category are required.');
   const checked = await requireFashion(fields);
   if (checked) fields.embedding = json(checked);
   const id = randomUUID();
-  db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, seller, seller_id, seller_email, status,
+  db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, type, seller, seller_id, seller_email, status,
       description, size, color, brand, condition, contact, shop, official, sound, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, fields.name, fields.price, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category,
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, fields.name, fields.price, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
     fields.seller || user.display_name || 'Seller', user.id, user.email, fields.description ?? null, fields.size ?? null,
     fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null, now()
   );
@@ -463,7 +476,7 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
     ...fields,
     image: fields.image && fields.image !== before.image ? fields.image : undefined,
     cutout: fields.cutout && fields.cutout !== before.cutout ? fields.cutout : undefined,
-  });
+  }, before, before.id);
   if (checked) fields.embedding = json(checked);
   const keys = Object.keys(fields);
   if (keys.length) {
@@ -508,10 +521,10 @@ route('POST', '/api/ai/fashion-check', async ({ user, body }) => {
   const image = String(body.image ?? '');
   if (!image.startsWith('data:image/') || image.length > 1_500_000) fail(400, 'invalid_image', 'This photo could not be checked.');
   try {
-    const { fashion, looksLike } = await checkPhoto(image);
-    return { fashion, looksLike };
+    const { fashion, looksLike, suggestion, learnedFrom } = await checkPhoto(image);
+    return { fashion, looksLike, suggestion, learnedFrom };
   } catch {
-    return { fashion: true, looksLike: null };
+    return { fashion: true, looksLike: null, suggestion: null, learnedFrom: 0 };
   }
 });
 
@@ -881,6 +894,24 @@ const server = http.createServer(async (req, res) => {
 });
 
 warmUpFashionCheck();
+// Items listed without an AI fingerprint (older listings, demo items) get one in the background,
+// so search and the shop's learned memory include them.
+(async () => {
+  const missing = db.prepare('select id, image, cutout from products where embedding is null').all();
+  for (const p of missing) {
+    try {
+      const { embedding } = await checkPhoto(p.cutout || p.image, p.id);
+      db.prepare('update products set embedding = ? where id = ?').run(json(embedding), p.id);
+    } catch (error) {
+      console.error('Could not fingerprint', p.id, error.message);
+      return;
+    }
+  }
+  if (missing.length) {
+    console.log(`Added AI fingerprints to ${missing.length} items.`);
+    broadcast('products');
+  }
+})();
 const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 

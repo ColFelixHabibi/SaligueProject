@@ -17,12 +17,13 @@ import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
-import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
+import { CategoryField, ItemPhotoField , type FashionSuggestion } from '@/components/item-photo-field';
 import { SoundField, type ChosenSound } from '@/components/sound-field';
 import { makeClip, saveProductSound } from '@/lib/audio';
 import Link from 'next/link';
 import { MapPin } from 'lucide-react';
 import { isShopComplete } from '@/lib/types';
+import { categoryLabel } from '@/lib/categories';
 
 
 export default function SellPage() {
@@ -31,6 +32,15 @@ export default function SellPage() {
     const [photo, setPhoto] = useState<PreparedItemPhoto | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
+    const [type, setType] = useState('');
+    const [aiHint, setAiHint] = useState<string | null>(null);
+    // The AI's guess from the photo fills the category and type, unless the seller already chose them.
+    const applySuggestion = (s: FashionSuggestion) => {
+        if (category && type) return;
+        setCategory(s.category);
+        if (s.type) setType(s.type);
+        setAiHint(`AI suggests ${s.type ?? categoryLabel(s.category)}${s.from ? `, learned from ${s.from} similar items on Saligue` : ''}. Change it if it's wrong.`);
+    };
     const [sound, setSound] = useState<ChosenSound | null>(null);
     const initialFormValues = {
         title: '',
@@ -104,8 +114,8 @@ export default function SellPage() {
             return;
         }
 
-        if (!category) {
-            toast({ variant: 'destructive', title: 'Category Required', description: 'Please choose what kind of item this is.' });
+        if (!category || !type) {
+            toast({ variant: 'destructive', title: 'Category and type required', description: 'Choose the category and the exact type of fashion item.' });
             return;
         }
         
@@ -119,6 +129,7 @@ export default function SellPage() {
                 cutout: photo.cutout,
                 embedding: photo.embedding,
                 category,
+                type,
                 seller: user?.displayName || 'Anonymous Seller',
                 sellerEmail: user?.email || '',
                 status: 'active' as const,
@@ -172,9 +183,9 @@ export default function SellPage() {
             )}
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
+              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} onSuggestion={applySuggestion} />
 
-              <CategoryField value={category} onChange={setCategory} />
+              <CategoryField value={category} onChange={(c) => { setCategory(c); setAiHint(null); }} type={type} onTypeChange={(t) => { setType(t); setAiHint(null); }} hint={aiHint} />
 
               <SoundField value={sound} onChange={setSound} />
 
