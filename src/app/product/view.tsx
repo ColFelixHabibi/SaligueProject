@@ -131,7 +131,7 @@ export default function ProductView({ id }: { id: string | null }) {
             <CardHeader>
               <div className="flex justify-between items-start">
                 <div>
-                  <Badge variant="outline">{categoryLabel(product.category)}</Badge>
+                  <Badge variant="outline">{categoryLabel(product.category)}{product.type ? ` · ${product.type}` : ''}</Badge>
                   <CardTitle className="text-3xl lg:text-4xl font-extrabold mt-2">{product.name}</CardTitle>
                 </div>
                 <div className="text-right">

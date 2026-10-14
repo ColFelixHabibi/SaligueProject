@@ -17,7 +17,7 @@ const MAX_RESULTS = 24;
 function keywordScore(product: Product, words: string[]) {
   const haystack = [
     product.name, product.description, product.brand, product.color,
-    product.size, product.condition, product.category, categoryLabel(product.category),
+    product.size, product.condition, product.category, categoryLabel(product.category), product.type,
   ].join(' ').toLowerCase();
   return words.filter((w) => haystack.includes(w)).length / words.length;
 }

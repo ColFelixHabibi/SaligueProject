@@ -17,7 +17,7 @@ import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
-import { CategoryField, ItemPhotoField , type FashionSuggestion } from '@/components/item-photo-field';
+import { CategoryField, ItemPhotoField, type FashionSuggestion } from '@/components/item-photo-field';
 import { SoundField, type ChosenSound } from '@/components/sound-field';
 import { makeClip, saveProductSound } from '@/lib/audio';
 import Link from 'next/link';

@@ -119,6 +119,8 @@ export function CategoryField({ value, onChange, type, onTypeChange, hint }: Cat
         <Select
           value={value}
           onValueChange={(next) => {
+            // The dropdown also reports values set by the app (e.g. the AI's suggestion); only real changes count.
+            if (next === value) return;
             onChange(next);
             if (!typesOf(next).includes(type)) onTypeChange('');
           }}
@@ -135,7 +137,7 @@ export function CategoryField({ value, onChange, type, onTypeChange, hint }: Cat
       </div>
       <div className="space-y-2">
         <Label htmlFor="item-type" className="text-lg font-medium">Type *</Label>
-        <Select value={type} onValueChange={onTypeChange} disabled={!types.length}>
+        <Select value={type} onValueChange={(next) => next !== type && onTypeChange(next)} disabled={!types.length}>
           <SelectTrigger id="item-type" className="h-12 text-base">
             <SelectValue placeholder={types.length ? 'Exact type of item' : 'Choose a category first'} />
           </SelectTrigger>
