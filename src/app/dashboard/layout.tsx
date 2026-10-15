@@ -15,6 +15,7 @@ import {
   Users,
   LifeBuoy,
   ShoppingBag,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +43,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useNotificationStore } from '@/hooks/use-notification-store';
+import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useDashboardSearchStore } from '@/hooks/use-dashboard-search-store';
 
 
@@ -54,6 +56,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const { toast } = useToast();
   const { user, role, isAuthLoading } = useAuth();
+  const official = useUserRoleStore((s) => s.official);
   const { notifications } = useNotificationStore();
   const { searchQuery, setSearchQuery } = useDashboardSearchStore();
 
@@ -102,6 +105,8 @@ export default function DashboardLayout({
     { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
     { href: '/dashboard/analytics', icon: LineChart, label: 'Analytics' },
     { href: '/dashboard/notifications', icon: Bell, label: 'Notifications' },
+    // Only INDECIANA reviews reported items.
+    ...(official ? [{ href: '/dashboard/reviews', icon: ShieldCheck, label: 'Reviews' }] : []),
   ];
 
   return (

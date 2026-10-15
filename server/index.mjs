@@ -556,6 +556,42 @@ route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
   return { ok: true };
 });
 
+// Review of reported items, by INDECIANA's official account. Each decision also teaches the AI (learn.mjs).
+route('GET', '/api/admin/reports', ({ user }) => {
+  if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can review reports.');
+  return db.prepare(`select p.*, count(r.user_id) as report_count, group_concat(distinct r.reason) as reasons, max(r.created_at) as last_report
+    from reports r join products p on p.id = r.product_id group by p.id order by p.hidden desc, report_count desc, last_report desc`).all()
+    .map((r) => ({ ...productOut(r), reportCount: r.report_count, reasons: (r.reasons ?? '').split(','), lastReport: r.last_report }));
+});
+
+route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
+  if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can review reports.');
+  const product = db.prepare('select * from products where id = ?').get(params[0]);
+  if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  const embedding = parse(product.embedding);
+  if (body.decision === 'remove') {
+    learn(embedding, 'not_fashion', product.id);
+    db.prepare('delete from products where id = ?').run(product.id);
+    notify(product.seller_id, {
+      type: 'product',
+      title: `"${product.name}" was removed`,
+      body: 'After reports from shoppers, INDECIANA removed this item. Saligue is only for fashion items described honestly.',
+      link: '/dashboard/products',
+    });
+  } else if (body.decision === 'keep') {
+    learn(embedding, 'fashion', product.id);
+    db.prepare('update products set hidden = 0 where id = ?').run(product.id);
+    db.prepare('delete from reports where product_id = ?').run(product.id);
+    if (product.hidden) {
+      notify(product.seller_id, { type: 'product', title: `"${product.name}" is visible again`, body: 'INDECIANA reviewed the reports and your item is back on Saligue.', link: '/dashboard/products' });
+    }
+  } else {
+    fail(400, 'invalid_decision', 'Choose remove or keep.');
+  }
+  broadcast('products');
+  return { ok: true };
+});
+
 // Comments
 route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
   db.prepare('select * from comments where product_id = ? order by created_at desc limit 50').all(params[0])
