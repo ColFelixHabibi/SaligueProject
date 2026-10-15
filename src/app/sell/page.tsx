@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
+import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2, Store } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 
@@ -20,11 +20,39 @@ import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField, type FashionSuggestion } from '@/components/item-photo-field';
 import { SoundField, type ChosenSound } from '@/components/sound-field';
 import { makeClip, saveProductSound } from '@/lib/audio';
-import Link from 'next/link';
-import { MapPin } from 'lucide-react';
 import { isShopComplete } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { ShopProfileForm } from '@/components/shop-profile-form';
+import { updateAccount } from '@/lib/auth-actions';
+import { friendlyError } from '@/lib/errors';
 import { categoryLabel } from '@/lib/categories';
 
+
+type Step = 'account' | 'switch' | 'shop' | 'list';
+
+const STEPS: { key: Step; label: string }[] = [
+  { key: 'account', label: 'Seller account' },
+  { key: 'shop', label: 'Shop address' },
+  { key: 'list', label: 'List your item' },
+];
+
+function SellSteps({ step }: { step: Step }) {
+  const current = STEPS.findIndex((s) => s.key === (step === 'switch' ? 'account' : step));
+  return (
+    <ol className="mb-6 flex items-center gap-2 text-xs sm:text-sm">
+      {STEPS.map((s, i) => (
+        <li key={s.key} className="flex flex-1 items-center gap-2">
+          <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-semibold',
+            i < current ? 'border-primary bg-primary text-primary-foreground' : i === current ? 'border-primary text-primary' : 'text-muted-foreground')}>
+            {i < current ? '✓' : i + 1}
+          </span>
+          <span className={cn('leading-tight', i === current ? 'font-semibold' : 'text-muted-foreground')}>{s.label}</span>
+          {i < STEPS.length - 1 && <span className="h-px flex-1 bg-border" />}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export default function SellPage() {
     const { toast } = useToast();
@@ -57,6 +85,20 @@ export default function SellPage() {
     const { user } = useAuth();
     const { role, shop } = useUserRoleStore();
     const hasShop = isShopComplete(shop);
+    const setRole = useUserRoleStore((st) => st.setRole);
+    // Selling takes three steps: a seller account, the shop's address, then the item.
+    const step: Step = !user ? 'account' : role !== 'seller' ? 'switch' : !hasShop ? 'shop' : 'list';
+    const [switching, setSwitching] = useState(false);
+    const switchToSelling = async () => {
+        setSwitching(true);
+        try {
+            await updateAccount({ role: 'seller' });
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Could not switch', description: friendlyError(error) });
+        } finally {
+            setSwitching(false);
+        }
+    };
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [loginOpen, setLoginOpen] = useState(false);
@@ -158,7 +200,7 @@ export default function SellPage() {
             toast({
                 variant: 'destructive',
                 title: 'Listing Failed',
-                description: 'Something went wrong. Please try again.',
+                description: friendlyError(error),
             });
         } finally {
             setIsSubmitting(false);
@@ -174,13 +216,32 @@ export default function SellPage() {
             <CardDescription>Fill out the details below to put your fashion item up for sale.</CardDescription>
           </CardHeader>
           <CardContent>
-            {user && role === 'seller' && !hasShop && (
-              <div className="mb-6 flex flex-col gap-3 rounded-lg border border-primary/40 bg-primary/5 p-4 sm:flex-row sm:items-center">
-                <MapPin className="h-6 w-6 shrink-0 text-primary" />
-                <p className="flex-1 text-sm">Add your shop name and full address first. Buyers see it on every item you sell.</p>
-                <Button asChild size="sm"><Link href="/dashboard/settings">Add shop address</Link></Button>
+            <SellSteps step={step} />
+            {step === 'account' && (
+              <div className="space-y-4 rounded-lg border border-primary/40 bg-primary/5 p-5 text-center">
+                <Store className="mx-auto h-10 w-10 text-primary" />
+                <div>
+                  <p className="text-lg font-semibold">Selling needs a seller account</p>
+                  <p className="text-sm text-muted-foreground">So buyers know who they buy from, every item on Saligue belongs to a registered shop. It&apos;s free.</p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+                  <Button size="lg" onClick={() => { setRole('seller'); setRegisterOpen(true); }}>Create a seller account</Button>
+                  <Button size="lg" variant="outline" onClick={() => { setRole('seller'); setLoginOpen(true); }}>I already have an account</Button>
+                </div>
               </div>
             )}
+            {step === 'switch' && (
+              <div className="space-y-4 rounded-lg border border-primary/40 bg-primary/5 p-5 text-center">
+                <Store className="mx-auto h-10 w-10 text-primary" />
+                <div>
+                  <p className="text-lg font-semibold">Your account is a buyer account</p>
+                  <p className="text-sm text-muted-foreground">Switch to selling to list items. You can still shop as before.</p>
+                </div>
+                <Button size="lg" onClick={switchToSelling} disabled={switching}>{switching ? 'Switching…' : 'Switch to selling'}</Button>
+              </div>
+            )}
+            {step === 'shop' && <ShopProfileForm />}
+            {step === 'list' && (
             <form onSubmit={handleSubmit} className="space-y-6">
               
               <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} onSuggestion={applySuggestion} />
@@ -256,6 +317,7 @@ export default function SellPage() {
                   {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : 'List Product'}
               </Button>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>
