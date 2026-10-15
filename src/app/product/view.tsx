@@ -32,6 +32,7 @@ import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { formatPrice } from '@/lib/orders';
 import { productHref } from '@/lib/links';
 import { ReportButton } from '@/components/social/report-button';
+import { SoundChip } from '@/components/social/sound-chip';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -146,6 +147,7 @@ export default function ProductView({ id }: { id: string | null }) {
               <div className="flex items-center gap-2 mb-4">
                 <DollarSign className="h-7 w-7 text-primary" />
                 <p className="text-4xl font-bold text-primary">${Number(product.price).toFixed(2)}</p>
+                <SoundChip product={product} autoPlay className="ml-auto" />
               </div>
               <CardDescription>
                 {product.description || `This is a high-quality ${product.name} from ${product.seller}. Perfect for any occasion and crafted with the finest materials.`}

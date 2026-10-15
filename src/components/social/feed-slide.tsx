@@ -88,17 +88,16 @@ export function FeedSlide({ product }: { product: Product }) {
           <img src={image} alt={product.name} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
         </Link>
 
-        {product.sound && (
-          <button
-            type="button"
-            onClick={toggle}
-            className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-2 text-xs font-semibold shadow backdrop-blur"
-            aria-label={soundOn ? 'Turn sound off' : 'Turn sound on'}
-          >
-            {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-            {soundOn && !unlocked && 'Tap for sound'}
-          </button>
-        )}
+        {/* Sound on/off for the whole feed, on every item, so it can be turned on before reaching items with a sound. */}
+        <button
+          type="button"
+          onClick={toggle}
+          className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-2 text-xs font-semibold shadow backdrop-blur"
+          aria-label={soundOn ? 'Turn sound off' : 'Turn sound on'}
+        >
+          {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+          {soundOn && !unlocked && 'Tap for sound'}
+        </button>
 
         <div className={cn('absolute bottom-6 right-3 z-10', commentsOpen && 'hidden')}>
           <ActionRail product={product} variant="overlay" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />

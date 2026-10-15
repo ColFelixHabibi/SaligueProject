@@ -2,6 +2,7 @@
 // The pictures are drawn here (transparent background), so they can be worn in the Fitting Room right away.
 //   node server/seed.mjs            add the demo items (again: replaces the previous demo items)
 //   node server/seed.mjs --remove   remove the demo shops and their items
+//   node server/seed.mjs --sounds   give every demo item a tune (keeps the items)
 import { randomUUID } from 'node:crypto';
 import { Mp3Encoder } from '@breezystack/lamejs';
 import { db, json, now, transaction } from './db.mjs';
@@ -222,6 +223,25 @@ const SOUNDS = {
   'Denim Jacket': ['Weekend Denim', jingle([64, 67, 71, 67, 69, 72, 69, 67, 64, 62, 64, 67, 64, null, 62, null], 108)],
 };
 
+// Every other item gets its own little tune, made from its name (same name, same tune).
+const SCALES = [[0, 2, 4, 7, 9, 12], [0, 3, 5, 7, 10, 12], [0, 2, 3, 7, 8, 12], [0, 4, 7, 9, 11, 12]];
+const MOODS = ['Morning Walk', 'City Lights', 'Kigali Groove', 'Soft Breeze', 'Golden Hour', 'Night Out', 'Weekend Vibes', 'Sunset Steps'];
+function tuneFor(name) {
+  let seed = [...name].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0;
+  const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const scale = SCALES[Math.floor(next() * SCALES.length)];
+  const root = 57 + Math.floor(next() * 10);
+  const melody = Array.from({ length: 16 }, (_, i) => (i % 8 === 7 || next() < 0.12 ? null : root + scale[Math.floor(next() * scale.length)]));
+  return [MOODS[Math.floor(next() * MOODS.length)], jingle(melody, 90 + Math.floor(next() * 40))];
+}
+const soundFor = (name) => SOUNDS[name] ?? tuneFor(name);
+
+function saveSound(id, [name, clip]) {
+  db.prepare('insert into product_audio (product_id, data, name, duration) values (?, ?, ?, ?) on conflict(product_id) do update set data = excluded.data, name = excluded.name, duration = excluded.duration')
+    .run(id, clip.data, name, clip.duration);
+  db.prepare('update products set sound = ? where id = ?').run(json({ name, duration: clip.duration }), id);
+}
+
 // The exact type of each demo item (see src/lib/fashion-types.json).
 const DEMO_TYPES = {
   'Classic White Tee': 'T-shirt', 'Black Crew T-shirt': 'T-shirt', 'Navy Striped Polo': 'Polo', 'Denim Jacket': 'Denim jacket',
@@ -244,7 +264,12 @@ function remove() {
   return sellers.length;
 }
 
-if (process.argv.includes('--remove')) {
+if (process.argv.includes('--sounds')) {
+  // Adds a tune to every demo item that has none, without re-creating the items.
+  const rows = db.prepare(`select id, name from products where sound is null and seller_email like '%${DEMO_DOMAIN}'`).all();
+  transaction(() => rows.forEach((r) => saveSound(r.id, soundFor(r.name))));
+  console.log(`Added sounds to ${rows.length} demo items.`);
+} else if (process.argv.includes('--remove')) {
   console.log(`Removed ${remove()} demo shops and their items.`);
 } else {
   remove();
@@ -260,7 +285,7 @@ if (process.argv.includes('--remove')) {
         // Spread over the last few days so the feed has new and older items.
         const created = new Date(Date.now() - (i * 7 + count) * 3_600_000).toISOString();
         const id = randomUUID();
-        const sound = SOUNDS[item.name];
+        const sound = soundFor(item.name);
         db.prepare(`insert into products (id, name, price, image, cutout, category, type, seller, seller_id, seller_email, status,
             description, size, color, brand, condition, contact, shop, official, like_count, sound, created_at)
           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, 'New', ?, ?, ?, ?, ?, ?)`).run(

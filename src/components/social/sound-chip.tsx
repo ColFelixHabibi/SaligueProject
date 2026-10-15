@@ -3,31 +3,48 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Music2, Pause } from 'lucide-react';
 import { loadProductSound } from '@/lib/audio';
+import { useAudible } from '@/hooks/use-sound';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 // One sound at a time across the page.
 let current: { audio: HTMLAudioElement; stop: () => void } | null = null;
 
-/** ♪ button on an item card: plays the item's sound (looping) until tapped again or another one starts. */
-export function SoundChip({ product, className }: { product: Product; className?: string }) {
+/**
+ * ♪ button for an item's sound (looping) until tapped again or another one starts.
+ * With `autoPlay` (item pages) it starts by itself once sound is on, like the feed.
+ */
+export function SoundChip({ product, className, autoPlay }: { product: Product; className?: string; autoPlay?: boolean }) {
   const [state, setState] = useState<'idle' | 'loading' | 'playing'>('idle');
   const mine = useRef<HTMLAudioElement | null>(null);
+  const audible = useAudible();
+  const stoppedByUser = useRef(false);
 
   // Stop this card's sound when the card goes away.
   useEffect(() => () => {
     if (current && current.audio === mine.current) current.stop();
   }, []);
 
+  useEffect(() => {
+    if (autoPlay && audible && product.sound && state === 'idle' && !stoppedByUser.current) start();
+    // Start once sound becomes allowed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay, audible, product.id]);
+
   if (!product.sound) return null;
 
-  const toggle = async (e: React.MouseEvent) => {
+  const toggle = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (state === 'playing') {
+      stoppedByUser.current = true;
       current?.stop();
       return;
     }
+    start();
+  };
+
+  async function start() {
     current?.stop();
     setState('loading');
     const src = await loadProductSound(product.id);
@@ -50,7 +67,7 @@ export function SoundChip({ product, className }: { product: Product; className?
     } catch {
       stop();
     }
-  };
+  }
 
   return (
     <button

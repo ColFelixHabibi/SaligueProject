@@ -18,6 +18,7 @@ import { formatPrice } from '@/lib/orders';
 import { BASE_PATH } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { ReportButton } from '@/components/social/report-button';
+import { SoundChip } from '@/components/social/sound-chip';
 
 // INDECIANA's logo, if provided (public/brand/indeciana-logo.png). The wordmark is shown otherwise.
 const LOGO = `${BASE_PATH}/brand/indeciana-logo.png`;
@@ -98,6 +99,7 @@ function IndecianaStore() {
                   <p className="text-xs uppercase tracking-[0.35em] text-muted-foreground">{categoryLabel(selected.category)}</p>
                   <h2 className="mt-3 font-serif text-4xl font-light leading-tight md:text-5xl">{selected.name}</h2>
                   <p className="mt-5 text-2xl tracking-wider">{formatPrice(Number(selected.price))}</p>
+                  <SoundChip key={selected.id} product={selected} autoPlay className="mt-3" />
                 </div>
                 {selected.description && <p className="leading-relaxed text-foreground/80">{selected.description}</p>}
                 <dl className="grid grid-cols-2 gap-px overflow-hidden bg-border text-sm">
