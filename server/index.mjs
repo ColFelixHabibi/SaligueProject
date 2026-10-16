@@ -5,7 +5,8 @@ import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
-import { sendEmail } from './mail.mjs';
+import { sendEmail, siteUrl } from './mail.mjs';
+import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
@@ -49,15 +50,36 @@ function createSession(userId) {
   return token;
 }
 
-function tokenOf(req) {
-  const header = req.headers.authorization || '';
-  return header.startsWith('Bearer ') ? header.slice(7) : null;
+// Sessions last 60 days. The app sends the token in the Authorization header; the same token is also kept in
+// an HttpOnly cookie (scripts can't read it), which signs in live updates and works when storage is blocked.
+const SESSION_DAYS = 60;
+const COOKIE = 'saligue_session';
+
+function cookieToken(req) {
+  const match = /(?:^|;\s*)saligue_session=([\w-]+)/.exec(req.headers.cookie || '');
+  return match ? match[1] : null;
 }
 
-function userOf(req) {
-  const token = tokenOf(req);
+function tokenOf(req) {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7) : cookieToken(req);
+}
+
+function userOf(req, token = tokenOf(req)) {
   if (!token) return null;
-  return db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ?').get(token) ?? null;
+  const since = new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString();
+  return db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ?').get(token, since) ?? null;
+}
+
+function isHttps(req) {
+  return req.headers['x-forwarded-proto'] === 'https' || !!req.socket.encrypted || siteUrl().startsWith('https://');
+}
+
+function sessionCookie(req, token) {
+  const secure = isHttps(req) ? '; Secure' : '';
+  return token
+    ? `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86_400}${secure}`
+    : `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
 function publicUser(u) {
@@ -95,11 +117,18 @@ function mergeGuestInto(guestId, accountId) {
 // Live updates (Server-Sent Events): clients refresh what changed.
 // ---------------------------------------------------------------------------
 
-const listeners = new Set();
+// Each listener knows whose app it is (when signed in), so private events reach only that account.
+const listeners = new Map(); // res → user id or null
 function broadcast(event, data = {}) {
   if (event === 'products') productsChanged();
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of listeners) res.write(message);
+  for (const res of listeners.keys()) res.write(message);
+}
+
+/** Sends an event only to the apps of the given accounts (e.g. a new chat message). */
+function sendTo(userIds, event, data = {}) {
+  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const [res, userId] of listeners) if (userId && userIds.includes(userId)) res.write(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +187,10 @@ function productOut(r) {
     hidden: !!r.hidden,
     likeCount: r.like_count,
     sound: parse(r.sound) ?? undefined,
+    // null: the seller doesn't track stock.
+    stock: r.stock ?? null,
+    rating: r.rating_count ? Math.round(r.rating_avg * 10) / 10 : 0,
+    ratingCount: r.rating_count ?? 0,
     createdAt: r.created_at,
   };
   return p;
@@ -180,6 +213,11 @@ function productFields(body) {
     if (!['active', 'archived', 'draft'].includes(body.status)) fail(400, 'invalid_status', 'Invalid status.');
     fields.status = body.status;
   }
+  if (body.stock !== undefined) {
+    const stock = body.stock === null || body.stock === '' ? null : Math.floor(Number(body.stock));
+    if (stock !== null && !(stock >= 0 && stock <= 100_000)) fail(400, 'invalid_stock', 'Enter how many you have in stock (0 or more).');
+    fields.stock = stock;
+  }
   if (body.embedding !== undefined) fields.embedding = json(body.embedding);
   if (body.sound !== undefined) fields.sound = json(body.sound);
   if ((fields.image?.length ?? 0) > 1_500_000 || (fields.cutout?.length ?? 0) > 1_500_000) fail(413, 'too_large', 'This photo is too large.');
@@ -200,7 +238,16 @@ function ownProduct(user, id) {
 // Orders
 // ---------------------------------------------------------------------------
 
-const PAYMENT_METHODS = ['mobile_money', 'cash_on_delivery', 'pickup'];
+// online: card or Mobile Money on Flutterwave's page (payments.mjs), confirmed automatically.
+const PAYMENT_METHODS = ['online', 'mobile_money', 'cash_on_delivery', 'pickup'];
+const PAYMENT_LABELS = { online: 'paid online (card / Mobile Money)', mobile_money: 'Mobile Money to the shop', cash_on_delivery: 'cash on delivery', pickup: 'pay at pickup' };
+
+/** Puts the items of a cancelled order back in stock. */
+function restock(order) {
+  for (const item of parse(order.items) ?? []) {
+    db.prepare('update products set stock = stock + ? where id = ? and stock is not null').run(item.quantity, item.productId);
+  }
+}
 const ORDER_STATUSES = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
 function orderOut(r) {
@@ -216,6 +263,7 @@ function orderOut(r) {
     delivery: parse(r.delivery),
     paymentMethod: r.payment_method,
     paymentStatus: r.payment_status,
+    paidAt: r.paid_at ?? null,
     status: r.status,
     createdAt: r.created_at,
   };
@@ -381,9 +429,10 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   return { token: createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
 
-route('POST', '/api/auth/logout', ({ req }) => {
+route('POST', '/api/auth/logout', ({ req, res }) => {
   const token = tokenOf(req);
   if (token) db.prepare('delete from sessions where token = ?').run(token);
+  res.setHeader('Set-Cookie', sessionCookie(req, null));
   return { ok: true };
 });
 
@@ -457,11 +506,12 @@ route('POST', '/api/products', async ({ user, body }) => {
   if (checked) fields.embedding = json(checked);
   const id = randomUUID();
   db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, type, seller, seller_id, seller_email, status,
-      description, size, color, brand, condition, contact, shop, official, sound, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      description, size, color, brand, condition, contact, shop, official, sound, stock, created_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, fields.name, fields.price, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
-    fields.seller || user.display_name || 'Seller', user.id, user.email, fields.description ?? null, fields.size ?? null,
-    fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null, now()
+    fields.seller || user.display_name || 'Seller', user.id, user.email, fields.status ?? 'active', fields.description ?? null, fields.size ?? null,
+    fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null,
+    fields.stock ?? null, now()
   );
   broadcast('products');
   return { id };
@@ -693,23 +743,29 @@ route('POST', '/api/orders', ({ user, body }) => {
   const lines = Array.isArray(body.items) ? body.items : [];
   if (!lines.length || lines.length > 50) fail(400, 'invalid_order', 'Your cart is empty.');
   if (!PAYMENT_METHODS.includes(body.paymentMethod)) fail(400, 'invalid_payment', 'Choose a payment method.');
-  const delivery = body.delivery ?? {};
+  if (body.paymentMethod === 'online' && !paymentsEnabled()) fail(400, 'payments_off', 'Online payment is not available yet. Choose another way to pay.');
+  const delivery = Object.fromEntries(Object.entries(body.delivery ?? {}).map(([k, v]) => [k, String(v ?? '').trim().slice(0, 300)]));
   if (!delivery.fullName || !delivery.phone || !delivery.city || !delivery.street) fail(400, 'incomplete_delivery', 'Please fill in the delivery address.');
 
-  const groups = new Map();
-  for (const line of lines) {
-    const quantity = Math.floor(Number(line.quantity));
-    if (!(quantity >= 1 && quantity <= 99)) fail(400, 'invalid_quantity', 'Invalid quantity.');
-    const product = db.prepare("select * from products where id = ? and status = 'active'").get(String(line.productId));
-    if (!product) fail(409, 'unavailable', 'An item in your cart is no longer available.');
-    const group = groups.get(product.seller_id) ?? { shop: product.shop, items: [], total: 0 };
-    group.items.push({ productId: product.id, name: product.name, price: product.price, quantity });
-    group.total += product.price * quantity;
-    groups.set(product.seller_id, group);
-  }
-
-  const ids = transaction(() =>
-    [...groups].map(([sellerId, group]) => {
+  // Prices and stock always come from the database, checked and reserved in one step.
+  const ids = transaction(() => {
+    const groups = new Map();
+    for (const line of lines) {
+      const quantity = Math.floor(Number(line.quantity));
+      if (!(quantity >= 1 && quantity <= 99)) fail(400, 'invalid_quantity', 'Invalid quantity.');
+      const product = db.prepare("select * from products where id = ? and status = 'active' and hidden = 0").get(String(line.productId));
+      if (!product) fail(409, 'unavailable', 'An item in your cart is no longer available.');
+      if (product.seller_id === user.id) fail(400, 'own_item', `"${product.name}" is your own item.`);
+      if (product.stock !== null && product.stock < quantity) {
+        fail(409, 'out_of_stock', product.stock === 0 ? `"${product.name}" is sold out.` : `Only ${product.stock} of "${product.name}" left. Lower the quantity in your cart.`);
+      }
+      db.prepare('update products set stock = stock - ? where id = ? and stock is not null').run(quantity, product.id);
+      const group = groups.get(product.seller_id) ?? { shop: product.shop, items: [], total: 0 };
+      group.items.push({ productId: product.id, name: product.name, price: product.price, quantity, image: product.image });
+      group.total += product.price * quantity;
+      groups.set(product.seller_id, group);
+    }
+    return [...groups].map(([sellerId, group]) => {
       const id = randomUUID();
       db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, created_at)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -717,23 +773,30 @@ route('POST', '/api/orders', ({ user, body }) => {
         json(group.items), Math.round(group.total * 100) / 100, json(delivery), body.paymentMethod, now()
       );
       return { id, sellerId, group };
-    })
-  );
-  const payment = { mobile_money: 'Mobile Money', cash_on_delivery: 'cash on delivery', pickup: 'pay at pickup' }[body.paymentMethod];
+    });
+  });
+  const payment = PAYMENT_LABELS[body.paymentMethod];
   for (const { id, sellerId, group } of ids) {
     const shopName = parse(group.shop)?.name || 'the shop';
     const list = group.items.map((i) => `${i.quantity} x ${i.name}`).join(', ');
-    notify(sellerId, {
-      type: 'sale',
-      title: `New order #${id.slice(0, 6).toUpperCase()} - ${money(group.total)}`,
-      body: `${delivery.fullName} (${delivery.phone}) ordered ${list}. Payment: ${payment}. Deliver to ${[delivery.street, delivery.city].join(', ')}.`,
-      link: '/dashboard/orders',
-    });
+    // Orders paid online are announced to the shop once the payment is confirmed (see markPaid).
+    if (body.paymentMethod !== 'online') {
+      notify(sellerId, {
+        type: 'sale',
+        title: `New order #${id.slice(0, 6).toUpperCase()} - ${money(group.total)}`,
+        body: `${delivery.fullName} (${delivery.phone}) ordered ${list}. Payment: ${payment}. Deliver to ${[delivery.street, delivery.city].join(', ')}.`,
+        link: '/dashboard/orders',
+      });
+    }
     notify(user.id, {
       type: 'order',
       title: `Order #${id.slice(0, 6).toUpperCase()} placed - ${money(group.total)}`,
-      body: `${shopName} received your order for ${list}. Payment: ${payment}. You will be notified when it is confirmed.`,
+      body: body.paymentMethod === 'online'
+        ? `Your order for ${list} from ${shopName} is reserved. Finish paying online to send it to the shop.`
+        : `${shopName} received your order for ${list}. Payment: ${payment}. You will be notified when it is confirmed.`,
       link: '/orders',
+      // The confirmation email follows the payment for online orders.
+      email: body.paymentMethod !== 'online',
     });
   }
   broadcast('orders');
@@ -753,8 +816,14 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
   if (order.seller_id === user.id) {
     if (body.status !== undefined && !ORDER_STATUSES.includes(body.status)) fail(400, 'invalid_status', 'Invalid status.');
     if (body.paymentStatus !== undefined && !['unpaid', 'paid'].includes(body.paymentStatus)) fail(400, 'invalid_status', 'Invalid payment status.');
-    db.prepare('update orders set status = coalesce(?, status), payment_status = coalesce(?, payment_status) where id = ?')
-      .run(body.status ?? null, body.paymentStatus ?? null, order.id);
+    // A payment confirmed by Flutterwave can't be undone by hand.
+    if (body.paymentStatus === 'unpaid' && order.payment_ref) fail(400, 'paid_online', 'This order was paid online; the payment cannot be removed here.');
+    if (order.status === 'cancelled' && body.status && body.status !== 'cancelled') fail(400, 'cancelled', 'A cancelled order cannot be reopened. Ask the buyer to order again.');
+    transaction(() => {
+      db.prepare('update orders set status = coalesce(?, status), payment_status = coalesce(?, payment_status), paid_at = case when ? = \'paid\' then coalesce(paid_at, ?) when ? = \'unpaid\' then null else paid_at end where id = ?')
+        .run(body.status ?? null, body.paymentStatus ?? null, body.paymentStatus ?? null, now(), body.paymentStatus ?? null, order.id);
+      if (body.status === 'cancelled' && order.status !== 'cancelled') restock(order);
+    });
     const code = order.id.slice(0, 6).toUpperCase();
     if (body.status && body.status !== order.status && ORDER_STATUS_TEXT[body.status]) {
       notify(order.buyer_id, { type: 'order', title: `Your order #${code} ${ORDER_STATUS_TEXT[body.status]}`, body: `Total ${money(order.total)}.`, link: '/orders' });
@@ -764,12 +833,460 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
     }
   } else if (order.buyer_id === user.id) {
     if (order.status !== 'placed' || body.status !== 'cancelled' || body.paymentStatus !== undefined) fail(403, 'forbidden', 'You can only cancel an order that has not been confirmed.');
-    db.prepare("update orders set status = 'cancelled' where id = ?").run(order.id);
+    if (order.payment_status === 'paid') fail(403, 'paid', 'This order is already paid. Message the shop to cancel it and get your money back.');
+    transaction(() => {
+      db.prepare("update orders set status = 'cancelled' where id = ?").run(order.id);
+      restock(order);
+    });
     notify(order.seller_id, { type: 'sale', title: `Order #${order.id.slice(0, 6).toUpperCase()} was cancelled by the buyer`, body: `${order.buyer_name} cancelled the order (${money(order.total)}).`, link: '/dashboard/orders' });
   } else fail(403, 'forbidden', 'This is not your order.');
   broadcast('orders');
   return { ok: true };
 });
+
+// ---------------------------------------------------------------------------
+// Messages: buyers talk directly with sellers (one conversation per buyer and shop), live and by email.
+// ---------------------------------------------------------------------------
+
+const shopNameOf = (u) => parse(u?.shop)?.name || u?.display_name || 'Shop';
+const personNameOf = (u) => (u?.is_guest ? 'Guest shopper' : u?.display_name || u?.email?.split('@')[0] || 'Saligue user');
+
+function conversationOut(c, me) {
+  const iAmBuyer = c.buyer_id === me.id;
+  const other = db.prepare('select id, display_name, email, shop, is_guest, official from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
+  const readAt = (iAmBuyer ? c.buyer_read_at : c.seller_read_at) ?? '';
+  const last = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 1').get(c.id);
+  const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ?').get(c.id, me.id, readAt).n;
+  return {
+    id: c.id,
+    role: iAmBuyer ? 'buyer' : 'seller',
+    other: {
+      id: other?.id,
+      name: iAmBuyer ? shopNameOf(other) : personNameOf(other),
+      official: !!other?.official,
+      isGuest: !!other?.is_guest,
+    },
+    lastMessage: last ? { text: last.text, fromMe: last.sender_id === me.id, productId: last.product_id, createdAt: last.created_at } : null,
+    unread,
+    lastMessageAt: c.last_message_at,
+  };
+}
+
+function messageOut(m) {
+  return { id: m.id, senderId: m.sender_id, text: m.text, productId: m.product_id ?? null, orderId: m.order_id ?? null, createdAt: m.created_at };
+}
+
+function ownConversation(user, id) {
+  const c = db.prepare('select * from conversations where id = ?').get(id);
+  if (!c || (c.buyer_id !== user.id && c.seller_id !== user.id)) fail(404, 'not_found', 'Conversation not found.');
+  return c;
+}
+
+const messageRuns = new Map();
+function addMessage(user, c, { text, productId = null, orderId = null }) {
+  const clean = String(text ?? '').trim().slice(0, 2000);
+  if (!clean) fail(400, 'empty_message', 'Write a message first.');
+  const minute = Date.now() - 60_000;
+  const recent = (messageRuns.get(user.id) ?? []).filter((t) => t > minute);
+  if (recent.length >= 30) fail(429, 'too_many', 'You are sending messages very fast. Wait a moment.');
+  messageRuns.set(user.id, [...recent, Date.now()]);
+  if (productId && !db.prepare('select 1 from products where id = ?').get(productId)) productId = null;
+  if (orderId && !db.prepare('select 1 from orders where id = ? and (buyer_id = ? or seller_id = ?)').get(orderId, c.buyer_id, c.seller_id)) orderId = null;
+
+  const time = now();
+  const id = randomUUID();
+  const iAmBuyer = c.buyer_id === user.id;
+  transaction(() => {
+    db.prepare('insert into messages (id, conversation_id, sender_id, text, product_id, order_id, created_at) values (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, c.id, user.id, clean, productId, orderId, time);
+    db.prepare(`update conversations set last_message_at = ?, ${iAmBuyer ? 'buyer_read_at' : 'seller_read_at'} = ? where id = ?`).run(time, time, c.id);
+  });
+  sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
+
+  // Email the other person, at most once until they've read the chat (or every 6 hours while it stays unread).
+  const recipientId = iAmBuyer ? c.seller_id : c.buyer_id;
+  const fresh = db.prepare('select * from conversations where id = ?').get(c.id);
+  const readAt = (iAmBuyer ? fresh.seller_read_at : fresh.buyer_read_at) ?? '';
+  const emailedAt = (iAmBuyer ? fresh.seller_emailed_at : fresh.buyer_emailed_at) ?? '';
+  const stale = !emailedAt || emailedAt < readAt || emailedAt < new Date(Date.now() - 6 * 3_600_000).toISOString();
+  const recipient = db.prepare('select email, is_guest from users where id = ?').get(recipientId);
+  if (stale && recipient?.email && !recipient.is_guest) {
+    db.prepare(`update conversations set ${iAmBuyer ? 'seller_emailed_at' : 'buyer_emailed_at'} = ? where id = ?`).run(time, c.id);
+    const from = iAmBuyer ? personNameOf(user) : shopNameOf(user);
+    const product = productId && db.prepare('select name from products where id = ?').get(productId);
+    sendEmail(recipient.email, {
+      subject: `New message from ${from}`,
+      lines: [`${from}${product ? ` about "${product.name}"` : ''}:`, `"${clean.slice(0, 400)}"`, 'Reply in Saligue so your conversation stays in one place.'],
+      button: { label: 'Reply', url: `/messages?c=${c.id}` },
+    });
+  }
+  return id;
+}
+
+route('GET', '/api/conversations', ({ user }) => {
+  if (!user) return [];
+  return db.prepare('select * from conversations where buyer_id = ? or seller_id = ? order by last_message_at desc limit 200')
+    .all(user.id, user.id).map((c) => conversationOut(c, user));
+});
+
+// Starts (or continues) a conversation from an item, an order, or a shop, and sends the first message.
+route('POST', '/api/conversations', ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  let buyerId = user.id;
+  let sellerId = null;
+  let productId = null;
+  let orderId = null;
+  if (body.orderId) {
+    const order = db.prepare('select * from orders where id = ?').get(String(body.orderId));
+    if (!order || (order.buyer_id !== user.id && order.seller_id !== user.id)) fail(404, 'not_found', 'Order not found.');
+    [buyerId, sellerId, orderId] = [order.buyer_id, order.seller_id, order.id];
+  } else if (body.productId) {
+    const product = db.prepare('select id, seller_id from products where id = ?').get(String(body.productId));
+    if (!product) fail(404, 'not_found', 'This item no longer exists.');
+    [sellerId, productId] = [product.seller_id, product.id];
+  } else if (body.sellerId) {
+    if (!db.prepare("select 1 from users where id = ? and role = 'seller'").get(String(body.sellerId))) fail(404, 'not_found', 'Shop not found.');
+    sellerId = String(body.sellerId);
+  }
+  if (!sellerId) fail(400, 'invalid', 'Choose who to message.');
+  if (buyerId === sellerId) fail(400, 'own_item', 'This is your own shop.');
+
+  let c = db.prepare('select * from conversations where buyer_id = ? and seller_id = ?').get(buyerId, sellerId);
+  if (!c) {
+    const id = randomUUID();
+    db.prepare('insert into conversations (id, buyer_id, seller_id, last_message_at, created_at) values (?, ?, ?, ?, ?)').run(id, buyerId, sellerId, now(), now());
+    c = db.prepare('select * from conversations where id = ?').get(id);
+  }
+  if (body.text) addMessage(user, c, { text: body.text, productId, orderId });
+  return { id: c.id };
+});
+
+route('GET', '/api/conversations/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  const messages = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 300').all(c.id).reverse().map(messageOut);
+  // The other side's read time, for "Seen" under the last message.
+  const otherReadAt = (c.buyer_id === user.id ? c.seller_read_at : c.buyer_read_at) ?? null;
+  return { conversation: conversationOut(c, user), messages, otherReadAt };
+});
+
+route('POST', '/api/conversations/([\\w-]+)/messages', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  const id = addMessage(user, c, { text: body.text, productId: body.productId ? String(body.productId) : null, orderId: body.orderId ? String(body.orderId) : null });
+  return messageOut(db.prepare('select * from messages where id = ?').get(id));
+});
+
+route('POST', '/api/conversations/([\\w-]+)/read', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  db.prepare(`update conversations set ${c.buyer_id === user.id ? 'buyer_read_at' : 'seller_read_at'} = ? where id = ?`).run(now(), c.id);
+  sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id, read: true });
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// Reviews: only buyers whose order with the item was delivered can rate it ("Verified purchase").
+// ---------------------------------------------------------------------------
+
+function boughtAndDelivered(userId, productId) {
+  return db.prepare("select 1 from orders where buyer_id = ? and status = 'delivered' and exists (select 1 from json_each(orders.items) where json_extract(value, '$.productId') = ?)")
+    .get(userId, productId);
+}
+
+function refreshRating(productId) {
+  const { avg, n } = db.prepare('select avg(rating) as avg, count(*) as n from reviews where product_id = ?').get(productId);
+  db.prepare('update products set rating_avg = ?, rating_count = ? where id = ?').run(avg ?? 0, n, productId);
+}
+
+route('GET', '/api/products/([\\w-]+)/reviews', ({ user, params }) => {
+  const reviews = db.prepare('select * from reviews where product_id = ? order by created_at desc limit 100').all(params[0])
+    .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, rating: r.rating, text: r.text, createdAt: r.created_at }));
+  const mine = user ? reviews.find((r) => r.uid === user.id) ?? null : null;
+  return { reviews, mine, canReview: !!(user && !user.is_guest && boughtAndDelivered(user.id, params[0])) };
+});
+
+route('POST', '/api/products/([\\w-]+)/reviews', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to write a review.');
+  const product = db.prepare('select id, name, seller_id from products where id = ?').get(params[0]);
+  if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  if (!boughtAndDelivered(user.id, product.id)) fail(403, 'not_bought', 'You can review this item once your order of it has been delivered.');
+  const rating = Math.round(Number(body.rating));
+  if (!(rating >= 1 && rating <= 5)) fail(400, 'invalid_rating', 'Choose 1 to 5 stars.');
+  const text = String(body.text ?? '').trim().slice(0, 2000);
+  const isNew = !db.prepare('select 1 from reviews where product_id = ? and user_id = ?').get(product.id, user.id);
+  transaction(() => {
+    db.prepare(`insert into reviews (id, product_id, user_id, name, rating, text, created_at) values (?, ?, ?, ?, ?, ?, ?)
+      on conflict(product_id, user_id) do update set rating = excluded.rating, text = excluded.text, created_at = excluded.created_at`)
+      .run(randomUUID(), product.id, user.id, personNameOf(user).slice(0, 60), rating, text, now());
+    refreshRating(product.id);
+  });
+  broadcast('products');
+  broadcast('reviews', { productId: product.id });
+  if (isNew) {
+    notify(product.seller_id, { type: 'product', title: `New ${rating}-star review on ${product.name}`, body: text.slice(0, 200), link: `/product?id=${product.id}`, email: false });
+  }
+  return { ok: true };
+});
+
+route('DELETE', '/api/products/([\\w-]+)/reviews', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  transaction(() => {
+    db.prepare('delete from reviews where product_id = ? and user_id = ?').run(params[0], user.id);
+    refreshRating(params[0]);
+  });
+  broadcast('products');
+  broadcast('reviews', { productId: params[0] });
+  return { ok: true };
+});
+
+// Item views for the seller's dashboard: once per viewer, item and day; the seller's own visits don't count.
+const viewedToday = new Set();
+route('POST', '/api/products/([\\w-]+)/view', ({ req, user, params }) => {
+  const product = db.prepare('select id, seller_id from products where id = ?').get(params[0]);
+  if (!product || product.seller_id === user?.id) return { ok: true };
+  const day = now().slice(0, 10);
+  const viewer = user?.id ?? req.socket.remoteAddress;
+  const key = `${day}|${viewer}|${product.id}`;
+  if (viewedToday.has(key)) return { ok: true };
+  if (viewedToday.size > 200_000) viewedToday.clear();
+  viewedToday.add(key);
+  db.prepare('insert into product_views (product_id, day, views) values (?, ?, 1) on conflict(product_id, day) do update set views = views + 1').run(product.id, day);
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// Seller dashboard numbers: daily revenue, orders, units and views, with the previous period for comparison.
+// ---------------------------------------------------------------------------
+
+route('GET', '/api/seller/stats', ({ user, url }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const days = Math.min(365, Math.max(7, Math.floor(Number(url.searchParams.get('days')) || 30)));
+  const start = new Date();
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  const previousStart = new Date(start.getTime() - days * 86_400_000);
+
+  const dayKeys = Array.from({ length: days }, (_, i) => new Date(start.getTime() + i * 86_400_000).toISOString().slice(0, 10));
+  const series = new Map(dayKeys.map((d) => [d, { date: d, revenue: 0, orders: 0, units: 0, views: 0 }]));
+  const totals = { revenue: 0, orders: 0, units: 0, views: 0 };
+  const previous = { revenue: 0, orders: 0, units: 0, views: 0 };
+  const perProduct = {};
+
+  const orders = db.prepare('select * from orders where seller_id = ?').all(user.id);
+  const statusCounts = Object.fromEntries(ORDER_STATUSES.map((s) => [s, 0]));
+  let unpaid = 0;
+  for (const o of orders) {
+    statusCounts[o.status] = (statusCounts[o.status] ?? 0) + 1;
+    if (o.status === 'cancelled') continue;
+    if (o.payment_status !== 'paid') unpaid += 1;
+    const items = parse(o.items) ?? [];
+    const units = items.reduce((n, i) => n + i.quantity, 0);
+    for (const i of items) {
+      const p = (perProduct[i.productId] ??= { units: 0, revenue: 0, orders: 0 });
+      p.units += i.quantity;
+      p.revenue += i.price * i.quantity;
+      p.orders += 1;
+    }
+    const day = o.created_at.slice(0, 10);
+    const bucket = series.get(day);
+    if (bucket) {
+      bucket.revenue += o.total;
+      bucket.orders += 1;
+      bucket.units += units;
+      totals.revenue += o.total;
+      totals.orders += 1;
+      totals.units += units;
+    } else if (o.created_at >= previousStart.toISOString() && o.created_at < start.toISOString()) {
+      previous.revenue += o.total;
+      previous.orders += 1;
+      previous.units += units;
+    }
+  }
+
+  const views = db.prepare('select v.product_id, v.day, v.views from product_views v join products p on p.id = v.product_id where p.seller_id = ? and v.day >= ?')
+    .all(user.id, previousStart.toISOString().slice(0, 10));
+  for (const v of views) {
+    const bucket = series.get(v.day);
+    if (bucket) {
+      bucket.views += v.views;
+      totals.views += v.views;
+      (perProduct[v.product_id] ??= { units: 0, revenue: 0, orders: 0 }).views = (perProduct[v.product_id].views ?? 0) + v.views;
+    } else previous.views += v.views;
+  }
+
+  const round = (n) => Math.round(n * 100) / 100;
+  const conversion = (t) => (t.views ? round((t.orders / t.views) * 100) : 0);
+  const products = db.prepare("select id, name, image, stock, status, price from products where seller_id = ?").all(user.id);
+  const unreadMessages = db.prepare(`select count(*) as n from messages m join conversations c on c.id = m.conversation_id
+    where c.seller_id = ? and m.sender_id != ? and m.created_at > coalesce(c.seller_read_at, '')`).get(user.id, user.id).n;
+
+  return {
+    days,
+    series: [...series.values()].map((d) => ({ ...d, revenue: round(d.revenue), conversion: d.views ? round((d.orders / d.views) * 100) : 0 })),
+    totals: { ...totals, revenue: round(totals.revenue), conversion: conversion(totals) },
+    previous: { ...previous, revenue: round(previous.revenue), conversion: conversion(previous) },
+    perProduct,
+    statusCounts,
+    unpaid,
+    unreadMessages,
+    lowStock: products.filter((p) => p.status === 'active' && p.stock !== null && p.stock <= 3).map((p) => ({ id: p.id, name: p.name, image: p.image, stock: p.stock })),
+    productCount: products.length,
+    activeCount: products.filter((p) => p.status === 'active').length,
+  };
+});
+
+// Several items at once from the dashboard: change status, or delete.
+route('POST', '/api/seller/products/bulk', ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const ids = Array.isArray(body.ids) ? body.ids.map(String).slice(0, 500) : [];
+  if (!ids.length) fail(400, 'invalid', 'Select at least one item.');
+  const action = String(body.action);
+  if (!['active', 'draft', 'archived', 'delete'].includes(action)) fail(400, 'invalid', 'Unknown action.');
+  let changed = 0;
+  transaction(() => {
+    for (const id of ids) {
+      const product = db.prepare('select id from products where id = ? and seller_id = ?').get(id, user.id);
+      if (!product) continue;
+      if (action === 'delete') db.prepare('delete from products where id = ?').run(id);
+      else db.prepare('update products set status = ? where id = ?').run(action, id);
+      changed += 1;
+    }
+  });
+  broadcast('products');
+  return { changed };
+});
+
+// ---------------------------------------------------------------------------
+// Online payments (payments.mjs). Orders are marked paid only after Flutterwave confirms the transaction.
+// ---------------------------------------------------------------------------
+
+route('GET', '/api/payments/config', () => {
+  const { currency, rate } = paymentSettings();
+  return { enabled: paymentsEnabled(), currency, rate, methods: currency === 'RWF' ? ['card', 'mobile_money'] : ['card'] };
+});
+
+function markPaid(payment, providerRef) {
+  const orderIds = parse(payment.order_ids) ?? [];
+  const changed = transaction(() => {
+    const current = db.prepare('select status from payments where id = ?').get(payment.id);
+    if (current?.status === 'paid') return false;
+    db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+    for (const id of orderIds) {
+      db.prepare("update orders set payment_status = 'paid', paid_at = ?, payment_ref = ? where id = ?").run(now(), payment.id, id);
+    }
+    return true;
+  });
+  if (!changed) return;
+  for (const id of orderIds) {
+    const o = db.prepare('select * from orders where id = ?').get(id);
+    if (!o) continue;
+    const delivery = parse(o.delivery) ?? {};
+    const list = (parse(o.items) ?? []).map((i) => `${i.quantity} x ${i.name}`).join(', ');
+    const code = o.id.slice(0, 6).toUpperCase();
+    notify(o.seller_id, {
+      type: 'sale',
+      title: `New paid order #${code} - ${money(o.total)}`,
+      body: `${delivery.fullName} (${delivery.phone}) ordered ${list} and paid online. Deliver to ${[delivery.street, delivery.city].join(', ')}.`,
+      link: '/dashboard/orders',
+    });
+    notify(o.buyer_id, {
+      type: 'order',
+      title: `Payment received - order #${code}`,
+      body: `Thank you! ${parse(o.shop)?.name || 'The shop'} has your paid order for ${list} (${money(o.total)}) and will confirm it soon.`,
+      link: '/orders',
+    });
+  }
+  broadcast('orders');
+}
+
+/** Checks a transaction with Flutterwave and settles the matching payment. Returns the payment's new status. */
+async function settle(payment, { transactionId } = {}) {
+  if (payment.status === 'paid') return 'paid';
+  let tx;
+  try {
+    tx = transactionId ? await verifyTransaction(transactionId) : await findByReference(payment.id);
+  } catch (error) {
+    console.error('Payment check failed:', error.message);
+    return payment.status;
+  }
+  const genuine = tx.txRef === payment.id && tx.currency === payment.currency && tx.amount >= payment.amount;
+  if (tx.status === 'successful' && genuine) {
+    markPaid(payment, tx.id);
+    return 'paid';
+  }
+  if (tx.status === 'failed' || (tx.status === 'successful' && !genuine)) {
+    if (tx.status === 'successful') console.error(`Payment ${payment.id} did not match (got ${tx.amount} ${tx.currency}, ref ${tx.txRef}).`);
+    db.prepare("update payments set status = 'failed', provider_ref = ? where id = ? and status = 'pending'").run(tx.id, payment.id);
+    return 'failed';
+  }
+  return 'pending';
+}
+
+route('POST', '/api/payments/start', async ({ req, user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (!paymentsEnabled()) fail(400, 'payments_off', 'Online payment is not available yet.');
+  const ids = Array.isArray(body.orderIds) ? body.orderIds.map(String).slice(0, 50) : [];
+  const orders = ids.map((id) => db.prepare('select * from orders where id = ?').get(id)).filter(Boolean);
+  if (!orders.length || orders.length !== ids.length) fail(404, 'not_found', 'Order not found.');
+  for (const o of orders) {
+    if (o.buyer_id !== user.id) fail(403, 'forbidden', 'This is not your order.');
+    if (o.payment_status === 'paid') fail(400, 'paid', `Order #${o.id.slice(0, 6).toUpperCase()} is already paid.`);
+    if (o.status === 'cancelled') fail(400, 'cancelled', `Order #${o.id.slice(0, 6).toUpperCase()} was cancelled.`);
+  }
+  const email = String(user.email || body.email || '').trim().toLowerCase();
+  if (!EMAIL.test(email)) fail(400, 'email_required', 'Enter your email address to receive the payment receipt.');
+  const delivery = parse(orders[0].delivery) ?? {};
+  const { currency } = paymentSettings();
+  const amount = toCharge(orders.reduce((sum, o) => sum + o.total, 0));
+  const txRef = `SAL-${randomBytes(9).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, created_at) values (?, ?, ?, ?, ?, ?)')
+    .run(txRef, user.id, json(orders.map((o) => o.id)), amount, currency, now());
+  // Back to this website after paying. A site address set by INDECIANA wins over the request's own address.
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({
+    txRef,
+    amount,
+    currency,
+    redirectUrl: `${base}/payment`,
+    customer: { email, name: delivery.fullName || personNameOf(user), phone: delivery.phone },
+    title: 'Saligue by INDECIANA',
+    logo: `${configured}/icons/icon-192.png`,
+  });
+  return { link, txRef, amount, currency };
+});
+
+route('POST', '/api/payments/verify', async ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const payment = db.prepare('select * from payments where id = ? and user_id = ?').get(String(body.txRef ?? ''), user.id);
+  if (!payment) fail(404, 'not_found', 'Payment not found.');
+  const status = await settle(payment, { transactionId: body.transactionId ? String(body.transactionId) : undefined });
+  return { status, orderIds: parse(payment.order_ids) };
+});
+
+// Flutterwave calls this when a payment finishes, also when the buyer closed the page before coming back.
+route('POST', '/api/payments/webhook', async ({ req, body }) => {
+  if (!webhookIsGenuine(req.headers['verif-hash'])) fail(401, 'forbidden', 'Invalid signature.');
+  const data = body?.data ?? body ?? {};
+  const payment = db.prepare('select * from payments where id = ?').get(String(data.tx_ref ?? data.txRef ?? ''));
+  if (payment && data.id) await settle(payment, { transactionId: String(data.id) });
+  return { ok: true };
+});
+
+// Online orders that stay unpaid for a day are cancelled, so their items go back on sale.
+function cancelAbandonedOrders() {
+  const before = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const abandoned = db.prepare("select * from orders where payment_method = 'online' and payment_status = 'unpaid' and status = 'placed' and created_at < ?").all(before);
+  for (const o of abandoned) {
+    transaction(() => {
+      db.prepare("update orders set status = 'cancelled' where id = ?").run(o.id);
+      restock(o);
+    });
+    notify(o.buyer_id, { type: 'order', title: `Order #${o.id.slice(0, 6).toUpperCase()} was cancelled`, body: 'It was not paid within 24 hours, so the items went back on sale. You can order again any time.', link: '/orders' });
+  }
+  if (abandoned.length) broadcast('orders');
+}
 
 // Notifications of the signed-in account
 route('GET', '/api/me/notifications', ({ user }) => {
@@ -898,9 +1415,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/events') {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    // The session cookie identifies the app; a site hosted elsewhere passes its token instead (EventSource can't send headers).
+    const listener = userOf(req, cookieToken(req) || url.searchParams.get('token'));
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('retry: 3000\n\n');
-    listeners.add(res);
+    listeners.set(res, listener?.id ?? null);
     const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
     req.on('close', () => {
       clearInterval(heartbeat);
@@ -912,6 +1431,10 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname);
   if (!isApi) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     return serveStatic(req, res, url.pathname);
   }
 
@@ -919,8 +1442,18 @@ const server = http.createServer(async (req, res) => {
     const match = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
     if (!match) fail(404, 'not_found', 'Not found.');
     const params = url.pathname.match(match.pattern).slice(1);
+    const bearer = (req.headers.authorization || '').startsWith('Bearer ');
+    // Signed in by cookie only: refuse changes that don't come from the app itself (a plain form on another
+    // site can't send JSON), so other websites can't act on someone's account.
+    if (!bearer && cookieToken(req) && ['POST', 'PUT', 'PATCH'].includes(req.method) && !String(req.headers['content-type'] || '').startsWith('application/json')) {
+      fail(403, 'forbidden', 'Invalid request.');
+    }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
-    const result = await match.handler({ req, res, url, params, body, user: userOf(req) });
+    const user = userOf(req);
+    const result = await match.handler({ req, res, url, params, body, user });
+    // Keep the session cookie in step with the session the app uses.
+    if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));
+    else if (bearer && user && cookieToken(req) !== tokenOf(req)) res.setHeader('Set-Cookie', sessionCookie(req, tokenOf(req)));
     send(res, 200, result ?? null);
   } catch (error) {
     if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
@@ -950,7 +1483,13 @@ warmUpFashionCheck();
 })();
 const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
+cancelAbandonedOrders();
+setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
+// Old sessions are removed once a day.
+const dropOldSessions = () => db.prepare('delete from sessions where created_at < ?').run(new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString());
+dropOldSessions();
+setInterval(dropOldSessions, 86_400_000).unref();
 
-server.listen(PORT, () => {
+server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);
 });

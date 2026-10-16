@@ -156,10 +156,75 @@ db.exec(`
     key text primary key,
     value text not null                 -- JSON
   );
+
+  -- Direct chat between a buyer and a seller: one conversation per pair, messages may point at an item or order.
+  create table if not exists conversations (
+    id text primary key,
+    buyer_id text not null references users(id) on delete cascade,
+    seller_id text not null references users(id) on delete cascade,
+    last_message_at text not null,
+    buyer_read_at text,
+    seller_read_at text,
+    buyer_emailed_at text,              -- last "new message" email, so a busy chat sends one email, not fifty
+    seller_emailed_at text,
+    created_at text not null,
+    unique (buyer_id, seller_id)
+  );
+  create index if not exists conversations_buyer on conversations(buyer_id, last_message_at desc);
+  create index if not exists conversations_seller on conversations(seller_id, last_message_at desc);
+
+  create table if not exists messages (
+    id text primary key,
+    conversation_id text not null references conversations(id) on delete cascade,
+    sender_id text not null references users(id) on delete cascade,
+    text text not null,
+    product_id text references products(id) on delete set null,
+    order_id text references orders(id) on delete set null,
+    created_at text not null
+  );
+  create index if not exists messages_conversation on messages(conversation_id, created_at);
+
+  -- Star ratings from buyers whose order with the item was delivered.
+  create table if not exists reviews (
+    id text primary key,
+    product_id text not null references products(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    name text not null,
+    rating integer not null check (rating between 1 and 5),
+    text text not null default '',
+    created_at text not null,
+    unique (product_id, user_id)
+  );
+  create index if not exists reviews_product on reviews(product_id, created_at desc);
+
+  -- Online payments (card / Mobile Money through Flutterwave). One payment may cover orders from several shops.
+  create table if not exists payments (
+    id text primary key,                -- tx_ref sent to the payment provider
+    user_id text not null references users(id) on delete cascade,
+    order_ids text not null,            -- JSON
+    amount real not null,
+    currency text not null,
+    status text not null default 'pending' check (status in ('pending', 'paid', 'failed')),
+    provider_ref text,                  -- the provider's transaction id
+    created_at text not null
+  );
+
+  -- How often each item is opened per day, for the seller's dashboard.
+  create table if not exists product_views (
+    product_id text not null references products(id) on delete cascade,
+    day text not null,                  -- YYYY-MM-DD
+    views integer not null default 0,
+    primary key (product_id, day)
+  );
 `);
 
 // Columns added after the first release.
-for (const [table, column, type] of [['users', 'terms_accepted_at', 'text'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text']]) {
+for (const [table, column, type] of [
+  ['users', 'terms_accepted_at', 'text'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  // null stock = not tracked (always available)
+  ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
+  ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'],
+]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
 }
