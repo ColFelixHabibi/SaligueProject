@@ -4,7 +4,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bell, Bookmark, ChevronRight, FileText, LayoutDashboard, LogOut, MapPin, Package, Settings, ShoppingBag, Store } from 'lucide-react';
+import { Bell, Bookmark, ChevronRight, Cookie, FileText, LayoutDashboard, LogOut, MapPin, MessageCircle, Package, PlusSquare, Repeat, Settings, ShoppingBag, Store } from 'lucide-react';
+import { ProfilePhotoField } from '@/components/profile-photo-field';
+import { updateAccount } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,6 +18,7 @@ import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
 import { useNotificationStore } from '@/hooks/use-notification-store';
+import { useUnreadMessages } from '@/lib/messages';
 
 function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
   const body = (
@@ -34,6 +37,7 @@ function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon
 export default function MePage() {
   const router = useRouter();
   const { user, role } = useAuth();
+  const unreadMessages = useUnreadMessages();
   const shop = useUserRoleStore((s) => s.shop);
   const { wishlistItems } = useWishlist();
   const { cartItems } = useCart();
@@ -66,25 +70,44 @@ export default function MePage() {
         )}
       </Card>
 
-      <Card className="divide-y overflow-hidden">
-        <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
-        <Row href="/cart" icon={ShoppingBag} label="Cart" detail={String(cartItems.reduce((n, i) => n + i.quantity, 0))} />
-        <Row href="/orders" icon={Package} label="My orders" />
-        {user && <Row href="/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />}
-      </Card>
+      {user && role === 'seller' ? (
+        <>
+          {/* A seller's Me page is about their shop. */}
+          <Card className="p-5">
+            <ProfilePhotoField name={shop?.name ?? user.displayName} required />
+          </Card>
+          <Card className="divide-y overflow-hidden">
+            <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
+            <Row href="/messages" icon={MessageCircle} label="Messages from customers" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
+            <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
+            <Row href="/dashboard/products" icon={Package} label="My products" />
+            <Row href="/sell" icon={PlusSquare} label="Add a new item" />
+            <Row href="/dashboard/settings#shop" icon={MapPin} label="Shop & address" detail={shop ? undefined : 'Add'} />
+            <Row href="/dashboard/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />
+          </Card>
+          <Card className="divide-y overflow-hidden">
+            <Row icon={Repeat} label="Switch to shopping" detail="Buy as a shopper" onClick={() => updateAccount({ role: 'buyer' }).then(() => router.push('/'))} />
+          </Card>
+        </>
+      ) : (
+        <>
+          <Card className="divide-y overflow-hidden">
+            <Row href="/orders" icon={Package} label="My orders" />
+            <Row href="/messages" icon={MessageCircle} label="Messages with shops" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
+            <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
+            <Row href="/cart" icon={ShoppingBag} label="Cart" detail={String(cartItems.reduce((n, i) => n + i.quantity, 0))} />
+            {user && <Row href="/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />}
+          </Card>
+          {user && (
+            <Card className="divide-y overflow-hidden">
+              <Row href="/sell" icon={Store} label={shop ? 'Switch to my shop' : 'Start selling'} />
+            </Card>
+          )}
+        </>
+      )}
 
       {user && (
         <Card className="divide-y overflow-hidden">
-          {role === 'seller' ? (
-            <>
-              <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
-              <Row href="/dashboard/products" icon={Package} label="My products" />
-              <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
-              <Row href="/dashboard/settings#shop" icon={MapPin} label="Shop & address" detail={shop ? undefined : 'Add'} />
-            </>
-          ) : (
-            <Row href="/sell" icon={Store} label="Start selling" />
-          )}
           <Row href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} icon={Settings} label="Settings" />
           <Row
             icon={LogOut}
@@ -100,6 +123,7 @@ export default function MePage() {
       <Card className="mt-4 overflow-hidden">
         <Row href="/terms" icon={FileText} label="Terms of Service" />
         <Row href="/privacy" icon={FileText} label="Privacy Policy" />
+        <Row href="/cookies" icon={Cookie} label="Cookie Policy" />
       </Card>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />

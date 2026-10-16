@@ -15,6 +15,8 @@ export type Product = {
   type?: string;
   seller: string;
   sellerId?: string;
+  // The seller's profile photo.
+  sellerAvatar?: string;
   sellerEmail?: string;
   status: 'active' | 'archived' | 'draft';
   description?: string;
@@ -34,7 +36,14 @@ export type Product = {
   likeCount?: number;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
   sound?: { name: string; duration: number };
+  // How many are left; null or undefined when the seller doesn't track stock.
+  stock?: number | null;
+  // Average star rating (0 when not rated yet) and number of reviews.
+  rating?: number;
+  ratingCount?: number;
 };
+
+export type Review = { id: string; uid: string; name: string; rating: number; text: string; createdAt: string };
 
 export type Comment = { id: string; uid: string; name: string; text: string; createdAt?: string | null };
 
@@ -65,9 +74,9 @@ export function isShopComplete(shop?: Partial<Shop> | null): shop is Shop {
 }
 
 export type OrderStatus = 'placed' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
-export type PaymentMethod = 'mobile_money' | 'cash_on_delivery' | 'pickup';
+export type PaymentMethod = 'online' | 'mobile_money' | 'cash_on_delivery' | 'pickup';
 
-export type OrderItem = { productId: string; name: string; price: number; quantity: number };
+export type OrderItem = { productId: string; name: string; price: number; quantity: number; image?: string };
 
 export type DeliveryAddress = {
   fullName: string;
@@ -93,6 +102,20 @@ export type Order = {
   delivery: DeliveryAddress;
   paymentMethod: PaymentMethod;
   paymentStatus: 'unpaid' | 'paid';
+  paidAt?: string | null;
   status: OrderStatus;
   createdAt?: string | null;
 };
+
+// Direct chat between a buyer and a shop (see src/lib/messages.ts).
+export type Conversation = {
+  id: string;
+  // The current account's side of the conversation.
+  role: 'buyer' | 'seller';
+  other: { id: string; name: string; official: boolean; isGuest: boolean; avatar: string | null };
+  lastMessage: { text: string; fromMe: boolean; productId: string | null; createdAt: string } | null;
+  unread: number;
+  lastMessageAt: string;
+};
+
+export type Message = { id: string; senderId: string; text: string; productId: string | null; orderId: string | null; createdAt: string };

@@ -5,7 +5,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Check, Download, Loader2, MapPin, Shirt, Sparkles, Store } from 'lucide-react';
+import { Check, Columns2, Download, Loader2, MapPin, RefreshCw, Shirt, Store } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import type { Parsing } from '@/lib/ai/parse';
 import { enqueue, itemCutout } from '@/lib/ai/cutout';
 import { REALISTIC_CATEGORIES, realisticTryOn } from '@/lib/ai/studio';
 import { productHref } from '@/lib/links';
+import { BeforeAfter } from './before-after';
 
 // Items that replace what the person is wearing (see dressOutfit's fabric swap).
 const CLOTHES = new Set(['top', 'outerwear', 'dress', 'bottom']);
@@ -42,9 +43,12 @@ interface DressedCardProps {
   worn?: boolean;
   // Redraw the look with the realistic AI straight away (clothes only), instead of waiting for a tap.
   auto?: boolean;
+  // Adds this look to (or removes it from) the comparison area.
+  onCompare?: (image: string | null) => void;
+  compared?: boolean;
 }
 
-export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn, auto }: DressedCardProps) {
+export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn, auto, onCompare, compared }: DressedCardProps) {
   const [dressedUrl, setDressedUrl] = useState<string | null>(null);
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState(false);
@@ -60,7 +64,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
     setRealisticBusy(true);
     setRealisticError(null);
     try {
-      setRealisticUrl(await realisticTryOn(personUrl, product.image, product.category));
+      setRealisticUrl(await realisticTryOn(personUrl, product.image, product.category, [product.color, product.type ?? product.name].filter(Boolean).join(' ')));
     } catch (error: any) {
       setRealisticError(friendlyError(error));
     } finally {
@@ -73,10 +77,13 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, canBeRealistic, product, personUrl]);
 
-  // Clothes are only shown once the AI has really dressed the person in them; the pasted-on
-  // preview is a fallback when the AI isn't available. Shoes, hats, glasses and bags are placed on the device.
+  // Clothes are only shown once the AI has really dressed the person in them: never pasted over what they
+  // already wear. The pasted-on preview is used only when no realistic AI is reachable at all.
+  // Shoes, hats, glasses and bags are placed on the device.
   const waitingForAi = canBeRealistic && !realisticUrl && (realisticBusy || (auto && !realisticError));
-  const shownUrl = realisticUrl ?? (waitingForAi ? personUrl : dressedUrl);
+  const shownUrl = canBeRealistic ? realisticUrl ?? personUrl : dressedUrl;
+  // Compare against the photo as it was (before the item was put on).
+  const afterUrl = canBeRealistic ? realisticUrl : dressedUrl;
   const [note, setNote] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -106,7 +113,9 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
   return (
     <Card className="overflow-hidden flex flex-col">
       <div className="relative aspect-[3/4] bg-gradient-to-b from-muted to-background">
-        {shownUrl ? (
+        {afterUrl && !waitingForAi ? (
+          <BeforeAfter before={personUrl} after={afterUrl} className="absolute inset-0" />
+        ) : shownUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={shownUrl} alt={`You wearing ${product.name}`} className="absolute inset-0 h-full w-full object-contain p-2" />
         ) : failed ? (
@@ -132,11 +141,14 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
             <span className="text-xs font-normal text-muted-foreground">About 20 seconds per look</span>
           </div>
         )}
-        {realisticUrl && (
-          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">AI realistic</span>
+        {canBeRealistic && realisticError && !realisticUrl && !realisticBusy && (
+          <div className="absolute inset-x-2 top-1/3 flex flex-col items-center gap-2 rounded-xl bg-background/95 p-3 text-center text-sm shadow">
+            <span>Saligue AI couldn&apos;t dress you in it this time.</span>
+            <Button size="sm" onClick={makeRealistic}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button>
+          </div>
         )}
-        {canBeRealistic && realisticError && !realisticUrl && dressedUrl && (
-          <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium text-muted-foreground shadow">Quick preview</span>
+        {!canBeRealistic && dressedUrl && CLOTHES.has(product.category) && (
+          <span className="absolute left-2 bottom-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium text-muted-foreground shadow">Quick preview</span>
         )}
         {note && dressedUrl && !realisticUrl && !waitingForAi && (
           <p className="absolute left-2 right-20 bottom-2 rounded bg-background/90 px-2 py-1 text-xs text-muted-foreground">{note}</p>
@@ -165,19 +177,17 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
             <ContactButtons contact={product.contact} email={product.sellerEmail} />
           </>
         )}
-        {canBeRealistic && (
-          <div className="space-y-1">
-            {realisticUrl ? (
-              <Button variant="ghost" size="sm" className="w-full" onClick={() => setRealisticUrl(null)}>
-                Show quick preview
-              </Button>
-            ) : (
-              <Button size="sm" className="w-full" onClick={makeRealistic} disabled={realisticBusy || !dressedUrl}>
-                <Sparkles className="mr-2 h-4 w-4" /> Make it realistic
-              </Button>
-            )}
-            {realisticError && <p className="text-xs text-destructive">{realisticError}</p>}
-          </div>
+        {canBeRealistic && !realisticUrl && !waitingForAi && !realisticError && (
+          <Button size="sm" className="w-full" onClick={makeRealistic} disabled={realisticBusy}>
+            <Shirt className="mr-2 h-4 w-4" /> Dress me in it
+          </Button>
+        )}
+        {realisticError && <p className="text-xs text-destructive">{realisticError}</p>}
+        {onCompare && afterUrl && !waitingForAi && (
+          <Button size="sm" variant={compared ? 'secondary' : 'outline'} className="w-full" onClick={() => onCompare(compared ? null : afterUrl)}>
+            {compared ? <Check className="mr-2 h-4 w-4" /> : <Columns2 className="mr-2 h-4 w-4" />}
+            {compared ? 'In comparison' : 'Compare'}
+          </Button>
         )}
         {onWear && (
           <Button size="sm" variant={worn ? 'secondary' : 'default'} className="w-full" onClick={onWear} disabled={worn}>

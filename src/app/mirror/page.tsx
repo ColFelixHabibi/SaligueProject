@@ -5,8 +5,8 @@ import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Camera, Download, ImageUp, Loader2, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from 'lucide-react';
-import { Textarea } from '@/components/ui/textarea';
+import { Compass, Download, Flame, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
+import { PageIntro } from '@/components/layout/page-intro';
 import { dressAsDescribed, getRealistic, getStudio } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,9 +20,9 @@ import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { useToast } from '@/hooks/use-toast';
-import { CATEGORIES } from '@/lib/categories';
 import type { Product } from '@/lib/types';
-import { aiSearch, describeSearch, quickDescribeSearch, type ParsedDescription } from '@/lib/search';
+import { describeForm, formSearch, type WearForm } from '@/lib/search';
+import { DescribeForm, hasWearForm } from '@/components/mirror/describe-form';
 import { categoryLabel } from '@/lib/categories';
 import { LocateSellerDialog } from '@/components/mirror/locate-seller';
 import { context2d, createCanvas, fileToImage, fitWithin, loadImage, trimTransparent } from '@/lib/ai/canvas';
@@ -69,15 +69,16 @@ function Mirror() {
     getRealistic().then(setRealistic);
   }, []);
 
-  const [outfitText, setOutfitText] = useState('');
+  const [outfitForm, setOutfitForm] = useState<WearForm>({});
+  const outfitText = describeForm(outfitForm);
   const [outfitBusy, setOutfitBusy] = useState(false);
   const [outfitUrl, setOutfitUrl] = useState<string | null>(null);
   const handleDescribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!personUrl || !outfitText.trim()) return;
+    if (!personUrl || !outfitText) return;
     setOutfitBusy(true);
     try {
-      setOutfitUrl(await dressAsDescribed(personUrl, outfitText.trim()));
+      setOutfitUrl(await dressAsDescribed(personUrl, outfitText));
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Could not create the outfit', description: friendlyError(error) });
     } finally {
@@ -152,53 +153,37 @@ function Mirror() {
     }
   };
 
-  // Search
-  const [text, setText] = useState('');
-  const [category, setCategory] = useState('');
+  // Search from the "What do you want to wear?" form.
+  const [wearForm, setWearForm] = useState<WearForm>({});
   const [results, setResults] = useState<Product[] | null>(null);
   const [searchBusy, setSearchBusy] = useState<string | null>(null);
-  const [queryPhoto, setQueryPhoto] = useState<string | null>(null);
   const searchId = useRef(0);
 
-  // Search results; the item the shopper came from is already in the outfit.
   const shown = results ?? [];
-
-  const [parsed, setParsed] = useState<ParsedDescription | null>(null);
   const [chosen, setChosen] = useState<{ product: Product; image: string } | null>(null);
 
-  const runSearch = async (query: { text: string; category: string; imageEmbedding?: number[] }) => {
+  // Comparison area: the shopper's own photo next to the looks they picked (up to four).
+  const [compare, setCompare] = useState<{ product: Product; image: string }[]>([]);
+  const toggleCompare = (product: Product, image: string | null) =>
+    setCompare((list) => {
+      const rest = list.filter((c) => c.product.id !== product.id);
+      return image ? [...rest, { product, image }].slice(-4) : rest;
+    });
+  useEffect(() => setCompare([]), [personUrl]);
+
+  const runSearch = async (form: WearForm) => {
     const id = ++searchId.current;
-    if (!query.text.trim() && !query.category && !query.imageEmbedding) {
+    if (!hasWearForm(form)) {
       setResults(null);
-      setParsed(null);
       return;
     }
-    setSearchBusy('AI is searching…');
+    setSearchBusy('AI is finding your choices…');
     try {
-      if (query.imageEmbedding) {
-        const found = await aiSearch(products, query, setSearchBusy);
-        if (id === searchId.current) {
-          setResults(found);
-          setParsed(null);
-        }
-      } else {
-        // Matches by type, size, colour and brand right away; the AI then puts the closest looks first.
-        const quick = query.category && !query.text.trim()
-          ? { results: products.filter((p) => p.status === 'active' && p.category === query.category), parsed: { category: query.category } }
-          : quickDescribeSearch(products, query.text);
-        if (id === searchId.current) {
-          setResults(quick.results);
-          setParsed(quick.parsed);
-        }
-        if (query.category && !query.text.trim()) return;
-        const { results: found, parsed: understood } = await describeSearch(products, query.text, setSearchBusy);
-        if (id === searchId.current) {
-          setResults(found);
-          setParsed(understood);
-        }
-      }
+      const found = await formSearch(products, form, setSearchBusy);
+      if (id === searchId.current) setResults(found);
     } catch (error) {
-      console.error('AI search failed, keeping keyword results:', error);
+      console.error('Search failed:', error);
+      if (id === searchId.current) setResults([]);
     } finally {
       if (id === searchId.current) setSearchBusy(null);
     }
@@ -206,87 +191,63 @@ function Mirror() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setQueryPhoto(null);
-    runSearch({ text, category });
+    runSearch(wearForm);
   };
-
-  const handleCategory = (value: string) => {
-    const next = value === category ? '' : value;
-    setCategory(next);
-    setQueryPhoto(null);
-    runSearch({ text, category: next });
-  };
-
 
   const clearSearch = () => {
     searchId.current++;
-    setText('');
-    setCategory('');
-    setQueryPhoto(null);
+    setWearForm({});
     setResults(null);
-    setParsed(null);
     setSearchBusy(null);
   };
 
+  // What the shopper chose, as chips under the form.
+  const chosenChips = [
+    wearForm.type ?? (wearForm.category && categoryLabel(wearForm.category)),
+    wearForm.size && `Size ${wearForm.size}`,
+    wearForm.color,
+    wearForm.brand,
+    wearForm.maxPrice && `Up to $${wearForm.maxPrice}`,
+    wearForm.condition,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-10">
       {chosen && <LocateSellerDialog product={chosen.product} image={chosen.image} onClose={() => setChosen(null)} />}
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2 md:mb-6">
-        <div>
-          <h1 className="bg-gradient-to-r from-primary to-accent bg-clip-text text-3xl font-extrabold tracking-tight text-transparent md:text-4xl">
-            Fitting Room
-          </h1>
-          <p className="text-sm text-muted-foreground">Wear a whole outfit — clothes, shoes, hat, glasses and bag — before you buy.</p>
-        </div>
-      </div>
+      <PageIntro
+        icon={Wand2}
+        title="Fitting Room"
+        subtitle="See yourself wearing it before you buy: add your photo, choose items, compare the looks."
+        links={[{ href: '/', label: 'For You', icon: Flame }, { href: '/search', label: 'Explore', icon: Compass }]}
+        className="mb-6"
+      >
+        <ol className="grid grid-cols-3 gap-2 text-xs font-semibold sm:text-sm">
+          {[['1', 'Your photo', !!personUrl], ['2', 'Choose items', !!results || Object.keys(slots).length > 0], ['3', 'Compare & buy', compare.length > 0]].map(([n, label, done]) => (
+            <li key={n as string} className={cn('flex items-center gap-2 rounded-xl px-3 py-2', done ? 'bg-white text-primary' : 'bg-white/15')}>
+              <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs', done ? 'bg-primary text-primary-foreground' : 'bg-white/25')}>{done ? '✓' : n}</span>
+              {label}
+            </li>
+          ))}
+        </ol>
+      </PageIntro>
 
       <div className="space-y-6">
           <Card>
             <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">1. Describe what you want to wear</h2>
-              <form onSubmit={handleSubmit} className="space-y-3">
-                <Textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onFocus={warmUpSearch}
-                  placeholder="Type, size, colour, brand, budget… e.g. “size M blue jeans by Levi's” or “white sneakers 42”"
-                  className="min-h-20 text-base"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      e.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-                  {CATEGORIES.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => handleCategory(c.value)}
-                      className={cn(
-                        'shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition',
-                        category === c.value ? 'border-primary bg-primary text-primary-foreground' : 'hover:border-primary hover:text-primary'
-                      )}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
-                <Button type="submit" className="w-full" disabled={!!searchBusy || (!text.trim() && !category)}>
+              <h2 className="text-lg font-semibold">1. What do you want to wear?</h2>
+              <form onSubmit={handleSubmit} onFocus={warmUpSearch} className="space-y-4">
+                <DescribeForm value={wearForm} onChange={setWearForm} products={products} />
+                <Button type="submit" className="w-full" size="lg" disabled={!!searchBusy || !hasWearForm(wearForm)}>
                   {searchBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                   Show me the choices on me
                 </Button>
               </form>
-              {parsed && (parsed.category || parsed.size || parsed.color || parsed.brand) && (
+              {results && chosenChips.length > 0 && (
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="text-muted-foreground">Understood:</span>
-                  {[parsed.category && categoryLabel(parsed.category), parsed.size && `Size ${parsed.size}`, parsed.color, parsed.brand]
-                    .filter(Boolean)
-                    .map((label) => (
-                      <span key={label as string} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium capitalize text-primary">{label}</span>
-                    ))}
+                  <span className="text-muted-foreground">Looking for:</span>
+                  {chosenChips.map((label) => (
+                    <span key={label} className="rounded-full bg-primary/10 px-2.5 py-0.5 font-medium text-primary">{label}</span>
+                  ))}
                 </div>
               )}
               {(results || searchBusy) && (
@@ -329,7 +290,7 @@ function Mirror() {
               <div className="rounded-lg border-2 border-dashed py-16 text-center text-muted-foreground">
                 {results ? (
                   <>
-                    <p>Nothing matched. Try other words, another size or colour.</p>
+                    <p>Nothing matched every choice. Try another size, colour, brand or a higher budget.</p>
                     <Button variant="link" onClick={clearSearch}>
                       <RefreshCw className="mr-2 h-4 w-4" /> Start again
                     </Button>
@@ -339,11 +300,44 @@ function Mirror() {
                 )}
               </div>
             ) : person ? (
+              <>
+              {compare.length > 0 && personUrl && (
+                <Card className="mb-4 border-primary/40">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-semibold">Compare your looks</h3>
+                      <Button variant="ghost" size="sm" onClick={() => setCompare([])}><X className="mr-1 h-4 w-4" /> Clear</Button>
+                    </div>
+                    <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
+                      <figure className="w-40 shrink-0 snap-start sm:w-48">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={personUrl} alt="You now" className="aspect-[3/4] w-full rounded-lg border bg-gradient-to-b from-muted to-background object-contain p-1" />
+                        <figcaption className="mt-1 text-center text-xs font-semibold text-muted-foreground">You now</figcaption>
+                      </figure>
+                      {compare.map(({ product, image }) => (
+                        <figure key={product.id} className="relative w-40 shrink-0 snap-start sm:w-48">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={image} alt={`You wearing ${product.name}`} className="aspect-[3/4] w-full rounded-lg border-2 border-primary/50 bg-gradient-to-b from-muted to-background object-contain p-1" />
+                          <button type="button" onClick={() => toggleCompare(product, null)} className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow" aria-label={`Remove ${product.name} from comparison`}>
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                          <figcaption className="mt-1 space-y-1 text-center text-xs">
+                            <span className="block truncate font-semibold">{product.name}</span>
+                            <span className="block font-bold text-primary">${Number(product.price).toFixed(2)}</span>
+                            <Button size="sm" className="h-7 w-full text-xs" onClick={() => setChosen({ product, image })}>Choose this</Button>
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map((product, index) => (
-                  <DressedCard key={product.id} auto={index < AUTO_REALISTIC} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} />
+                  <DressedCard key={product.id} auto={index < AUTO_REALISTIC} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} onCompare={(image) => toggleCompare(product, image)} compared={compare.some((c) => c.product.id === product.id)} />
                 ))}
               </div>
+              </>
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                 {shown.map((product) => (
@@ -376,14 +370,9 @@ function Mirror() {
                   <h2 className="text-lg font-semibold">Dress me as I describe</h2>
                   <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Saligue AI</span>
                 </div>
-                <form onSubmit={handleDescribe} className="space-y-3">
-                  <Textarea
-                    value={outfitText}
-                    onChange={(e) => setOutfitText(e.target.value)}
-                    placeholder="e.g. a navy blue suit with a white shirt and brown leather shoes"
-                    className="min-h-20"
-                  />
-                  <Button type="submit" disabled={outfitBusy || !outfitText.trim()}>
+                <form onSubmit={handleDescribe} className="space-y-4">
+                  <DescribeForm value={outfitForm} onChange={setOutfitForm} products={products} compact />
+                  <Button type="submit" disabled={outfitBusy || !outfitText}>
                     {outfitBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                     {outfitBusy ? 'Saligue AI is dressing you…' : 'Dress me'}
                   </Button>
@@ -396,7 +385,7 @@ function Mirror() {
                       <Button variant="outline" size="sm" asChild>
                         <a href={outfitUrl} download="saligue-outfit.jpg"><Download className="mr-2 h-4 w-4" /> Save</a>
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => { setText(outfitText); runSearch({ text: outfitText, category: '' }); }}>
+                      <Button variant="outline" size="sm" onClick={() => { setWearForm(outfitForm); runSearch(outfitForm); }}>
                         <Search className="mr-2 h-4 w-4" /> Find similar items to buy
                       </Button>
                     </div>

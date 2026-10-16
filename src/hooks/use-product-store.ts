@@ -15,7 +15,7 @@ interface ProductState {
 }
 
 async function reload() {
-  const products = (await api<Product[]>('/products')).map((p) => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout) }));
+  const products = (await api<Product[]>('/products')).map((p) => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar) }));
   useProductStore.setState({ products, isInitialized: true, error: null });
 }
 
@@ -30,7 +30,7 @@ export const useProductStore = create<ProductState>()(() => ({
   },
   updateProduct: async (id, updatedProduct) => {
     // id, seller, official and likeCount are managed by the server.
-    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, ...fields } = updatedProduct;
+    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, ...fields } = updatedProduct;
     await api(`/products/${id}`, { method: 'PATCH', body: fields });
     await reload();
   },

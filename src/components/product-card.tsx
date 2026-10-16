@@ -3,11 +3,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, MapPin } from 'lucide-react';
+import { BadgeCheck } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
 import { SoundChip } from '@/components/social/sound-chip';
+import { Stars } from '@/components/stars';
+import { SellerAvatar } from '@/components/seller-avatar';
 import { categoryLabel } from '@/lib/categories';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
@@ -35,6 +37,11 @@ export default function ProductCard({ product, className }: ProductCardProps) {
           </span>
         )}
         <SoundChip product={product} className="absolute bottom-2 left-2" />
+        {product.stock === 0 ? (
+          <span className="absolute right-2 top-2 rounded-full bg-destructive px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-destructive-foreground">Sold out</span>
+        ) : product.stock != null && product.stock <= 3 ? (
+          <span className="absolute right-2 top-2 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">Only {product.stock} left</span>
+        ) : null}
       </Link>
 
       <div className="border-b px-2 py-1">
@@ -54,8 +61,13 @@ export default function ProductCard({ product, className }: ProductCardProps) {
           <span className="shrink-0 font-bold text-primary">{formatPrice(Number(product.price))}</span>
         </div>
         <p className="text-xs text-muted-foreground">{categoryLabel(product.category)}{product.size ? ` · Size ${product.size}` : ''}</p>
-        <p className="mt-auto flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-          <MapPin className="h-3.5 w-3.5 shrink-0" />
+        {(product.ratingCount ?? 0) > 0 && (
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Stars rating={product.rating ?? 0} size="h-3.5 w-3.5" /> <span>({product.ratingCount})</span>
+          </p>
+        )}
+        <p className="mt-auto flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
+          <SellerAvatar src={product.sellerAvatar} name={product.official ? 'INDECIANA' : product.shop?.name ?? product.seller} className="h-5 w-5 text-[10px]" />
           <span className="truncate">{product.official ? 'INDECIANA' : product.shop ? `${product.shop.name} · ${product.shop.city}` : product.seller}</span>
         </p>
       </div>

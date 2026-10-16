@@ -50,13 +50,21 @@ export default function CartPage() {
                         </Link>
                         <p className="text-sm text-muted-foreground">{item.shop?.name ?? item.seller}</p>
                         <p className="text-lg font-bold text-primary mt-1">${Number(item.price).toFixed(2)}</p>
+                        {item.stock === 0 ? (
+                          <p className="text-xs font-semibold text-destructive">Sold out — remove it to check out</p>
+                        ) : item.stock != null && item.quantity > item.stock ? (
+                          <p className="text-xs font-semibold text-destructive">Only {item.stock} left</p>
+                        ) : item.stock != null && item.stock <= 3 ? (
+                          <p className="text-xs font-semibold text-amber-600">Only {item.stock} left</p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <Input
                           type="number"
                           min="1"
+                          max={item.stock ?? 99}
                           value={item.quantity}
-                          onChange={(e) => updateQuantity(item.id, parseInt(e.target.value, 10))}
+                          onChange={(e) => updateQuantity(item.id, Math.min(item.stock ?? 99, parseInt(e.target.value, 10) || 1))}
                           className="w-16 h-9 text-center"
                         />
                         <Button

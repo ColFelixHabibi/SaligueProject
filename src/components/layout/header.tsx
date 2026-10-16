@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, LogOut, ShoppingBag, User } from 'lucide-react';
+import { Bell, LogOut, MessageCircle, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,11 +21,11 @@ import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
 import { useNotificationStore } from '@/hooks/use-notification-store';
+import { useUnreadMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { logout } from '@/lib/auth-actions';
 import { cn } from '@/lib/utils';
-import { NAV, isActive } from './nav';
 
 export function Logo({ light, compact }: { light?: boolean; compact?: boolean }) {
   return (
@@ -43,9 +43,10 @@ export default function Header() {
   const { toast } = useToast();
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { cartItems } = useCart();
   const unread = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
+  const unreadMessages = useUnreadMessages();
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const cartCount = cartItems.reduce((n, i) => n + i.quantity, 0);
@@ -84,6 +85,14 @@ export default function Header() {
           >
             INDECIANA
           </Link>
+          <Button variant="ghost" size="icon" className="relative" asChild>
+            <Link href="/messages" aria-label={`Messages, ${unreadMessages} unread`}>
+              <MessageCircle className="h-5 w-5" />
+              {unreadMessages > 0 && (
+                <Badge className="absolute -right-0.5 -top-0.5 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">{unreadMessages > 9 ? '9+' : unreadMessages}</Badge>
+              )}
+            </Link>
+          </Button>
           {user && (
             <Button variant="ghost" size="icon" className="relative" asChild>
               <Link href={pathname.startsWith('/dashboard') ? '/dashboard/notifications' : '/notifications'} aria-label={`Notifications, ${unread} unread`}>
@@ -94,14 +103,14 @@ export default function Header() {
               </Link>
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="relative" asChild>
+          {role !== 'seller' && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />
               {cartCount > 0 && (
                 <Badge className="absolute -right-0.5 -top-0.5 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">{cartCount}</Badge>
               )}
             </Link>
-          </Button>
+          </Button>}
 
           {user ? (
             <DropdownMenu>

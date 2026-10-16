@@ -220,7 +220,7 @@ db.exec(`
 
 // Columns added after the first release.
 for (const [table, column, type] of [
-  ['users', 'terms_accepted_at', 'text'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'],

@@ -8,23 +8,12 @@ import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DollarSign, MessageSquare, Store, Mail, Phone, ShoppingCart, Shirt, Palette, Building, Info, Sparkles, Wand2 } from 'lucide-react';
+import { ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
 import ProductCard from '@/components/product-card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ContactButtons } from '@/components/contact-buttons';
 import { ShopAddress } from '@/components/shop-address';
 import { categoryLabel } from '@/lib/categories';
 import { completeTheLook } from '@/lib/outfit';
@@ -33,6 +22,11 @@ import { formatPrice } from '@/lib/orders';
 import { productHref } from '@/lib/links';
 import { ReportButton } from '@/components/social/report-button';
 import { SoundChip } from '@/components/social/sound-chip';
+import { MessageSellerButton } from '@/components/message-seller-button';
+import { Reviews } from '@/components/reviews';
+import { Stars } from '@/components/stars';
+import { SellerAvatar } from '@/components/seller-avatar';
+import { api } from '@/lib/api';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -60,6 +54,11 @@ export default function ProductView({ id }: { id: string | null }) {
     [product, ...lookItems].forEach((p) => wear(p));
     router.push('/mirror');
   };
+
+  // Counts the visit for the seller's dashboard (once per day per shopper).
+  useEffect(() => {
+    if (id) api(`/products/${id}/view`, { body: {} }).catch(() => {});
+  }, [id]);
 
   // INDECIANA items are only shown on INDECIANA's own page.
   useEffect(() => {
@@ -90,9 +89,14 @@ export default function ProductView({ id }: { id: string | null }) {
     );
   }
 
-  const handleAddToCart = async () => {
+  const soldOut = product.stock === 0;
+  const handleAddToCart = async (thenCheckout = false) => {
     try {
       await addToCart(product);
+      if (thenCheckout) {
+        router.push('/checkout');
+        return;
+      }
       toast({
         title: "Added to Cart",
         description: `${product.name} has been added to your cart.`,
@@ -137,18 +141,28 @@ export default function ProductView({ id }: { id: string | null }) {
                 </div>
                 <div className="text-right">
                     <div className="flex items-center gap-2 text-muted-foreground">
-                        <Store className="h-5 w-5" />
-                        <span>{product.seller}</span>
+                        <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-8 w-8" />
+                        <span className="max-w-[9rem] truncate text-sm font-medium">{product.shop?.name ?? product.seller}</span>
                     </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-2 mb-4">
-                <DollarSign className="h-7 w-7 text-primary" />
-                <p className="text-4xl font-bold text-primary">${Number(product.price).toFixed(2)}</p>
+              {(product.ratingCount ?? 0) > 0 && (
+                <a href="#reviews" className="mb-3 inline-flex items-center gap-2 text-sm hover:underline">
+                  <Stars rating={product.rating ?? 0} />
+                  <span className="font-semibold">{(product.rating ?? 0).toFixed(1)}</span>
+                  <span className="text-muted-foreground">({product.ratingCount} {product.ratingCount === 1 ? 'review' : 'reviews'})</span>
+                </a>
+              )}
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-4xl font-bold text-primary">{formatPrice(Number(product.price))}</p>
                 <SoundChip product={product} autoPlay className="ml-auto" />
               </div>
+              <p className={`mb-4 flex items-center gap-1.5 text-sm font-semibold ${soldOut ? 'text-destructive' : product.stock != null && product.stock <= 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
+                {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : 'In stock'}
+              </p>
               <CardDescription>
                 {product.description || `This is a high-quality ${product.name} from ${product.seller}. Perfect for any occasion and crafted with the finest materials.`}
               </CardDescription>
@@ -160,43 +174,17 @@ export default function ProductView({ id }: { id: string | null }) {
               </Button>
 
               <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                <Button size="lg" className="w-full sm:w-1/2 text-lg h-14" onClick={handleAddToCart}>
+                <Button size="lg" variant="outline" className="w-full sm:w-1/2 text-lg h-14" onClick={() => handleAddToCart()} disabled={soldOut}>
                     <ShoppingCart className="mr-2 h-6 w-6" /> Add to Cart
                 </Button>
-                <Dialog>
-                  <DialogTrigger asChild>
-                      <Button size="lg" className="w-full sm:w-1/2 text-lg h-14">
-                          <MessageSquare className="h-6 w-6" /> Contact Seller
-                      </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-card w-[90vw] max-w-md">
-                    <DialogHeader>
-                      <DialogTitle className="text-2xl text-center">Seller Information</DialogTitle>
-                      <DialogDescription className="text-center">
-                        Contact the seller directly to purchase this item.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <Separator />
-                    <div className="flex flex-col items-center gap-4 py-4">
-                      <Avatar className="h-20 w-20">
-                        <AvatarImage src={`https://i.pravatar.cc/150?u=${product.seller}`} alt={product.seller} />
-                        <AvatarFallback>{product.seller.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <p className="text-xl font-bold">{product.seller}</p>
-                    </div>
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-4">
-                          <Mail className="h-5 w-5 text-muted-foreground" />
-                          <span className="font-medium break-all">{product.sellerEmail || 'Not provided'}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <Phone className="h-5 w-5 text-muted-foreground" />
-                          <span className="font-medium">{product.contact || 'Not provided'}</span>
-                        </div>
-                        <ContactButtons contact={product.contact} email={product.sellerEmail} className="pt-2 justify-center" />
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                <Button size="lg" className="w-full sm:w-1/2 text-lg h-14" onClick={() => handleAddToCart(true)} disabled={soldOut}>
+                    <Zap className="mr-2 h-6 w-6" /> Buy now
+                </Button>
+              </div>
+              <MessageSellerButton product={product} variant="secondary" className="mt-2 h-12 w-full text-base" label={`Message ${product.shop?.name ?? product.seller}`} />
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-primary" /> Pay securely online or on delivery</span>
+                <span className="flex items-center gap-1.5"><Truck className="h-4 w-4 text-primary" /> Delivered by the shop, tracked in My orders</span>
               </div>
               <ReportButton product={product} className="mt-4" />
 
@@ -206,7 +194,10 @@ export default function ProductView({ id }: { id: string | null }) {
           {product.shop && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl"><Store className="h-5 w-5 text-primary" /> Shop</CardTitle>
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-12 w-12" />
+                  <span>{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">Seller on Saligue</span></span>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <ShopAddress shop={product.shop} email={product.sellerEmail} />
@@ -269,6 +260,10 @@ export default function ProductView({ id }: { id: string | null }) {
           </CardContent>
         </Card>
       )}
+
+      <div id="reviews" className="scroll-mt-20">
+        <Reviews productId={product.id} />
+      </div>
 
       {relatedProducts.length > 0 && (
         <div className="mt-16">

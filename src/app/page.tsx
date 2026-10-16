@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { PlusCircle } from 'lucide-react';
+import { Compass, Flame, PlusCircle, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FeedSlide } from '@/components/social/feed-slide';
@@ -31,7 +31,15 @@ export default function ForYouPage() {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
   return (
-    <div className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
+    <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
+      {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
+      <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
+        <div className="pointer-events-auto mt-3 flex items-center gap-1 rounded-full bg-black/45 p-1 text-xs font-semibold text-white backdrop-blur">
+          <span className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5"><Flame className="h-3.5 w-3.5" /> For You</span>
+          <Link href="/search" className="flex items-center gap-1 rounded-full px-3 py-1.5 hover:bg-white/15"><Compass className="h-3.5 w-3.5" /> Explore</Link>
+          <Link href="/mirror" className="flex items-center gap-1 rounded-full px-3 py-1.5 hover:bg-white/15"><Wand2 className="h-3.5 w-3.5" /> Try on</Link>
+        </div>
+      </div>
       {!isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2, Store } from 'lucide-react';
+import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2, Store, Boxes } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 
@@ -23,16 +23,18 @@ import { makeClip, saveProductSound } from '@/lib/audio';
 import { isShopComplete } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ShopProfileForm } from '@/components/shop-profile-form';
+import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { updateAccount } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
 import { categoryLabel } from '@/lib/categories';
 
 
-type Step = 'account' | 'switch' | 'shop' | 'list';
+type Step = 'account' | 'switch' | 'shop' | 'photo' | 'list';
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'account', label: 'Seller account' },
   { key: 'shop', label: 'Shop address' },
+  { key: 'photo', label: 'Profile photo' },
   { key: 'list', label: 'List your item' },
 ];
 
@@ -71,6 +73,7 @@ export default function SellPage() {
     };
     const [sound, setSound] = useState<ChosenSound | null>(null);
     const initialFormValues = {
+        stock: '',
         title: '',
         description: '',
         price: '',
@@ -83,11 +86,11 @@ export default function SellPage() {
     const [formValues, setFormValues] = useState(initialFormValues);
 
     const { user } = useAuth();
-    const { role, shop } = useUserRoleStore();
+    const { role, shop, avatar, official } = useUserRoleStore();
     const hasShop = isShopComplete(shop);
     const setRole = useUserRoleStore((st) => st.setRole);
-    // Selling takes three steps: a seller account, the shop's address, then the item.
-    const step: Step = !user ? 'account' : role !== 'seller' ? 'switch' : !hasShop ? 'shop' : 'list';
+    // Selling takes four steps: a seller account, the shop's address, a profile photo, then the item.
+    const step: Step = !user ? 'account' : role !== 'seller' ? 'switch' : !hasShop ? 'shop' : !avatar && !official ? 'photo' : 'list';
     const [switching, setSwitching] = useState(false);
     const switchToSelling = async () => {
         setSwitching(true);
@@ -181,6 +184,7 @@ export default function SellPage() {
                 brand: formValues.brand,
                 condition: formValues.condition,
                 contact: formValues.contact,
+                stock: formValues.stock === '' ? null : Math.max(0, Math.floor(Number(formValues.stock))),
                 createdAt: new Date().toISOString(),
             };
 
@@ -241,6 +245,15 @@ export default function SellPage() {
               </div>
             )}
             {step === 'shop' && <ShopProfileForm />}
+            {step === 'photo' && (
+              <div className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-5">
+                <div>
+                  <h2 className="text-lg font-semibold">Add your profile photo</h2>
+                  <p className="text-sm text-muted-foreground">Shoppers trust shops they can see. Your photo or logo appears with {shop?.name ?? 'your shop'} on every item, in messages and on orders.</p>
+                </div>
+                <ProfilePhotoField name={shop?.name ?? user?.displayName} required />
+              </div>
+            )}
             {step === 'list' && (
             <form onSubmit={handleSubmit} className="space-y-6">
               
@@ -295,6 +308,15 @@ export default function SellPage() {
                           <Input id="brand" placeholder="e.g., Levi's" className="pl-10 h-12 text-base" value={formValues.brand} onChange={handleInputChange}/>
                       </div>
                   </div>
+              </div>
+
+              <div className="space-y-2">
+                  <Label htmlFor="stock" className="text-lg font-medium">Quantity in stock</Label>
+                  <div className="relative">
+                      <Boxes className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input id="stock" type="number" min="0" step="1" placeholder="e.g., 5 (leave empty if you don't count)" className="pl-10 h-12 text-base" value={formValues.stock} onChange={handleInputChange}/>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Saligue stops selling it when it runs out, and shows “Only 2 left” to shoppers.</p>
               </div>
 
               <div className="space-y-2">

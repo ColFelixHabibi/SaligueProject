@@ -10,6 +10,8 @@ export type AccountUser = {
   role: 'buyer' | 'seller';
   official: boolean;
   shop: Shop | null;
+  // Profile photo (/media/… link). Sellers need one before listing.
+  avatar: string | null;
   isGuest: boolean;
   createdAt: string;
 };
@@ -69,7 +71,7 @@ export async function logout() {
   emit(null, 'signed-out');
 }
 
-export async function updateAccount(changes: { displayName?: string; role?: 'buyer' | 'seller'; shop?: Shop; password?: string; currentPassword?: string }) {
+export async function updateAccount(changes: { displayName?: string; role?: 'buyer' | 'seller'; shop?: Shop; avatar?: string | null; password?: string; currentPassword?: string }) {
   const { user } = await api<{ user: AccountUser }>('/auth/me', { method: 'PATCH', body: changes });
   emit(user, 'updated');
   return user;

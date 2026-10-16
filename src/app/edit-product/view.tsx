@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2 } from 'lucide-react';
+import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2, Boxes } from 'lucide-react';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 
@@ -41,6 +41,7 @@ export default function EditProductView({ id }: { id: string | null }) {
         brand: '',
         condition: '',
         contact: '',
+        stock: '',
     };
     const [formValues, setFormValues] = useState(initialFormValues);
 
@@ -64,6 +65,7 @@ export default function EditProductView({ id }: { id: string | null }) {
                 brand: product.brand || '',
                 condition: product.condition || '',
                 contact: product.contact || '',
+                stock: product.stock == null ? '' : String(product.stock),
             });
             setPhoto({ image: product.image, cutout: product.cutout, embedding: product.embedding });
             setCategory(product.category);
@@ -118,6 +120,7 @@ export default function EditProductView({ id }: { id: string | null }) {
                 brand: formValues.brand,
                 condition: formValues.condition,
                 contact: formValues.contact,
+                stock: formValues.stock === '' ? null : Math.max(0, Math.floor(Number(formValues.stock))),
                 createdAt: product.createdAt || new Date().toISOString(),
             };
 
@@ -217,6 +220,14 @@ export default function EditProductView({ id }: { id: string | null }) {
                   <div className="relative">
                       <Info className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                       <Input id="condition" placeholder="e.g., New with tags, Like new, Used" className="pl-10 h-12 text-base" required value={formValues.condition} onChange={handleInputChange}/>
+                  </div>
+              </div>
+
+              <div className="space-y-2">
+                  <Label htmlFor="stock" className="text-lg font-medium">Quantity in stock</Label>
+                  <div className="relative">
+                      <Boxes className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input id="stock" type="number" min="0" step="1" placeholder="Leave empty if you don't count" className="pl-10 h-12 text-base" value={formValues.stock} onChange={handleInputChange}/>
                   </div>
               </div>
 

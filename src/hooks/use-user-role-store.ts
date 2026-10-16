@@ -16,6 +16,8 @@ interface UserRoleState {
   official: boolean;
   // The seller's shop profile with full address.
   shop: Shop | null;
+  // Profile photo, shown with the shop (full address, ready for <img>).
+  avatar: string | null;
   setRole: (role: UserRole) => void;
 }
 
@@ -25,6 +27,7 @@ export const useUserRoleStore = create<UserRoleState>()((set) => ({
   isInitialized: false,
   official: false,
   shop: null,
+  avatar: null,
   setRole: (role) => set({ role, pendingRole: role }),
 }));
 

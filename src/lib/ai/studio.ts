@@ -124,12 +124,12 @@ const looks = new Map<string, Promise<string>>();
 let lane: Promise<unknown> = Promise.resolve();
 
 /** Realistically redraws the garment on the person (Leffa). Returns an image data URL. */
-export function realisticTryOn(personUrl: string, garmentUrl: string, category: string): Promise<string> {
+export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = ''): Promise<string> {
   const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}`;
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
-      const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category };
+      const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category, description };
       const image = (await getStudio()) ? await call('/api/tryon', body) : (await api<{ image: string }>('/ai/tryon', { body })).image;
       // Only the asked-for piece changes; the rest of the photo stays as it was.
       return keepOnlyChanged(body.person, image, category).catch((error) => {

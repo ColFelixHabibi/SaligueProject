@@ -8,6 +8,7 @@ import {
   BadgeCheck, Camera, Check, Download, Footprints, Glasses, GraduationCap, ImageUp, Loader2, Shirt,
   ShoppingBag, Sparkles, Trash2, Wand2, Watch, X, type LucideIcon,
 } from 'lucide-react';
+import { BeforeAfter } from './before-after';
 import { Button } from '@/components/ui/button';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { useCart } from '@/hooks/use-cart-store';
@@ -165,7 +166,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
       const clothes = [...redrawable].sort((a, b) => REDRAW_ORDER.indexOf(outfitSlot(a)) - REDRAW_ORDER.indexOf(outfitSlot(b)));
       for (const [i, item] of clothes.entries()) {
         setRealisticBusy(`Saligue AI is dressing you (${i + 1}/${clothes.length})…`);
-        current = await realisticTryOn(current, item.image, outfitSlot(item));
+        current = await realisticTryOn(current, item.image, outfitSlot(item), [item.color, item.type ?? item.name].filter(Boolean).join(' '));
         if (stale()) return;
       }
       const others = outfit.filter((p) => !redrawable.includes(p));
@@ -264,13 +265,15 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
     <section className="overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-xl">
       <div className="grid md:grid-cols-[88px_1fr_300px]">
         {/* Body slots: a column beside the mirror on wide screens, a row under it on phones. */}
-        <div className="order-2 flex gap-2 overflow-x-auto border-t border-border p-3 md:order-1 md:flex-col md:overflow-y-auto md:border-r md:border-t-0">
+        <div className="order-2 flex gap-2 overflow-x-auto border-t border-border p-3 md:order-1 md:flex-col md:overflow-visible md:border-r md:border-t-0">
           {slotButtons.map(slotButton)}
         </div>
 
         {/* The mirror */}
         <div className="relative order-1 aspect-[3/4] max-h-[78vh] w-full bg-[radial-gradient(ellipse_at_center,_#ffffff_0%,_#fde7f1_100%)] md:order-2 md:aspect-auto md:min-h-[560px]">
-          {shownUrl ? (
+          {realisticUrl && personUrl ? (
+            <BeforeAfter before={personUrl} after={realisticUrl} labels={['You now', 'In this outfit']} className="absolute inset-0 bg-transparent" />
+          ) : shownUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={shownUrl} alt={outfit.length ? 'You wearing your outfit' : 'You'} className="absolute inset-0 h-full w-full object-contain p-3" />
           ) : !photoBusy ? (
@@ -290,9 +293,6 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
             <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur">
               <Loader2 className="h-4 w-4 animate-spin text-primary" /> {busy}
             </div>
-          )}
-          {realisticUrl && (
-            <span className="absolute left-3 top-3 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">AI realistic</span>
           )}
           {missing.length > 0 && lookUrl && !realisticUrl && (
             <p className="absolute bottom-16 left-3 right-3 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
@@ -324,8 +324,36 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
               <button type="button" onClick={clear} className="text-xs text-muted-foreground hover:text-foreground">Undress all</button>
             )}
           </div>
+          <div className="space-y-2">
+            {outfit.length > 0 && (
+              <div className="flex items-baseline justify-between border-t border-border pt-2">
+                <span className="text-sm text-muted-foreground">Whole outfit</span>
+                <span className="text-xl font-extrabold text-primary">{formatPrice(total)}</span>
+              </div>
+            )}
+            {missingSlots(outfit).essential.some((c) => inStock.has(c)) && (
+              <Button size="lg" className="h-12 w-full text-base" variant={outfit.length ? 'secondary' : 'default'} onClick={completeAutomatically}>
+                <Wand2 className="mr-2 h-4 w-4" /> {outfit.length ? 'Complete my look' : 'Dress me in a full look'}
+              </Button>
+            )}
+            {outfit.length > 0 && (
+              <Button size="lg" className="h-12 w-full text-base" onClick={addOutfitToCart}>
+                <ShoppingBag className="mr-2 h-4 w-4" /> Add whole outfit to bag
+              </Button>
+            )}
+            {studio && person && redrawable.length > 0 && realisticFailed && (
+              <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={makeRealistic} disabled={!!realisticBusy}>
+                <Sparkles className="mr-2 h-4 w-4" /> Try the realistic AI again
+              </Button>
+            )}
+            {studio && person && redrawable.length > 0 && (
+              <p className="text-center text-[11px] text-muted-foreground">
+                Saligue AI redraws you wearing the clothes (about 20 s per piece). This sends your photo to Saligue&apos;s AI.
+              </p>
+            )}
+          </div>
           {outfit.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Pick a part of your body and tap an item to put it on — or let AI dress you.</p>
+            <p className="text-sm text-muted-foreground">Or pick a part of your body on the left and tap an item below to put it on.</p>
           ) : (
             <ul className="space-y-2">
               {SLOTS.flatMap((s) => {
@@ -346,34 +374,6 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
               ))}
             </ul>
           )}
-          <div className="mt-auto space-y-2 pt-2">
-            {outfit.length > 0 && (
-              <div className="flex items-baseline justify-between border-t border-border pt-2">
-                <span className="text-sm text-muted-foreground">Whole outfit</span>
-                <span className="text-xl font-extrabold text-primary">{formatPrice(total)}</span>
-              </div>
-            )}
-            {missingSlots(outfit).essential.some((c) => inStock.has(c)) && (
-              <Button className="w-full" variant="secondary" onClick={completeAutomatically}>
-                <Wand2 className="mr-2 h-4 w-4" /> {outfit.length ? 'Complete my look' : 'Dress me in a full look'}
-              </Button>
-            )}
-            {outfit.length > 0 && (
-              <Button className="w-full" onClick={addOutfitToCart}>
-                <ShoppingBag className="mr-2 h-4 w-4" /> Add whole outfit to bag
-              </Button>
-            )}
-            {studio && person && redrawable.length > 0 && realisticFailed && (
-              <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={makeRealistic} disabled={!!realisticBusy}>
-                <Sparkles className="mr-2 h-4 w-4" /> Try the realistic AI again
-              </Button>
-            )}
-            {studio && person && redrawable.length > 0 && (
-              <p className="text-center text-[11px] text-muted-foreground">
-                Saligue AI redraws you wearing the clothes (about 20 s per piece). This sends your photo to Saligue&apos;s AI.
-              </p>
-            )}
-          </div>
         </div>
       </div>
 
@@ -397,13 +397,13 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
                   key={p.id}
                   type="button"
                   onClick={() => wear(p)}
-                  className="group flex w-28 shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-background text-left ring-primary transition hover:ring-2"
+                  className="group flex w-32 shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-background text-left ring-primary transition hover:ring-2"
                 >
                   <span className="relative block aspect-square bg-muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.cutout || p.image} alt={p.name} loading="lazy" className="h-full w-full object-contain p-1.5" />
                     {p.official && <BadgeCheck className="absolute left-1 top-1 h-4 w-4 text-foreground" aria-label="INDECIANA" />}
-                    <span className="absolute inset-x-1 bottom-1 rounded-full bg-primary py-0.5 text-center text-[10px] font-bold text-primary-foreground opacity-0 transition group-hover:opacity-100">
+                    <span className="absolute inset-x-1 bottom-1 rounded-full bg-primary py-1 text-center text-[11px] font-bold text-primary-foreground shadow">
                       Wear it
                     </span>
                   </span>

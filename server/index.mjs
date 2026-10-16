@@ -90,6 +90,8 @@ function publicUser(u) {
     role: u.role,
     official: !!u.official,
     shop: parse(u.shop),
+    // Profile photo (/media/… link); sellers need one before listing, it is shown with their shop.
+    avatar: u.avatar ?? null,
     isGuest: !!u.is_guest,
     createdAt: u.created_at,
   };
@@ -173,6 +175,7 @@ function productOut(r) {
     type: r.type ?? undefined,
     seller: r.seller,
     sellerId: r.seller_id,
+    sellerAvatar: r.seller_avatar ?? undefined,
     sellerEmail: r.seller_email ?? undefined,
     status: r.status,
     description: r.description ?? undefined,
@@ -440,6 +443,13 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   if (body.displayName !== undefined) db.prepare('update users set display_name = ? where id = ?').run(String(body.displayName).slice(0, 80), user.id);
   if (body.role === 'seller' || body.role === 'buyer') db.prepare('update users set role = ? where id = ?').run(body.role, user.id);
+  if (body.avatar !== undefined) {
+    if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
+    const avatar = body.avatar === null ? null : String(body.avatar);
+    if (avatar !== null && (!/^data:image\/(jpeg|png|webp);base64,/.test(avatar) || avatar.length > 1_000_000)) fail(400, 'invalid_image', 'Use a JPG, PNG or WebP photo under 700 KB.');
+    db.prepare('update users set avatar = ? where id = ?').run(avatar && storeImage(avatar), user.id);
+    broadcast('products');
+  }
   if (body.password !== undefined) {
     if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
     // Accounts made with Google have no password yet and can set one.
@@ -463,7 +473,8 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 
 // Products
 route('GET', '/api/products', ({ user }) =>
-  db.prepare('select * from products where hidden = 0 or seller_id = ? order by created_at desc').all(user?.id ?? '').map(productOut));
+  db.prepare('select p.*, u.avatar as seller_avatar from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc')
+    .all(user?.id ?? '').map(productOut));
 
 // Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.
 const CATEGORIES = Object.keys(FASHION_TYPES);
@@ -500,6 +511,7 @@ route('POST', '/api/products', async ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
   if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only seller accounts can list items. Switch to selling in your account settings.');
   if (!parse(user.shop)?.name) fail(403, 'shop_required', 'Add your shop name and full address before listing.');
+  if (!user.avatar && !user.official) fail(403, 'avatar_required', 'Add a profile photo before listing, so buyers can see who they buy from.');
   const fields = productFields(body);
   if (!fields.name || fields.price === undefined || !fields.image || !fields.category) fail(400, 'incomplete_product', 'Name, price, photo and category are required.');
   const checked = await requireFashion(fields);
@@ -853,7 +865,7 @@ const personNameOf = (u) => (u?.is_guest ? 'Guest shopper' : u?.display_name || 
 
 function conversationOut(c, me) {
   const iAmBuyer = c.buyer_id === me.id;
-  const other = db.prepare('select id, display_name, email, shop, is_guest, official from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
+  const other = db.prepare('select id, display_name, email, shop, is_guest, official, avatar from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
   const readAt = (iAmBuyer ? c.buyer_read_at : c.seller_read_at) ?? '';
   const last = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 1').get(c.id);
   const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ?').get(c.id, me.id, readAt).n;
@@ -865,6 +877,7 @@ function conversationOut(c, me) {
       name: iAmBuyer ? shopNameOf(other) : personNameOf(other),
       official: !!other?.official,
       isGuest: !!other?.is_guest,
+      avatar: other?.avatar ?? null,
     },
     lastMessage: last ? { text: last.text, fromMe: last.sender_id === me.id, productId: last.product_id, createdAt: last.created_at } : null,
     unread,
@@ -1332,7 +1345,7 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
   if (recent.length >= 20) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
   tryOnRuns.set(user.id, [...recent, Date.now()]);
   try {
-    return { image: await tryOn(body.person, body.garment, body.category) };
+    return { image: await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120)) };
   } catch (error) {
     if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
     fail(error.status ?? 502, 'tryon_failed', error.message);

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { getToken, setToken } from '@/lib/api';
+import { getToken, mediaUrl, setToken } from '@/lib/api';
 import { currentAccount, onAccountChange, startGuestSession, type AccountChange, type AccountUser } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { subscribeToWishlist } from '@/hooks/use-wishlist';
@@ -9,6 +9,7 @@ import { subscribeToCart } from '@/hooks/use-cart-store';
 import { subscribeToNotifications } from '@/hooks/use-notification-store';
 import { subscribeToLikes } from '@/hooks/use-likes';
 import { subscribeToProducts } from '@/hooks/use-product-store';
+import { subscribeToMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '../ui/skeleton';
 
@@ -64,16 +65,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const stopWishlist = subscribeToWishlist(account.id);
         const stopLikes = subscribeToLikes(account.id);
         const stopNotifications = subscribeToNotifications(account.id);
+        const stopMessages = subscribeToMessages(account.id);
         stopUserData = () => {
           stopNotifications();
+          stopMessages();
           stopCart();
           stopWishlist();
           stopLikes();
         };
       }
-      useUserRoleStore.setState({ role: account.role, official: account.official, shop: account.shop, pendingRole: null, isInitialized: true });
+      useUserRoleStore.setState({ role: account.role, official: account.official, shop: account.shop, avatar: mediaUrl(account.avatar ?? undefined) ?? null, pendingRole: null, isInitialized: true });
       setAuthUid(account.id);
-      setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, photoURL: null });
+      setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);
       if (change === 'registered' || change === 'signed-in') {
         toast({

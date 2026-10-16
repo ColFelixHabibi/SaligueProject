@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LogIn, LogOut, ShoppingBag, User } from 'lucide-react';
+import { LogIn, LogOut, MessageCircle, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,12 +19,13 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
+import { useUnreadMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { logout } from '@/lib/auth-actions';
 import { cn } from '@/lib/utils';
 import { Logo } from './header';
-import { NAV, isActive } from './nav';
+import { navFor, isActive } from './nav';
 
 // One row of the side menu: icon always, label from large screens up (icon-only on tablets, like TikTok).
 const row = 'flex items-center gap-4 rounded-lg px-3 py-3 text-base font-semibold transition-colors hover:bg-muted';
@@ -34,13 +35,15 @@ export default function Sidebar() {
   const { toast } = useToast();
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const { cartItems } = useCart();
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const cartCount = cartItems.reduce((n, i) => n + i.quantity, 0);
   const inIndeciana = pathname.includes('/indeciana');
   const inCart = pathname.replace(/\/+$/, '').endsWith('/cart');
+  const inMessages = pathname.replace(/\/+$/, '').endsWith('/messages');
+  const unreadMessages = useUnreadMessages();
 
   const switchTo = (open: (v: boolean) => void, close: (v: boolean) => void) => {
     close(false);
@@ -65,7 +68,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="mt-6 flex flex-col gap-1 px-2 lg:px-3">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {navFor(role).map(({ href, label, icon: Icon }) => {
           const active = isActive(href, pathname);
           return (
             <Link key={href} href={href} title={label} aria-current={active ? 'page' : undefined} className={cn(row, active ? 'text-primary' : 'text-foreground')}>
@@ -75,6 +78,19 @@ export default function Sidebar() {
           );
         })}
 
+        <Link href="/messages" title="Messages" className={cn(row, inMessages ? 'text-primary' : 'text-foreground')}>
+          <span className="relative shrink-0">
+            <MessageCircle className={cn('h-7 w-7', inMessages && 'stroke-[2.5]')} />
+            {unreadMessages > 0 && (
+              <span className="absolute -right-2 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {unreadMessages > 9 ? '9+' : unreadMessages}
+              </span>
+            )}
+          </span>
+          <span className="hidden lg:inline">Messages</span>
+        </Link>
+
+        {role !== 'seller' && (
         <Link href="/cart" title="Cart" className={cn(row, inCart ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">
             <ShoppingBag className="h-7 w-7" />
@@ -86,6 +102,7 @@ export default function Sidebar() {
           </span>
           <span className="hidden lg:inline">Cart</span>
         </Link>
+        )}
 
         {/* INDECIANA's own boutique: its single entry point on this screen size. */}
         <Link
@@ -144,7 +161,8 @@ export default function Sidebar() {
           © {new Date().getFullYear()} Saligue by INDECIANA
           <br />
           <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link> ·{' '}
-          <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link>
+          <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link> ·{' '}
+          <Link href="/cookies" className="hover:text-foreground hover:underline">Cookies</Link>
         </p>
       </div>
 

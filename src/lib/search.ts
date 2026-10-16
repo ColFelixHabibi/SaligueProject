@@ -152,3 +152,60 @@ export async function aiSearch(products: Product[], query: SearchQuery, onProgre
     .slice(0, MAX_RESULTS)
     .map((s) => s.p);
 }
+
+// ---------------------------------------------------------------------------
+// Search from the structured "What do you want to wear?" form (Fitting Room).
+// ---------------------------------------------------------------------------
+
+export type WearForm = {
+  category?: string;
+  type?: string;
+  size?: string;
+  color?: string;
+  brand?: string;
+  maxPrice?: number;
+  condition?: string;
+  // Optional short extra detail, e.g. "slim fit, cotton".
+  details?: string;
+};
+
+/** The form as plain words, for the AI ranking and for "Dress me as I describe". */
+export function describeForm(form: WearForm): string {
+  return [form.color, form.brand, form.type || (form.category && categoryLabel(form.category)), form.details].filter(Boolean).join(' ').trim();
+}
+
+const sameColor = (productColor: string | undefined, wanted: string) => {
+  const c = productColor?.toLowerCase() ?? '';
+  const w = wanted.toLowerCase();
+  return c.includes(w) || (w === 'grey' && c.includes('gray')) || (w === 'gray' && c.includes('grey'));
+};
+
+/**
+ * Every filled field must match (type, size, brand, budget, condition); colour must match when any item has it.
+ * The AI then puts the items that look most like the description first.
+ */
+export async function formSearch(products: Product[], form: WearForm, onProgress?: Progress): Promise<Product[]> {
+  let pool = products.filter((p) => p.status === 'active' && p.stock !== 0);
+  if (form.category) pool = pool.filter((p) => p.category === form.category);
+  if (form.type) pool = pool.filter((p) => p.type?.toLowerCase() === form.type!.toLowerCase());
+  if (form.size) pool = pool.filter((p) => sameSize(p.size, form.size!.toUpperCase()));
+  if (form.brand) pool = pool.filter((p) => p.brand?.trim().toLowerCase() === form.brand!.trim().toLowerCase());
+  if (form.maxPrice) pool = pool.filter((p) => Number(p.price) <= form.maxPrice!);
+  if (form.condition) pool = pool.filter((p) => p.condition?.toLowerCase().includes(form.condition!.toLowerCase()));
+  if (form.color) {
+    const colored = pool.filter((p) => sameColor(p.color, form.color!));
+    pool = colored.length ? colored : pool.filter((p) => !p.color);
+  }
+  const text = describeForm(form);
+  if (!pool.length || !text || !pool.some((p) => p.embedding?.length)) return pool.slice(0, MAX_RESULTS);
+  try {
+    const textEmbedding = await embedText(text, onProgress);
+    return pool
+      .map((p) => ({ p, visual: p.embedding?.length ? cosine(textEmbedding, p.embedding) : 0 }))
+      .sort((a, b) => b.visual - a.visual)
+      .slice(0, MAX_RESULTS)
+      .map((s) => s.p);
+  } catch {
+    return pool.slice(0, MAX_RESULTS);
+  }
+}
