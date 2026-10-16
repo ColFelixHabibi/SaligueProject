@@ -9,8 +9,13 @@
 //   node server/admin.mjs reports               reported items (hidden ones first)
 //   node server/admin.mjs show <product id>     put a hidden item back after review (the AI learns look-alikes are fine)
 //   node server/admin.mjs remove <product id>   remove a reported item as not fashion (the AI learns to refuse look-alikes)
+//   node server/admin.mjs payments <secret key> <secret hash> [currency] [rate]
+//                                               switch on online payments (Flutterwave), e.g. ... FLWSECK-xxx myhash RWF 1450
+//   node server/admin.mjs payments off          switch online payments off
+//   node server/admin.mjs testmail <email>      send a test email (shows whether the mail account works)
 import { db } from './db.mjs';
 import { learn } from './learn.mjs';
+import { sendEmail } from './mail.mjs';
 
 const [command, email] = process.argv.slice(2);
 
@@ -58,6 +63,28 @@ if (command === 'official' || command === 'unofficial') {
   const config = command === 'mail' ? { url: value, from: process.argv[4] } : { url: value };
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(command, JSON.stringify(config));
   console.log(command === 'mail' ? 'Emails will now be sent with this mail account.' : `Links in emails will point to ${value}.`);
+} else if (command === 'payments') {
+  const [secretKey, secretHash, currency = 'RWF', rate] = process.argv.slice(3);
+  if (secretKey === 'off') {
+    db.prepare("delete from app_config where key = 'payments'").run();
+    console.log('Online payments are off. Checkout offers Mobile Money to the shop, cash on delivery and pickup.');
+  } else if (!secretKey || !secretHash) {
+    console.error('Usage: node server/admin.mjs payments <secret key> <secret hash> [currency] [rate]');
+    process.exit(1);
+  } else {
+    const upper = currency.toUpperCase();
+    const value = Number(rate || (upper === 'USD' ? 1 : 0));
+    if (!(value > 0)) {
+      console.error(`Give the exchange rate: how many ${upper} one listed dollar is worth, e.g. 1450.`);
+      process.exit(1);
+    }
+    db.prepare("insert into app_config (key, value) values ('payments', ?) on conflict(key) do update set value = excluded.value")
+      .run(JSON.stringify({ secretKey, secretHash, currency: upper, rate: value }));
+    console.log(`Online payments are on (${upper}, 1 USD = ${value} ${upper}). Set the Flutterwave webhook URL to <your site>/api/payments/webhook with the same secret hash.`);
+  }
+} else if (command === 'testmail') {
+  sendEmail(String(email ?? ''), { subject: 'Saligue test email', lines: ['If you can read this, Saligue can send emails.'] });
+  setTimeout(() => process.exit(0), 8000);
 } else {
-  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | show <product id> | remove <product id>');
+  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | show <product id> | remove <product id> | payments <key> <hash> [currency] [rate] | payments off | testmail <email>');
 }

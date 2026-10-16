@@ -1,6 +1,7 @@
 
 'use client';
 
+import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { friendlyError } from '@/lib/errors';
 
 import { Button } from '@/components/ui/button';
@@ -99,6 +100,9 @@ export default function BuyerSettingsPage() {
 
   return (
     <div className="grid gap-6">
+      <Card className="p-6">
+        <ProfilePhotoField name={user?.displayName}  />
+      </Card>
       <Card>
         <form onSubmit={handleSaveChanges}>
           <CardHeader>

@@ -8,6 +8,7 @@ import Sidebar from '@/components/layout/sidebar';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
+import { CookieBanner } from '@/components/cookie-banner';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
@@ -58,6 +59,7 @@ export default function RootLayout({
           </div>
           <Toaster />
           <PwaRegister />
+          <CookieBanner />
         </AuthProvider>
       </body>
     </html>

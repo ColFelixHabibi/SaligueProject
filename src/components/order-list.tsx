@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShopAddress } from '@/components/shop-address';
 import { useToast } from '@/hooks/use-toast';
-import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, shortOrderId, updateOrder, useOrders } from '@/lib/orders';
+import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, payOnline, shortOrderId, updateOrder, useOrders } from '@/lib/orders';
+import { MessageSellerButton } from '@/components/message-seller-button';
 import type { Order } from '@/lib/types';
 
 function statusLabel(status: string) {
@@ -68,17 +69,41 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
 
         {as === 'buyer' ? (
           <>
+            {order.status !== 'cancelled' && (
+              <ol className="grid grid-cols-4 gap-1 text-center text-[11px] font-medium">
+                {(['placed', 'confirmed', 'shipped', 'delivered'] as const).map((s, i, all) => {
+                  const done = all.indexOf(order.status as (typeof all)[number]) >= i;
+                  return (
+                    <li key={s} className="space-y-1">
+                      <span className={`mx-auto block h-1.5 rounded-full ${done ? 'bg-primary' : 'bg-muted'}`} />
+                      <span className={done ? 'text-foreground' : 'text-muted-foreground'}>{statusLabel(s)}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            {order.paymentMethod === 'online' && order.paymentStatus === 'unpaid' && order.status !== 'cancelled' && (
+              <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+                <p>Your items are reserved for 24 hours. Pay now to send the order to the shop.</p>
+                <Button size="lg" className="w-full" disabled={saving} onClick={() => payOnline([order.id]).catch((e) => toast({ variant: 'destructive', title: 'Payment page did not open', description: friendlyError(e) }))}>
+                  Pay {formatPrice(order.total)} now
+                </Button>
+              </div>
+            )}
             {order.paymentMethod === 'mobile_money' && order.paymentStatus === 'unpaid' && order.status !== 'cancelled' && momo && (
               <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
                 Send <b>{formatPrice(order.total)}</b> by Mobile Money to <b>{momo}</b> ({order.shop?.name}) with reference <b>{shortOrderId(order.id)}</b>.
               </div>
             )}
             {order.shop && <ShopAddress shop={order.shop} compact={order.paymentMethod !== 'pickup'} />}
-            {order.status === 'placed' && (
-              <Button variant="outline" size="sm" disabled={saving} onClick={() => change({ status: 'cancelled' })}>
-                Cancel order
-              </Button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              <MessageSellerButton orderId={order.id} label="Message the shop" size="sm" variant="secondary" />
+              {order.status === 'placed' && order.paymentStatus !== 'paid' && (
+                <Button variant="outline" size="sm" disabled={saving} onClick={() => change({ status: 'cancelled' })}>
+                  Cancel order
+                </Button>
+              )}
+            </div>
           </>
         ) : (
           <>

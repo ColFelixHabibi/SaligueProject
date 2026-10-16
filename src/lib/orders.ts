@@ -5,7 +5,8 @@ import { api, onServerEvent } from './api';
 import type { DeliveryAddress, Order, OrderStatus, PaymentMethod, Product } from './types';
 
 export const PAYMENT_METHODS: { value: PaymentMethod; label: string; description: string }[] = [
-  { value: 'mobile_money', label: 'Mobile Money', description: "Pay the shop's MoMo / Airtel Money number after placing the order." },
+  { value: 'online', label: 'Pay online now', description: 'Card or Mobile Money (MTN / Airtel) on a secure payment page. Confirmed instantly.' },
+  { value: 'mobile_money', label: 'Mobile Money to the shop', description: "Send the money to the shop's MoMo / Airtel Money number after ordering." },
   { value: 'cash_on_delivery', label: 'Cash on delivery', description: 'Pay when the item reaches you.' },
   { value: 'pickup', label: 'Pick up at the shop', description: 'Collect and pay at the shop address.' },
 ];
@@ -51,4 +52,21 @@ export function useOrders(as: 'buyer' | 'seller') {
     };
   }, [as]);
   return orders;
+}
+
+export type PaymentConfig = { enabled: boolean; currency: string; rate: number; methods: string[] };
+
+/** Whether online payment (card / Mobile Money) is switched on, and in which currency. */
+export function usePaymentConfig() {
+  const [config, setConfig] = useState<PaymentConfig | null>(null);
+  useEffect(() => {
+    api<PaymentConfig>('/payments/config').then(setConfig).catch(() => setConfig({ enabled: false, currency: 'USD', rate: 1, methods: [] }));
+  }, []);
+  return config;
+}
+
+/** Starts paying orders online and sends the browser to the secure payment page. */
+export async function payOnline(orderIds: string[], email?: string) {
+  const { link } = await api<{ link: string }>('/payments/start', { body: { orderIds, email } });
+  window.location.href = link;
 }

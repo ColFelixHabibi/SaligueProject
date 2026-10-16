@@ -7,7 +7,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      updated="7 October 2026"
+      updated="16 October 2026"
       intro="This policy explains what information Saligue by INDECIANA collects, why, and the choices you have. We collect only what Saligue needs to work, and we never sell your personal information."
       sections={[
         {
@@ -16,6 +16,10 @@ export default function PrivacyPage() {
             'Account: your name, email address, password (stored only as a secure hash) and whether you buy or sell. If you continue with Google, we receive your name and email address from Google.',
             'Shops: shop name, phone and WhatsApp number, address and opening hours, which are shown publicly with your items.',
             'Shopping: your bag, saved items, likes, comments, orders and the delivery address and phone number you enter at checkout.',
+            'Messages: what you write to shops or customers in Saligue Messages, so both sides can read the conversation. The other person also gets an email that a message is waiting.',
+            'Reviews: the stars and text you post about items you received, shown publicly with your first name.',
+            'Payments: when you pay online, Flutterwave handles your card or Mobile Money details on its own secure page. Saligue receives only whether the payment succeeded, the amount and a reference — never your card number or PIN.',
+            'Profile photo: sellers add a profile photo, shown publicly with their shop.',
             'Support: the messages you send us.',
           ],
         },
@@ -23,7 +27,7 @@ export default function PrivacyPage() {
           heading: 'Your photo in the Fitting Room',
           paragraphs: [
             'The photo you add in the Fitting Room is processed by AI on your own device and kept only on that device. It is not uploaded to Saligue.',
-            'Only if you tap "Make it realistic" or "Dress me as I describe" is your photo sent to the Saligue AI server, to create that one image. Until Saligue runs its own AI server, "Make it realistic" uses the open Leffa model hosted on Hugging Face, which receives the photo and the garment picture only to create that image. Remove your photo at any time with the bin button.',
+            'To show you really wearing clothes (tops, jackets, trousers, dresses), the Fitting Room sends your photo and the garment picture to the realistic try-on AI when you search or put clothes on. Until Saligue runs its own AI server, this uses the open Leffa and IDM-VTON models hosted on Hugging Face, which receive the two pictures only to create that image. Shoes, hats, glasses and bags are placed on your device without sending anything. Remove your photo at any time with the bin button.',
           ],
         },
         {

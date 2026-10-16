@@ -8,7 +8,8 @@
 import { timingSafeEqual } from 'node:crypto';
 import { db, parse } from './db.mjs';
 
-const API = 'https://api.flutterwave.com/v3';
+// FLW_API_URL only for tests against a stand-in server.
+const API = (process.env.FLW_API_URL || 'https://api.flutterwave.com/v3').replace(/\/+$/, '');
 
 export function paymentSettings() {
   const saved = parse(db.prepare("select value from app_config where key = 'payments'").get()?.value) ?? {};

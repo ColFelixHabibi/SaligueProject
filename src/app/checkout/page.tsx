@@ -6,7 +6,7 @@ import { friendlyError } from '@/lib/errors';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, Lock, MapPin, ShoppingBag } from 'lucide-react';
+import { CreditCard, Loader2, Lock, MapPin, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
-import { PAYMENT_METHODS, formatPrice, placeOrders } from '@/lib/orders';
+import { PAYMENT_METHODS, formatPrice, payOnline, placeOrders, usePaymentConfig } from '@/lib/orders';
 import type { DeliveryAddress, PaymentMethod } from '@/lib/types';
 
 const DELIVERY_KEY = 'saligue-delivery-address';
@@ -41,6 +41,14 @@ export default function CheckoutPage() {
   const { cartItems, clearCart } = useCart();
   const [delivery, setDelivery] = useState<DeliveryAddress>({ fullName: '', phone: '', country: 'Rwanda', city: '', street: '' });
   const [payment, setPayment] = useState<PaymentMethod>('mobile_money');
+  const [email, setEmail] = useState('');
+  const payConfig = usePaymentConfig();
+  // Paying online is the default once it is switched on.
+  useEffect(() => {
+    if (payConfig?.enabled) setPayment((p) => (p === 'mobile_money' ? 'online' : p));
+  }, [payConfig?.enabled]);
+  const methods = PAYMENT_METHODS.filter((m) => m.value !== 'online' || payConfig?.enabled);
+  const soldOut = cartItems.filter((i) => i.stock != null && i.quantity > i.stock);
   const [placing, setPlacing] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -75,15 +83,30 @@ export default function CheckoutPage() {
       toast({ variant: 'destructive', title: 'One moment', description: 'Still connecting. Please try again.' });
       return;
     }
+    if (soldOut.length) {
+      toast({ variant: 'destructive', title: 'Not enough in stock', description: `Lower the quantity of ${soldOut.map((i) => i.name).join(', ')} in your cart.` });
+      return;
+    }
     setPlacing(true);
     try {
-      await placeOrders(cartItems, delivery, payment);
+      const ids = await placeOrders(cartItems, delivery, payment);
       try {
         localStorage.setItem(DELIVERY_KEY, JSON.stringify(delivery));
       } catch {
         // Ignore.
       }
       await clearCart();
+      if (payment === 'online') {
+        toast({ title: 'Order reserved', description: 'Taking you to the secure payment page…' });
+        try {
+          await payOnline(ids, user?.email ? undefined : email);
+          return;
+        } catch (error) {
+          toast({ variant: 'destructive', title: 'Payment page did not open', description: `${friendlyError(error)} Your order is saved: pay from My orders.` });
+          router.push('/orders');
+          return;
+        }
+      }
       toast({ title: 'Order placed!', description: shops.length > 1 ? `${shops.length} shops have received your order.` : 'The shop has received your order.' });
       router.push('/orders');
     } catch (error: any) {
@@ -145,7 +168,7 @@ export default function CheckoutPage() {
             </CardHeader>
             <CardContent>
               <RadioGroup value={payment} onValueChange={(v) => setPayment(v as PaymentMethod)} className="space-y-3">
-                {PAYMENT_METHODS.map((m) => (
+                {methods.map((m) => (
                   <Label key={m.value} htmlFor={`pay-${m.value}`} className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 has-[:checked]:border-primary">
                     <RadioGroupItem id={`pay-${m.value}`} value={m.value} className="mt-0.5" />
                     <span>
@@ -154,13 +177,29 @@ export default function CheckoutPage() {
                     </span>
                   </Label>
                 ))}
-                <div className="flex items-start gap-3 rounded-lg border border-dashed p-4 opacity-60">
-                  <Lock className="mt-0.5 h-4 w-4" />
-                  <span>
-                    <span className="block font-semibold">Card payment</span>
-                    <span className="block text-sm text-muted-foreground">Coming soon.</span>
-                  </span>
-                </div>
+                {payConfig && !payConfig.enabled && (
+                  <div className="flex items-start gap-3 rounded-lg border border-dashed p-4 opacity-60">
+                    <CreditCard className="mt-0.5 h-4 w-4" />
+                    <span>
+                      <span className="block font-semibold">Card payment</span>
+                      <span className="block text-sm text-muted-foreground">Coming soon.</span>
+                    </span>
+                  </div>
+                )}
+                {payment === 'online' && (
+                  <div className="space-y-3 rounded-lg bg-muted/60 p-4 text-sm">
+                    <p className="flex items-center gap-2 font-medium"><ShieldCheck className="h-4 w-4 text-emerald-600" /> You pay on Flutterwave&apos;s secure page. Saligue never sees your card.</p>
+                    {payConfig && payConfig.currency !== 'USD' && (
+                      <p className="text-muted-foreground">Charged in {payConfig.currency}: about <b className="text-foreground">{Math.ceil(total * payConfig.rate).toLocaleString()} {payConfig.currency}</b>.</p>
+                    )}
+                    {!user?.email && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="pay-email">Email for your receipt <span className="text-destructive">*</span></Label>
+                        <Input id="pay-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                      </div>
+                    )}
+                  </div>
+                )}
               </RadioGroup>
             </CardContent>
           </Card>
@@ -193,7 +232,7 @@ export default function CheckoutPage() {
             </CardContent>
             <CardFooter className="flex-col gap-2">
               <Button type="submit" size="lg" className="w-full" disabled={placing}>
-                {placing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Place order
+                {placing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />} {payment === 'online' ? `Pay ${formatPrice(total)} now` : 'Place order'}
               </Button>
               {!user && (
                 <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setLoginOpen(true)}>
