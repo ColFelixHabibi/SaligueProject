@@ -81,5 +81,9 @@
     "next": {
       "postcss": "^8.5.30"
     }
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.30.0": true,
+    "protobufjs@7.6.6": true
   }
 }
