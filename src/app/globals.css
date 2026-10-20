@@ -155,3 +155,10 @@ body {
     animation: float6 19s ease-in-out infinite;
   }
 }
+
+/* Saligue Live: hearts and emojis floating up over the video. */
+@keyframes live-float {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  15% { opacity: 1; transform: translateY(-20px) scale(1.1); }
+  100% { transform: translateY(-260px) translateX(-12px) scale(0.9); opacity: 0; }
+}

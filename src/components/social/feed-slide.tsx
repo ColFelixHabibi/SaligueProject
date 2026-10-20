@@ -1,6 +1,7 @@
 
 'use client';
 
+import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, MapPin, Music2, ShoppingCart, Volume2, VolumeX } from 'lucide-react';
@@ -58,6 +59,31 @@ function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null
   }, [audible, visible]);
 }
 
+/** Learns from how long the shopper watches a slide: a few seconds means interest, a quick swipe means less. */
+function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    let since: number | null = null;
+    const finish = () => {
+      if (since === null) return;
+      const seconds = (Date.now() - since) / 1000;
+      since = null;
+      if (seconds >= 3) noteInterest(product.id, 'dwell', Math.min(3, seconds / 3));
+      else if (seconds < 1) noteInterest(product.id, 'skip');
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.intersectionRatio >= 0.6) since ??= Date.now();
+      else finish();
+    }, { threshold: [0, 0.6, 1] });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      finish();
+    };
+  }, [product.id, ref]);
+}
+
 /** One full-screen item in the For You feed. Comments open below the image. */
 export function FeedSlide({ product }: { product: Product }) {
   const { toast } = useToast();
@@ -66,6 +92,7 @@ export function FeedSlide({ product }: { product: Product }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const slideRef = useRef<HTMLElement>(null);
   useSlideSound(product, slideRef);
+  useWatchTime(product, slideRef);
   const image = product.image;
 
   const add = async () => {

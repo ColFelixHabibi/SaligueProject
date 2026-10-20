@@ -1,6 +1,7 @@
 
 'use client';
 
+import { noteInterest } from '@/lib/taste';
 import Link from 'next/link';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -57,7 +58,9 @@ export default function ProductView({ id }: { id: string | null }) {
 
   // Counts the visit for the seller's dashboard (once per day per shopper).
   useEffect(() => {
-    if (id) api(`/products/${id}/view`, { body: {} }).catch(() => {});
+    if (!id) return;
+    api(`/products/${id}/view`, { body: {} }).catch(() => {});
+    noteInterest(id, 'view');
   }, [id]);
 
   // INDECIANA items are only shown on INDECIANA's own page.

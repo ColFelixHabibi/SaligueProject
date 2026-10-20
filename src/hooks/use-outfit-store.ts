@@ -1,5 +1,6 @@
 'use client';
 
+import { noteInterest } from '@/lib/taste';
 import { create } from 'zustand';
 import type { Product } from '@/lib/types';
 import { outfitSlot } from '@/lib/outfit';
@@ -42,6 +43,7 @@ export const useOutfitStore = create<OutfitState>()((set, get) => ({
     set({ slots, isLoaded: true });
   },
   wear: (product) => {
+    noteInterest(product.id, 'wear');
     const slot = outfitSlot(product);
     const slots = { ...get().slots };
     for (const other of REPLACES[slot] ?? []) delete slots[other];

@@ -1,10 +1,11 @@
 
 'use client';
 
+import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LogIn, LogOut, MessageCircle, ShoppingBag, User } from 'lucide-react';
+import { LogIn, LogOut, MessageCircle, Radio, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +45,7 @@ export default function Sidebar() {
   const inCart = pathname.replace(/\/+$/, '').endsWith('/cart');
   const inMessages = pathname.replace(/\/+$/, '').endsWith('/messages');
   const unreadMessages = useUnreadMessages();
+  const liveCount = useLives()?.lives.length ?? 0;
 
   const switchTo = (open: (v: boolean) => void, close: (v: boolean) => void) => {
     close(false);
@@ -77,6 +79,14 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        <Link href="/live" title="Live" className={cn(row, pathname.includes('/live') ? 'text-primary' : 'text-foreground')}>
+          <span className="relative shrink-0">
+            <Radio className="h-7 w-7" />
+            {liveCount > 0 && <span className="absolute -right-2 -top-1.5 rounded bg-primary px-1 text-[9px] font-extrabold text-primary-foreground">LIVE</span>}
+          </span>
+          <span className="hidden lg:inline">Live</span>
+        </Link>
 
         <Link href="/messages" title="Messages" className={cn(row, inMessages ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">

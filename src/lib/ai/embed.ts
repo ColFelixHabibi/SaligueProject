@@ -1,6 +1,6 @@
 'use client';
 
-import { BUNDLED, LOCAL_MODELS, MODELS, ORT_WASM_PATH, type Progress } from './models';
+import { CLIP_LOCAL, LOCAL_MODELS, MODELS, ORT_WASM_PATH, type Progress } from './models';
 import { squareOnBackground, type ImageSource } from './canvas';
 
 type Transformers = typeof import('@huggingface/transformers');
@@ -9,7 +9,7 @@ let transformersPromise: Promise<Transformers> | null = null;
 function loadTransformers() {
   if (!transformersPromise) {
     transformersPromise = import('@huggingface/transformers').then((t) => {
-      if (BUNDLED) {
+      if (CLIP_LOCAL) {
         t.env.allowLocalModels = true;
         t.env.allowRemoteModels = false;
         t.env.localModelPath = `${LOCAL_MODELS}/`;

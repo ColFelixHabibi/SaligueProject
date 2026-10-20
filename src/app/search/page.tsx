@@ -178,7 +178,15 @@ function SearchContent() {
       (!filters.minRating || (p.rating ?? 0) >= filters.minRating) &&
       (!filters.inStock || p.stock !== 0)
     );
-    const sorted = [...list];
+    let sorted = [...list];
+    // Browsing without a search: a mix of every kind of item, newest first within each, instead of long runs of one kind.
+    if (!results && sort === 'relevance') {
+      const groups = new Map<string, Product[]>();
+      for (const p of [...list].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))) groups.set(p.category, [...(groups.get(p.category) ?? []), p]);
+      sorted = [];
+      const queues = [...groups.values()];
+      while (queues.some((q) => q.length)) for (const q of queues) if (q.length) sorted.push(q.shift()!);
+    }
     if (sort === 'newest') sorted.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
     if (sort === 'price-asc') sorted.sort((a, b) => Number(a.price) - Number(b.price));
     if (sort === 'price-desc') sorted.sort((a, b) => Number(b.price) - Number(a.price));
@@ -192,7 +200,7 @@ function SearchContent() {
       <PageIntro
         icon={Compass}
         title="Explore"
-        subtitle="Shop every item on Saligue: search, filter by size, price and colour, and compare."
+        subtitle="Every item on Saligue, all kinds mixed. Search or filter to narrow it down."
         links={[{ href: '/', label: 'For You', icon: Flame }, { href: '/mirror', label: 'Fitting Room', icon: Wand2 }]}
       >
         <form
@@ -214,10 +222,10 @@ function SearchContent() {
               enterKeyHint="search"
             />
           </div>
-          <Button type="submit" size="lg" variant="secondary" className="h-12 rounded-full px-6" disabled={!!busy}>
+          <Button type="submit" size="lg" className="h-12 rounded-full bg-white px-6 text-primary hover:bg-white/90" disabled={!!busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
           </Button>
-          <Button type="button" size="lg" variant="secondary" className="h-12 rounded-full px-4" onClick={() => photoRef.current?.click()} disabled={!!busy} aria-label="Search with a photo" title="Search with a photo">
+          <Button type="button" size="lg" className="h-12 rounded-full bg-white/20 px-4 text-white hover:bg-white/30" onClick={() => photoRef.current?.click()} disabled={!!busy} aria-label="Search with a photo" title="Search with a photo">
             <Camera className="h-5 w-5" /><span className="ml-2 hidden sm:inline">Photo</span>
           </Button>
           <input
@@ -234,22 +242,28 @@ function SearchContent() {
         </form>
       </PageIntro>
 
-      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="hidden lg:block">
-          <div className="sticky top-6 rounded-2xl border bg-card p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-bold">Filters</h2>
-              {filterCount > 0 && <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setFilters(NO_FILTERS)}>Clear all</Button>}
-            </div>
-            <FilterPanel filters={filters} onChange={setFilters} products={products} />
-          </div>
-        </aside>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+        <button type="button" onClick={() => setFilters({ ...filters, categories: [] })}
+          className={cn('h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition', !filters.categories.length ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:border-primary')}>
+          All
+        </button>
+        {CATEGORIES.map((c) => {
+          const on = filters.categories.includes(c.value);
+          return (
+            <button key={c.value} type="button" onClick={() => setFilters({ ...filters, categories: on ? filters.categories.filter((x) => x !== c.value) : [c.value] })}
+              className={cn('h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition', on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:border-primary')}>
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
 
+      <div>
         <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" className="h-10 lg:hidden">
+                <Button variant="outline" className="h-10 rounded-full">
                   <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters{filterCount > 0 && <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{filterCount}</span>}
                 </Button>
               </SheetTrigger>
@@ -274,19 +288,19 @@ function SearchContent() {
             <div className="ml-auto flex items-center gap-2">
               <Label className="hidden text-sm text-muted-foreground sm:block">Sort by</Label>
               <Select value={sort} onValueChange={(v) => setSort(v as Sort)}>
-                <SelectTrigger className="h-10 w-48"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-10 w-36 rounded-full sm:w-48"><SelectValue /></SelectTrigger>
                 <SelectContent>{SORTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
 
           {!isInitialized ? (
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] w-full" />)}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="aspect-[4/5] w-full rounded-2xl" />)}
             </div>
           ) : shown.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">
-              {shown.map((product) => <ProductCard key={product.id} product={product} />)}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
+              {shown.map((product) => <ProductCard key={product.id} product={product} variant="shop" />)}
             </div>
           ) : (
             <div className="rounded-2xl border-2 border-dashed py-16 text-center text-muted-foreground">

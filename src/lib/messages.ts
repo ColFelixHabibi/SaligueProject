@@ -1,5 +1,6 @@
 'use client';
 
+import { noteInterest } from './taste';
 import { useCallback, useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { api, onServerEvent } from './api';
@@ -38,6 +39,7 @@ export function subscribeToMessages(_uid: string) {
  * optionally sending a first message. Returns the conversation id.
  */
 export async function startConversation(about: { productId?: string; orderId?: string; sellerId?: string }, text?: string) {
+  if (about.productId) noteInterest(about.productId, 'message');
   const { id } = await api<{ id: string }>('/conversations', { body: { ...about, text } });
   void loadInbox();
   return id;

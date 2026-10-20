@@ -1,5 +1,6 @@
 'use client';
 
+import { noteInterest } from '@/lib/taste';
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { Product } from '@/lib/types';
@@ -32,7 +33,7 @@ async function setQuantity(id: string, quantity: number) {
 }
 
 const actions = {
-  addToCart: (item: Product) => setQuantity(item.id, Math.min(99, (useCartStore.getState().entries[item.id] ?? 0) + 1)),
+  addToCart: (item: Product) => (noteInterest(item.id, 'cart'), setQuantity(item.id, Math.min(99, (useCartStore.getState().entries[item.id] ?? 0) + 1))),
   removeFromCart: (id: string) => setQuantity(id, 0),
   updateQuantity: (id: string, quantity: number) => setQuantity(id, Math.max(0, Math.min(99, quantity || 0))),
   clearCart: async () => {

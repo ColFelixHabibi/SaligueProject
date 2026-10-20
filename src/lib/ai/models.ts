@@ -2,9 +2,12 @@
 
 import { BASE_PATH } from '@/lib/paths';
 
-// The Android/iOS apps ship the model files inside the app (scripts/bundle-models.mjs);
-// the website downloads them once from their public hosts and caches them.
+// The Android/iOS apps ship the model files inside the app (scripts/bundle-models.mjs, BUNDLED).
+// The website serves the same files itself from /models (SELF_HOSTED, the default), so the Fitting Room never
+// depends on another site's download servers; browsers cache them after the first visit.
+// NEXT_PUBLIC_SELF_HOSTED_MODELS=0 loads them from their public hosts instead (e.g. a static host without the files).
 export const BUNDLED = process.env.NEXT_PUBLIC_BUNDLED_MODELS === '1';
+const SELF_HOSTED = BUNDLED || process.env.NEXT_PUBLIC_SELF_HOSTED_MODELS !== '0';
 export const LOCAL_MODELS = `${BASE_PATH}/models`;
 
 // The AI engine is served by the website itself (scripts/copy-ort.mjs), or shipped inside the apps.
@@ -13,20 +16,21 @@ export const ORT_WASM_PATH = BUNDLED ? `${LOCAL_MODELS}/ort/` : `${BASE_PATH}/or
 // Open models that run on the user's device.
 export const MODELS = {
   // MODNet portrait matting (Apache-2.0): cuts a person out of a photo.
-  person: BUNDLED ? `${LOCAL_MODELS}/modnet.onnx` : 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model_quantized.onnx',
+  person: SELF_HOSTED ? `${LOCAL_MODELS}/modnet.onnx` : 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model_quantized.onnx',
   // U-2-Netp salient object segmentation (Apache-2.0): cuts out clothes, shoes and accessories.
-  item: BUNDLED ? `${LOCAL_MODELS}/u2netp.onnx` : 'https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx',
+  item: SELF_HOSTED ? `${LOCAL_MODELS}/u2netp.onnx` : 'https://huggingface.co/BritishWerewolf/U-2-Netp/resolve/main/onnx/model.onnx',
   // SegFormer-B2 clothes parsing (Transformers.js port): finds hair, face, arms, legs and the clothes being worn,
   // so new clothes replace the old ones instead of being pasted over them.
-  clothes: BUNDLED ? `${LOCAL_MODELS}/clothes.onnx` : 'https://huggingface.co/Xenova/segformer_b2_clothes/resolve/main/onnx/model_quantized.onnx',
+  clothes: SELF_HOSTED ? `${LOCAL_MODELS}/clothes.onnx` : 'https://huggingface.co/Xenova/segformer_b2_clothes/resolve/main/onnx/model_quantized.onnx',
   // MediaPipe Pose Landmarker lite (Apache-2.0): body landmarks used to dress the person.
-  pose: BUNDLED
+  pose: SELF_HOSTED
     ? `${LOCAL_MODELS}/pose_landmarker_lite.task`
     : 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-  poseWasm: BUNDLED ? `${LOCAL_MODELS}/mediapipe` : 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm',
+  poseWasm: SELF_HOSTED ? `${LOCAL_MODELS}/mediapipe` : 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm',
   // MobileCLIP-S0 (Apple, Transformers.js port): image/text embeddings for AI search.
   clip: 'Xenova/mobileclip_s0',
 } as const;
+export const CLIP_LOCAL = SELF_HOSTED;
 const CACHE_NAME = 'saligue-models-v1';
 
 export type Progress = (message: string) => void;

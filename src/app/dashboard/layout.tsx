@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, Bell, ExternalLink, Home, LifeBuoy, MessageCircle, Package, PlusCircle, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
+import { BarChart3, Bell, ExternalLink, Home, LifeBuoy, MessageCircle, Package, PlusCircle, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SellerAvatar } from '@/components/seller-avatar';
@@ -65,8 +65,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="h-10" asChild>
+              <Button variant="outline" className="hidden h-10 sm:inline-flex" asChild>
                 <Link href="/search"><ExternalLink className="mr-2 h-4 w-4" /> View shop</Link>
+              </Button>
+              <Button variant="secondary" className="h-10" asChild>
+                <Link href="/live/studio"><Radio className="mr-2 h-4 w-4" /> Go live</Link>
               </Button>
               <Button className="h-10" asChild>
                 <Link href="/sell"><PlusCircle className="mr-2 h-4 w-4" /> Add item</Link>

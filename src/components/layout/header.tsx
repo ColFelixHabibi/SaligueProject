@@ -1,10 +1,11 @@
 
 'use client';
 
+import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, LogOut, MessageCircle, ShoppingBag, User } from 'lucide-react';
+import { Bell, LogOut, MessageCircle, Radio, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ export function Logo({ light, compact }: { light?: boolean; compact?: boolean })
   return (
     <span className="flex items-center gap-2">
       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-lg font-extrabold text-primary-foreground">S</span>
-      <span className={cn('flex flex-col leading-none', compact && 'hidden')}>
+      <span className={cn('flex-col leading-none', compact ? 'hidden' : 'hidden min-[400px]:flex')}>
         <span className={cn('text-xl font-extrabold tracking-tight', light ? 'text-white' : 'text-foreground')}>Saligue</span>
         <span className={cn('text-[9px] font-semibold uppercase tracking-[0.25em]', light ? 'text-white/70' : 'text-primary')}>by INDECIANA</span>
       </span>
@@ -47,6 +48,7 @@ export default function Header() {
   const { cartItems } = useCart();
   const unread = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
   const unreadMessages = useUnreadMessages();
+  const liveCount = useLives()?.lives.length ?? 0;
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const cartCount = cartItems.reduce((n, i) => n + i.quantity, 0);
@@ -79,12 +81,18 @@ export default function Header() {
           <Link
             href="/indeciana"
             className={cn(
-              'mr-1 rounded-full px-3 py-1.5 font-serif text-[11px] tracking-[0.2em] transition-colors sm:text-xs',
+              'mr-0.5 rounded-full px-2.5 py-1.5 font-serif text-[10px] tracking-[0.15em] transition-colors sm:text-xs',
               pathname.includes('/indeciana') ? 'bg-primary text-primary-foreground' : 'border border-foreground bg-background text-foreground hover:bg-muted'
             )}
           >
             INDECIANA
           </Link>
+          <Button variant="ghost" size="icon" className="relative" asChild>
+            <Link href="/live" aria-label="Live">
+              <Radio className="h-5 w-5" />
+              {liveCount > 0 && <span className="absolute -right-1 top-0 rounded bg-primary px-1 text-[8px] font-extrabold text-primary-foreground">LIVE</span>}
+            </Link>
+          </Button>
           <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/messages" aria-label={`Messages, ${unreadMessages} unread`}>
               <MessageCircle className="h-5 w-5" />
@@ -137,7 +145,7 @@ export default function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button size="sm" className="rounded-full px-5" onClick={() => setLoginOpen(true)}>
+            <Button size="sm" className="rounded-full px-3.5" onClick={() => setLoginOpen(true)}>
               Log in
             </Button>
           )}

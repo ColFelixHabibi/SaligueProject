@@ -11,6 +11,7 @@ import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
+import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -1301,6 +1302,206 @@ function cancelAbandonedOrders() {
   if (abandoned.length) broadcast('orders');
 }
 
+// ---------------------------------------------------------------------------
+// Saligue Live: sellers stream from their camera; viewers chat, send hearts, buy featured items and can join
+// on camera when the host accepts. Video goes through LiveKit (live.mjs); everything else is here.
+// ---------------------------------------------------------------------------
+
+function liveOut(l) {
+  const seller = db.prepare('select id, display_name, shop, avatar, official from users where id = ?').get(l.seller_id);
+  return {
+    id: l.id,
+    sellerId: l.seller_id,
+    sellerName: shopNameOf(seller),
+    sellerAvatar: seller?.avatar ?? null,
+    official: !!seller?.official,
+    title: l.title,
+    description: l.description,
+    status: l.status,
+    productIds: parse(l.product_ids) ?? [],
+    pinnedProductId: l.pinned_product_id,
+    pinnedCommentId: l.pinned_comment_id,
+    likeCount: l.like_count,
+    peakViewers: l.peak_viewers,
+    startedAt: l.started_at,
+    endedAt: l.ended_at,
+  };
+}
+
+const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.kind, createdAt: c.created_at });
+
+function getLive(id) {
+  const live = db.prepare('select * from lives where id = ?').get(id);
+  if (!live) fail(404, 'not_found', 'This live has ended or does not exist.');
+  return live;
+}
+const ownLive = (user, id) => {
+  const live = getLive(id);
+  if (live.seller_id !== user?.id) fail(403, 'forbidden', 'Only the host can do this.');
+  return live;
+};
+const liveEvent = (liveId, data) => broadcast('live', { liveId, ...data });
+const sellerProductIds = (userId, ids) =>
+  (Array.isArray(ids) ? ids.map(String) : []).filter((id) => db.prepare('select 1 from products where id = ? and seller_id = ?').get(id, userId)).slice(0, 30);
+
+route('GET', '/api/lives', () => ({
+  enabled: liveSettings().enabled,
+  lives: db.prepare("select * from lives where status = 'live' order by started_at desc limit 50").all().map(liveOut),
+}));
+
+route('POST', '/api/lives', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to go live.');
+  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only sellers can go live. Switch to selling first.');
+  if (!liveSettings().enabled) fail(503, 'live_off', 'Live is not switched on yet.');
+  const title = String(body.title ?? '').trim().slice(0, 100);
+  if (!title) fail(400, 'missing_title', 'Give your live a title.');
+  // One live at a time per shop: an older one still marked live is closed.
+  for (const old of db.prepare("select id from lives where seller_id = ? and status = 'live'").all(user.id)) {
+    db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), old.id);
+    liveEvent(old.id, { type: 'ended' });
+  }
+  const id = randomUUID();
+  const productIds = sellerProductIds(user.id, body.productIds);
+  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, started_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, now());
+  broadcast('lives');
+  // Tell the shop's past customers (in the app, not by email).
+  const shopName = shopNameOf(user);
+  const customers = db.prepare("select distinct buyer_id from orders where seller_id = ? and status != 'cancelled' limit 500").all(user.id);
+  for (const { buyer_id } of customers) notify(buyer_id, { type: 'message', title: `${shopName} is live now`, body: title, link: `/live/watch?id=${id}`, email: false });
+  return liveOut(db.prepare('select * from lives where id = ?').get(id));
+});
+
+route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
+  const live = getLive(params[0]);
+  const comments = db.prepare('select * from live_comments where live_id = ? order by created_at desc limit 80').all(live.id).reverse().map(liveCommentOut);
+  const guests = db.prepare("select g.user_id, g.status, u.display_name, u.is_guest from live_guests g join users u on u.id = g.user_id where g.live_id = ? and g.status != 'declined'").all(live.id)
+    .map((g) => ({ uid: g.user_id, name: personNameOf({ display_name: g.display_name, is_guest: g.is_guest }), status: g.status }));
+  const me = user ? db.prepare('select status from live_guests where live_id = ? and user_id = ?').get(live.id, user.id)?.status ?? null : null;
+  return { live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false };
+});
+
+// A pass into the video room: hosts and accepted guests can use their camera; everyone else watches.
+route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  const host = live.seller_id === user.id;
+  const guest = db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, user.id);
+  const name = host ? shopNameOf(user) : personNameOf(user);
+  return {
+    url: liveSettings().url,
+    token: accessToken({ room: live.id, identity: user.id, name, canPublish: !!(host || guest), metadata: { role: host ? 'host' : guest ? 'guest' : 'viewer', avatar: user.avatar ?? null } }),
+    role: host ? 'host' : guest ? 'guest' : 'viewer',
+  };
+});
+
+route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
+  const live = ownLive(user, params[0]);
+  if (body.title !== undefined) db.prepare('update lives set title = ? where id = ?').run(String(body.title).trim().slice(0, 100) || live.title, live.id);
+  if (body.description !== undefined) db.prepare('update lives set description = ? where id = ?').run(String(body.description).trim().slice(0, 1000), live.id);
+  if (body.productIds !== undefined) db.prepare('update lives set product_ids = ? where id = ?').run(json(sellerProductIds(user.id, body.productIds)), live.id);
+  if (body.pinnedProductId !== undefined) {
+    const pin = body.pinnedProductId && sellerProductIds(user.id, [body.pinnedProductId])[0];
+    db.prepare('update lives set pinned_product_id = ? where id = ?').run(pin || null, live.id);
+  }
+  if (body.pinnedCommentId !== undefined) db.prepare('update lives set pinned_comment_id = ? where id = ?').run(body.pinnedCommentId ? String(body.pinnedCommentId) : null, live.id);
+  if (body.viewers !== undefined) db.prepare('update lives set peak_viewers = max(peak_viewers, ?) where id = ?').run(Math.max(0, Math.floor(Number(body.viewers) || 0)), live.id);
+  const fresh = liveOut(db.prepare('select * from lives where id = ?').get(live.id));
+  if (body.viewers === undefined || Object.keys(body).length > 1) liveEvent(live.id, { type: 'updated', live: fresh });
+  return fresh;
+});
+
+route('POST', '/api/lives/([\\w-]+)/end', async ({ user, params }) => {
+  const live = ownLive(user, params[0]);
+  db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), live.id);
+  liveEvent(live.id, { type: 'ended' });
+  broadcast('lives');
+  await closeRoom(live.id);
+  return liveOut(db.prepare('select * from lives where id = ?').get(live.id));
+});
+
+const liveCommentRuns = new Map();
+route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  if ((parse(live.muted) ?? []).includes(user.id)) fail(403, 'muted', 'The host has turned off comments for you in this live.');
+  const kind = body.kind === 'question' ? 'question' : body.kind === 'join' ? 'join' : 'comment';
+  const text = kind === 'join' ? 'joined' : String(body.text ?? '').trim().slice(0, 300);
+  if (!text) fail(400, 'empty_comment', 'Write a comment first.');
+  const window = Date.now() - 10_000;
+  const recent = (liveCommentRuns.get(user.id) ?? []).filter((t) => t > window);
+  if (kind !== 'join' && recent.length >= 5) fail(429, 'too_many', 'Slow down a little — wait a few seconds.');
+  liveCommentRuns.set(user.id, [...recent, Date.now()]);
+  // "joined" is shown once per person per live.
+  if (kind === 'join' && db.prepare("select 1 from live_comments where live_id = ? and user_id = ? and kind = 'join'").get(live.id, user.id)) return { ok: true };
+  const name = live.seller_id === user.id ? shopNameOf(user) : personNameOf(user);
+  const comment = { id: randomUUID(), live_id: live.id, user_id: user.id, name: name.slice(0, 60), text, kind, created_at: now() };
+  db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, created_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(comment.id, comment.live_id, comment.user_id, comment.name, comment.text, comment.kind, comment.created_at);
+  liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
+  return liveCommentOut(comment);
+});
+
+route('DELETE', '/api/lives/([\\w-]+)/comments/([\\w-]+)', ({ user, params }) => {
+  const live = getLive(params[0]);
+  const comment = db.prepare('select * from live_comments where id = ? and live_id = ?').get(params[1], live.id);
+  if (!comment) return { ok: true };
+  if (live.seller_id !== user?.id && comment.user_id !== user?.id) fail(403, 'forbidden', 'Only the host can remove comments.');
+  db.prepare('delete from live_comments where id = ?').run(comment.id);
+  liveEvent(live.id, { type: 'comment_removed', commentId: comment.id });
+  return { ok: true };
+});
+
+// Hearts arrive in small batches (many taps at once).
+route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') return { likeCount: live.like_count };
+  const count = Math.min(30, Math.max(1, Math.floor(Number(body.count) || 1)));
+  db.prepare('update lives set like_count = like_count + ? where id = ?').run(count, live.id);
+  const likeCount = db.prepare('select like_count from lives where id = ?').get(live.id).like_count;
+  liveEvent(live.id, { type: 'likes', likeCount, count, emoji: ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️', from: user.id });
+  return { likeCount };
+});
+
+// Joining on camera: a viewer asks, the host accepts (the guest then gets a pass with camera rights) or declines.
+route('POST', '/api/lives/([\\w-]+)/guests', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to join a live on camera.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  if (live.seller_id === user.id) fail(400, 'host', 'You are the host.');
+  db.prepare("insert into live_guests (live_id, user_id, status, created_at) values (?, ?, 'requested', ?) on conflict(live_id, user_id) do update set status = 'requested', created_at = excluded.created_at")
+    .run(live.id, user.id, now());
+  sendTo([live.seller_id], 'live', { liveId: live.id, type: 'guest_request', uid: user.id, name: personNameOf(user) });
+  return { status: 'requested' };
+});
+
+route('POST', '/api/lives/([\\w-]+)/guests/([\\w-]+)', async ({ user, params, body }) => {
+  const live = ownLive(user, params[0]);
+  const guestId = params[1];
+  const decision = body.decision;
+  if (!['accept', 'decline', 'remove'].includes(decision)) fail(400, 'invalid', 'Choose accept, decline or remove.');
+  const accepted = db.prepare("select count(*) as n from live_guests where live_id = ? and status = 'accepted'").get(live.id).n;
+  if (decision === 'accept' && accepted >= 3) fail(400, 'full', 'Up to 3 guests can be on camera at once.');
+  db.prepare('update live_guests set status = ? where live_id = ? and user_id = ?').run(decision === 'accept' ? 'accepted' : 'declined', live.id, guestId);
+  if (decision === 'remove') await removeParticipant(live.id, guestId);
+  sendTo([guestId], 'live', { liveId: live.id, type: 'guest_decision', decision });
+  liveEvent(live.id, { type: 'guests_changed' });
+  return { ok: true };
+});
+
+// Host moderation: stop someone commenting in this live.
+route('POST', '/api/lives/([\\w-]+)/mute/([\\w-]+)', ({ user, params, body }) => {
+  const live = ownLive(user, params[0]);
+  const muted = new Set(parse(live.muted) ?? []);
+  if (body.muted === false) muted.delete(params[1]);
+  else muted.add(params[1]);
+  db.prepare('update lives set muted = ? where id = ?').run(json([...muted]), live.id);
+  return { ok: true };
+});
+
 // Notifications of the signed-in account
 route('GET', '/api/me/notifications', ({ user }) => {
   if (!user) return [];
@@ -1377,10 +1578,12 @@ function serveStatic(req, res, pathname) {
     status = 404;
     if (!existsSync(file)) return send(res, 404, 'Not found');
   }
+  // Build files have unique names, so they never change; AI models are large and change rarely (30 days).
   const immutable = pathname.includes('/_next/static/');
+  const model = pathname.startsWith('/models/');
   res.writeHead(status, {
     'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
-    'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : model ? 'public, max-age=2592000' : 'no-cache',
   });
   createReadStream(file).pipe(res);
 }

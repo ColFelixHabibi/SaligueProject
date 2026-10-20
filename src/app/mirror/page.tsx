@@ -232,9 +232,30 @@ function Mirror() {
       </PageIntro>
 
       <div className="space-y-6">
+          {/* Step 1: a standing photo, so the AI can dress the person as they really are. */}
+          <Card className={cn(!personUrl && 'border-2 border-dashed border-primary/50')}>
+            <CardContent className="flex flex-wrap items-center gap-4 p-4">
+              {personUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={personUrl} alt="Your photo" className="h-24 w-20 shrink-0 rounded-lg border bg-gradient-to-b from-muted to-background object-contain" />
+              ) : (
+                <span className="flex h-24 w-20 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Wand2 className="h-8 w-8" /></span>
+              )}
+              <div className="min-w-0 flex-1 space-y-1">
+                <h2 className="text-lg font-semibold">1. Your photo {personUrl && <span className="ml-1 text-sm font-medium text-emerald-600">✓ Ready</span>}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {personBusy ?? (personUrl ? 'Clothes you choose are drawn on you as if you wore them — not pasted on top.' : 'Stand straight, head to feet, arms a little away from your body, in good light. It stays on your device until the AI dresses you.')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {personBusy ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <PhotoInputs onFile={handlePersonFile} compact={!!personUrl} />}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">1. What do you want to wear?</h2>
+              <h2 className="text-lg font-semibold">2. What do you want to wear?</h2>
               <form onSubmit={handleSubmit} onFocus={warmUpSearch} className="space-y-4">
                 <DescribeForm value={wearForm} onChange={setWearForm} products={products} />
                 <Button type="submit" className="w-full" size="lg" disabled={!!searchBusy || !hasWearForm(wearForm)}>
@@ -268,7 +289,7 @@ function Mirror() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold">
-                  2. Compare {results ? `${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'your choices'} on you
+                  3. Compare {results ? `${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'your choices'} on you
                 </h2>
                 {person && parseBusy && <p className="text-xs text-muted-foreground">{parseBusy}</p>}
               </div>
@@ -349,7 +370,7 @@ function Mirror() {
           )}
 
           <div>
-            <h2 className="mb-3 text-xl font-semibold">{results ? '3. Your full outfit' : '2. Your full outfit'}</h2>
+            <h2 className="mb-3 text-xl font-semibold">Your full outfit</h2>
             <OutfitStudio
               products={products}
               person={person}

@@ -1,6 +1,7 @@
 
 'use client';
 
+import { MessageSellerButton } from '@/components/message-seller-button';
 import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -120,6 +121,7 @@ function IndecianaStore() {
                     <ShoppingBag className="mr-2 h-5 w-5" /> Add to bag
                   </Button>
                 </div>
+                <MessageSellerButton product={selected} label="Message INDECIANA" variant="outline" className="h-12 w-full rounded-none border-foreground text-base" />
                 <ReportButton product={selected} />
                 {selected.shop && (
                   <div className="rounded-md border bg-card p-4 text-foreground">

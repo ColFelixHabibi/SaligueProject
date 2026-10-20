@@ -3,7 +3,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck } from 'lucide-react';
+import { BadgeCheck, Heart, Star, Wand2 } from 'lucide-react';
+import { toggleLike, useLiked } from '@/hooks/use-likes';
 import { Card } from '@/components/ui/card';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
@@ -19,10 +20,66 @@ import { cn } from '@/lib/utils';
 interface ProductCardProps {
   product: Product;
   className?: string;
+  // "shop": a clean tile for browsing many items (Explore); "social" (default): with likes, comments and sharing.
+  variant?: 'social' | 'shop';
+}
+
+/** Calm shop tile: big photo, heart and try-on on the photo, then just name, price, rating and shop. */
+function ShopTile({ product, className }: { product: Product; className?: string }) {
+  const href = productHref(product);
+  const liked = useLiked(product.id);
+  const shopName = product.official ? 'INDECIANA' : product.shop?.name ?? product.seller;
+  return (
+    <div className={cn('group flex flex-col', className)}>
+      <div className="relative overflow-hidden rounded-2xl bg-muted">
+        <Link href={href} className="block aspect-[4/5]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={product.image} alt={product.name} loading="lazy" className="h-full w-full object-contain p-4 transition-transform duration-500 group-hover:scale-105" />
+        </Link>
+        <button
+          type="button"
+          onClick={() => toggleLike(product.id).catch(() => {})}
+          aria-pressed={liked}
+          aria-label={liked ? 'Unlike' : 'Like'}
+          className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-background/90 shadow-sm transition hover:scale-105"
+        >
+          <Heart className={cn('h-5 w-5', liked ? 'fill-primary text-primary' : 'text-foreground')} />
+        </button>
+        <Link href={`/mirror?item=${product.id}`} className="absolute bottom-2 right-2 flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow transition hover:bg-primary/90">
+          <Wand2 className="h-4 w-4" /> Try on
+        </Link>
+        {product.official && (
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-foreground/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-background">
+            <BadgeCheck className="h-3 w-3" /> INDECIANA
+          </span>
+        )}
+        {product.stock === 0 ? (
+          <span className="absolute bottom-2 left-2 rounded-full bg-destructive px-2.5 py-1 text-[10px] font-bold uppercase text-destructive-foreground">Sold out</span>
+        ) : product.stock != null && product.stock <= 3 ? (
+          <span className="absolute bottom-2 left-2 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase text-white">Only {product.stock} left</span>
+        ) : null}
+      </div>
+      <Link href={href} className="mt-2.5 space-y-0.5 px-0.5">
+        <p className="text-lg font-bold text-foreground">{formatPrice(Number(product.price))}</p>
+        <p className="truncate text-sm font-medium text-foreground/90">{product.name}</p>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {(product.ratingCount ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5 font-semibold text-foreground"><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />{product.rating?.toFixed(1)}</span>
+          )}
+          <span className="truncate">{shopName}</span>
+        </p>
+      </Link>
+    </div>
+  );
 }
 
 /** Product tile for grids: photo, social actions, comments that open below the photo, and the essentials. */
-export default function ProductCard({ product, className }: ProductCardProps) {
+export default function ProductCard({ product, className, variant = 'social' }: ProductCardProps) {
+  if (variant === 'shop') return <ShopTile product={product} className={className} />;
+  return <SocialCard product={product} className={className} />;
+}
+
+function SocialCard({ product, className }: { product: Product; className?: string }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const href = productHref(product);
 

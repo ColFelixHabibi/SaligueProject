@@ -209,6 +209,44 @@ db.exec(`
     created_at text not null
   );
 
+  -- Saligue Live: sellers stream video (LiveKit, see live.mjs) with chat, hearts, featured items and guests.
+  create table if not exists lives (
+    id text primary key,                -- also the LiveKit room name
+    seller_id text not null references users(id) on delete cascade,
+    title text not null,
+    description text not null default '',
+    status text not null default 'live' check (status in ('live', 'ended')),
+    product_ids text not null default '[]', -- JSON: featured items
+    pinned_product_id text,
+    pinned_comment_id text,
+    like_count integer not null default 0,
+    peak_viewers integer not null default 0,
+    muted text not null default '[]',   -- JSON: user ids who may not comment
+    started_at text not null,
+    ended_at text
+  );
+  create index if not exists lives_status on lives(status, started_at desc);
+
+  create table if not exists live_comments (
+    id text primary key,
+    live_id text not null references lives(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    name text not null,
+    text text not null,
+    kind text not null default 'comment' check (kind in ('comment', 'question', 'join')),
+    created_at text not null
+  );
+  create index if not exists live_comments_live on live_comments(live_id, created_at);
+
+  -- Viewers asking to join the live on camera, and the host's answer.
+  create table if not exists live_guests (
+    live_id text not null references lives(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    status text not null check (status in ('requested', 'accepted', 'declined')),
+    created_at text not null,
+    primary key (live_id, user_id)
+  );
+
   -- How often each item is opened per day, for the seller's dashboard.
   create table if not exists product_views (
     product_id text not null references products(id) on delete cascade,
