@@ -4,13 +4,14 @@ import { context2d, createCanvas, loadImage } from './canvas';
 import { PART, parseClothes, partMask } from './parse';
 
 // What must stay exactly as photographed for each kind of item: face, hair, shoes and the clothes not being
-// changed. Everything else comes from the AI's picture, so the new garment (sleeves included) is always whole
+// changed. The background comes from the AI's picture too: pasting the original back made ghost outlines
+// wherever the AI drew an arm a few pixels away from where it was. Everything else comes from the AI's picture, so the new garment (sleeves included) is always whole
 // and never mixed with the old one.
 const KEEP_PARTS: Record<string, number[]> = {
-  top: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.skirt, PART.pants, PART.leftShoe, PART.rightShoe, PART.leftLeg, PART.rightLeg, PART.bag, PART.belt],
-  outerwear: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.skirt, PART.pants, PART.leftShoe, PART.rightShoe, PART.leftLeg, PART.rightLeg, PART.bag, PART.belt],
-  bottom: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.upperClothes, PART.leftArm, PART.rightArm, PART.leftShoe, PART.rightShoe, PART.bag, PART.scarf],
-  dress: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.leftShoe, PART.rightShoe, PART.bag],
+  top: [PART.hat, PART.hair, PART.sunglasses, PART.face, PART.skirt, PART.pants, PART.leftShoe, PART.rightShoe, PART.leftLeg, PART.rightLeg, PART.bag, PART.belt],
+  outerwear: [PART.hat, PART.hair, PART.sunglasses, PART.face, PART.skirt, PART.pants, PART.leftShoe, PART.rightShoe, PART.leftLeg, PART.rightLeg, PART.bag, PART.belt],
+  bottom: [PART.hat, PART.hair, PART.sunglasses, PART.face, PART.upperClothes, PART.leftArm, PART.rightArm, PART.leftShoe, PART.rightShoe, PART.bag, PART.scarf],
+  dress: [PART.hat, PART.hair, PART.sunglasses, PART.face, PART.leftShoe, PART.rightShoe, PART.bag],
 };
 // Bare skin the AI may redraw: kept from the photo wherever it is skin in both pictures (real skin tone,
 // bracelets, rings, hands), and taken from the AI only where the new garment changes what shows (longer or
