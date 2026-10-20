@@ -1583,7 +1583,7 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
   if (recent.length >= perHour) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
   tryOnRuns.set(user.id, [...recent, Date.now()]);
   try {
-    return { image: await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120)) };
+    return { image: await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120), Math.min(5, Math.max(0, Math.floor(Number(body.variant) || 0)))) };
   } catch (error) {
     if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
     fail(error.status ?? 502, 'tryon_failed', error.message);
@@ -1621,6 +1621,8 @@ function serveStatic(req, res, pathname) {
   res.writeHead(status, {
     'Content-Type': TYPES[extname(file)] || 'application/octet-stream',
     'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : model ? 'public, max-age=2592000' : 'no-cache',
+    // The Android/iOS apps load the AI models from here.
+    ...(model ? { 'Access-Control-Allow-Origin': '*' } : {}),
   });
   createReadStream(file).pipe(res);
 }
@@ -1682,6 +1684,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname);
+  // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
+  if (url.pathname === '/download/saligue.apk') {
+    const apk = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.apk');
+    if (!existsSync(apk)) return send(res, 404, 'The Android app has not been built yet.');
+    res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': statSync(apk).size, 'Content-Disposition': 'attachment; filename="Saligue.apk"', 'Cache-Control': 'no-cache' });
+    return createReadStream(apk).pipe(res);
+  }
   if (!isApi) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     res.setHeader('X-Content-Type-Options', 'nosniff');

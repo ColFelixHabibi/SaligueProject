@@ -52,7 +52,7 @@ function toBlob(dataUrl) {
   return new Blob([bytes], { type: match[1] || 'image/jpeg' });
 }
 
-async function leffa(person, garment, category) {
+async function leffa(person, garment, category, variant = 0) {
   const [model, kind] = GARMENT[category] ?? GARMENT.top;
   const app = await connect(SPACE);
   const result = await app.predict('/leffa_predict_vt', {
@@ -61,7 +61,7 @@ async function leffa(person, garment, category) {
     ref_acceleration: false,
     step: 30,
     scale: 2.5,
-    seed: 42,
+    seed: 42 + variant * 1009,
     vt_model_type: model,
     vt_garment_type: kind,
     vt_repaint: false,
@@ -72,7 +72,7 @@ async function leffa(person, garment, category) {
 }
 
 // IDM-VTON dresses the upper body only (tops and jackets).
-async function idmVton(person, garment, description) {
+async function idmVton(person, garment, description, variant = 0) {
   const app = await connect(FALLBACK_SPACE);
   const result = await app.predict('/tryon', {
     dict: { background: handle_file(toBlob(person)), layers: [], composite: null },
@@ -81,7 +81,7 @@ async function idmVton(person, garment, description) {
     is_checked: true,
     is_checked_crop: false,
     denoise_steps: 30,
-    seed: 42,
+    seed: 42 + variant * 1009,
   });
   const url = result?.data?.[0]?.url;
   if (!url) throw new Error('IDM-VTON returned no picture.');
@@ -102,7 +102,7 @@ export const unlimitedTryOn = () => !!falKey();
 const FAL_CATEGORY = { top: 'tops', outerwear: 'tops', bottom: 'bottoms', dress: 'one-pieces' };
 const FAL_QUEUE = (process.env.FAL_QUEUE_URL || 'https://queue.fal.run').replace(/\/+$/, '');
 
-async function fashn(person, garment, category) {
+async function fashn(person, garment, category, variant = 0) {
   const headers = { Authorization: `Key ${falKey()}`, 'Content-Type': 'application/json' };
   const submit = await fetch(`${FAL_QUEUE}/fal-ai/fashn/tryon/v1.6`, {
     method: 'POST',
@@ -115,6 +115,7 @@ async function fashn(person, garment, category) {
       garment_photo_type: 'auto',
       output_format: 'jpeg',
       num_samples: 1,
+      seed: 42 + variant * 1009,
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -143,7 +144,7 @@ async function fashn(person, garment, category) {
 const CACHE_DIR = join(DATA_DIR, 'tryon-cache');
 const CACHE_MAX = 3000;
 mkdirSync(CACHE_DIR, { recursive: true });
-const cacheKey = (person, garment, category) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).digest('hex').slice(0, 40);
+const cacheKey = (person, garment, category, variant) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}`).digest('hex').slice(0, 40);
 
 function fromCache(key) {
   const file = join(CACHE_DIR, `${key}.txt`);
@@ -164,35 +165,35 @@ function toCache(key, image) {
 }
 
 /** Returns the person wearing the garment, as a JPEG/PNG data URL. */
-export async function tryOn(person, garment, category, description = '') {
+export async function tryOn(person, garment, category, description = '', variant = 0) {
   toBlob(person);
   toBlob(garment);
-  const key = cacheKey(person, garment, category);
+  const key = cacheKey(person, garment, category, variant);
   const cached = fromCache(key);
   if (cached) return cached;
-  const image = await makeLook(person, garment, category, description);
+  const image = await makeLook(person, garment, category, description, variant);
   toCache(key, image);
   return image;
 }
 
-async function makeLook(person, garment, category, description) {
+async function makeLook(person, garment, category, description, variant) {
   if (unlimitedTryOn()) {
     try {
-      return await fashn(person, garment, category);
+      return await fashn(person, garment, category, variant);
     } catch (error) {
       console.error('FASHN try-on failed, trying the free models:', error.message);
     }
   }
   let first;
   try {
-    return await leffa(person, garment, category);
+    return await leffa(person, garment, category, variant);
   } catch (error) {
     first = error;
     clients.delete(SPACE);
   }
   if (category === 'top' || category === 'outerwear') {
     try {
-      return await idmVton(person, garment, description);
+      return await idmVton(person, garment, description, variant);
     } catch (error) {
       clients.delete(FALLBACK_SPACE);
       console.error('Realistic try-on fallback failed:', error?.message ?? error);

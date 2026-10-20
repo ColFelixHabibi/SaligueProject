@@ -2,7 +2,7 @@
 
 import { api } from '@/lib/api';
 import { context2d, createCanvas, fitWithin, loadImage } from './canvas';
-import { keepOnlyChanged } from './composite';
+import { LookRejected, keepOnlyChanged } from './composite';
 
 // Saligue AI Studio: Saligue's own GPU server (ai-server/) running Leffa and SDXL Inpainting.
 // Its address comes from a ?ai= link, this device's saved setting, or the app setting INDECIANA saved on the server.
@@ -129,19 +129,34 @@ function fingerprint(text: string) {
 const looks = new Map<string, Promise<string>>();
 let lane: Promise<unknown> = Promise.resolve();
 
-/** Realistically redraws the garment on the person (Leffa). Returns an image data URL. */
+// Each failed attempt asks the AI for a different variation next time (not the cached picture).
+const attempts = new Map<string, number>();
+
+/**
+ * Realistically redraws the garment on the person. Only the new garment is taken from the AI's picture; a
+ * picture where the AI also changed other clothes is never shown: the AI is asked once more for another
+ * variation, and if that one is wrong too, this fails so the shopper can tap Try again.
+ */
 export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = ''): Promise<string> {
   const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}`;
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
       const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category, description };
-      const image = (await getStudio()) ? await call('/api/tryon', body) : (await api<{ image: string }>('/ai/tryon', { body })).image;
-      // Only the asked-for piece changes; the rest of the photo stays as it was.
-      return keepOnlyChanged(body.person, image, category).catch((error) => {
-        console.error('Could not keep the rest of the photo:', error);
-        return image;
-      });
+      for (let tries = 0; tries < 2; tries++) {
+        const variant = attempts.get(key) ?? 0;
+        const image = (await getStudio()) ? await call('/api/tryon', { ...body, variant }) : (await api<{ image: string }>('/ai/tryon', { body: { ...body, variant } })).image;
+        try {
+          return await keepOnlyChanged(body.person, image, category);
+        } catch (error) {
+          attempts.set(key, variant + 1);
+          if (!(error instanceof LookRejected)) {
+            console.error('Could not check the look:', error);
+            throw new Error('This look could not be finished cleanly. Tap Try again.');
+          }
+        }
+      }
+      throw new Error('The AI changed more than this item, so the look was not shown. Tap Try again.');
     };
     look = lane.then(run, run);
     lane = look.catch(() => {});

@@ -8,7 +8,8 @@ import { BASE_PATH } from '@/lib/paths';
 // NEXT_PUBLIC_SELF_HOSTED_MODELS=0 loads them from their public hosts instead (e.g. a static host without the files).
 export const BUNDLED = process.env.NEXT_PUBLIC_BUNDLED_MODELS === '1';
 const SELF_HOSTED = BUNDLED || process.env.NEXT_PUBLIC_SELF_HOSTED_MODELS !== '0';
-export const LOCAL_MODELS = `${BASE_PATH}/models`;
+// The apps can load the models from the Saligue server instead of shipping them (NEXT_PUBLIC_MODELS_URL).
+export const LOCAL_MODELS = process.env.NEXT_PUBLIC_MODELS_URL || `${BASE_PATH}/models`;
 
 // The AI engine is served by the website itself (scripts/copy-ort.mjs), or shipped inside the apps.
 export const ORT_WASM_PATH = BUNDLED ? `${LOCAL_MODELS}/ort/` : `${BASE_PATH}/ort/`;
