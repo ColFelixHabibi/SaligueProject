@@ -1,6 +1,7 @@
 
 'use client';
 
+import { PersonalisationCard } from '@/components/personalisation-card';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { friendlyError } from '@/lib/errors';
 
@@ -102,6 +103,7 @@ export default function SettingsPage() {
 
   return (
     <div className="grid gap-6">
+      <PersonalisationCard />
       <Card className="p-6">
         <ProfilePhotoField name={user?.displayName} required />
       </Card>

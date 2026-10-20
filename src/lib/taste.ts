@@ -1,12 +1,14 @@
 'use client';
 
-// What this shopper shows interest in, learned from what they do (kept on this device):
-// opening an item, watching it in the feed, trying it on, adding it to the bag, messaging the shop.
-// Likes, saves and orders come from the server; together they drive the For You feed (recommend.ts).
+// What this shopper shows interest in, learned from what they do: opening an item, watching it in the feed,
+// trying it on, adding it to the bag, messaging the shop, sharing, skipping quickly.
+// Kept on this device and sent to Saligue's server (server/recommend.mjs), which learns from everyone's behaviour.
+// Nothing is recorded when the shopper chose "Essential only" in the cookie banner.
+import { api, getToken } from './api';
 
-export type Signal = 'view' | 'dwell' | 'wear' | 'cart' | 'message' | 'skip';
+export type Signal = 'view' | 'dwell' | 'wear' | 'cart' | 'message' | 'skip' | 'share';
 
-const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, skip: -0.4 };
+const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, skip: -0.4, share: 2 };
 const KEY = 'saligue-taste-v1';
 // Interest fades: a signal from three weeks ago counts about a third.
 const HALF_LIFE_DAYS = 14;
@@ -26,9 +28,44 @@ function decayed(entry: { w: number; t: number }, now = Date.now()) {
   return entry.w * Math.pow(0.5, (now - entry.t) / (HALF_LIFE_DAYS * 86_400_000));
 }
 
+/** Whether the shopper allowed personalisation (cookie banner). Until they choose, nothing is sent. */
+function allowed() {
+  try {
+    return JSON.parse(localStorage.getItem('saligue-cookie-choice') || 'null')?.choice === 'accepted';
+  } catch {
+    return false;
+  }
+}
+
+// Sent in small batches, and when the app goes to the background.
+let queue: { productId: string; kind: Signal; times: number }[] = [];
+let timer: ReturnType<typeof setTimeout> | null = null;
+function flush(leaving = false) {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  if (!queue.length) return;
+  const events = queue.splice(0, 100);
+  if (leaving) {
+    const token = getToken();
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/interactions`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ events }),
+    }).catch(() => {});
+  } else {
+    api('/interactions', { body: { events } }).catch(() => {});
+  }
+}
+if (typeof window !== 'undefined') {
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush(true));
+}
+
 /** Notes that the shopper did something with an item. */
 export function noteInterest(productId: string, signal: Signal, times = 1) {
-  if (typeof window === 'undefined' || !productId) return;
+  if (typeof window === 'undefined' || !productId || !allowed()) return;
+  queue.push({ productId, kind: signal, times });
+  if (!timer) timer = setTimeout(() => flush(), 4000);
   const data = load();
   const now = Date.now();
   const current = data[productId] ? decayed(data[productId], now) : 0;

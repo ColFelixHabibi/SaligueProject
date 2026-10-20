@@ -5,7 +5,13 @@
 //   HF_TOKEN      optional free Hugging Face token: more runs per day
 // When Leffa is busy or its free daily limit is used up, tops and jackets fall back to IDM-VTON
 // (yisol/IDM-VTON, CC BY-NC-SA 4.0), which also redraws the person wearing the garment.
+// Unlimited, commercial use: FASHN on fal.ai (pay per image, no daily cap). Switch it on with FAL_KEY or
+// `node server/admin.mjs tryon <fal key>`; it is then used first and the free models only as a fallback.
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client, handle_file } from '@gradio/client';
+import { DATA_DIR, db, parse } from './db.mjs';
 
 const SPACE = process.env.TRYON_SPACE || 'franciszzj/Leffa';
 const FALLBACK_SPACE = process.env.TRYON_FALLBACK_SPACE || 'yisol/IDM-VTON';
@@ -82,10 +88,101 @@ async function idmVton(person, garment, description) {
   return download(url);
 }
 
+// ---------------------------------------------------------------------------
+// FASHN (fal.ai queue API): https://queue.fal.run/fal-ai/fashn/tryon/v1.6
+// ---------------------------------------------------------------------------
+
+export function falKey() {
+  return process.env.FAL_KEY || parse(db.prepare("select value from app_config where key = 'tryon'").get()?.value)?.falKey || null;
+}
+
+/** Whether a paid, unlimited try-on provider is switched on. */
+export const unlimitedTryOn = () => !!falKey();
+
+const FAL_CATEGORY = { top: 'tops', outerwear: 'tops', bottom: 'bottoms', dress: 'one-pieces' };
+const FAL_QUEUE = (process.env.FAL_QUEUE_URL || 'https://queue.fal.run').replace(/\/+$/, '');
+
+async function fashn(person, garment, category) {
+  const headers = { Authorization: `Key ${falKey()}`, 'Content-Type': 'application/json' };
+  const submit = await fetch(`${FAL_QUEUE}/fal-ai/fashn/tryon/v1.6`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model_image: person,
+      garment_image: garment,
+      category: FAL_CATEGORY[category] ?? 'auto',
+      mode: 'balanced',
+      garment_photo_type: 'auto',
+      output_format: 'jpeg',
+      num_samples: 1,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const queued = await submit.json().catch(() => null);
+  if (!submit.ok || !queued?.request_id) throw new Error(`FASHN refused the request (${submit.status}): ${queued?.detail ?? queued?.message ?? ''}`);
+  const base = `${FAL_QUEUE}/fal-ai/fashn/tryon/v1.6/requests/${queued.request_id}`;
+  const statusUrl = queued.status_url || `${base}/status`;
+  const resultUrl = queued.response_url || base;
+  const until = Date.now() + 120_000;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const status = await (await fetch(statusUrl, { headers, signal: AbortSignal.timeout(15_000) })).json().catch(() => ({}));
+    if (status.status === 'COMPLETED') break;
+    if (status.status === 'FAILED' || status.error) throw new Error(`FASHN failed: ${status.error ?? 'unknown error'}`);
+  }
+  const result = await (await fetch(resultUrl, { headers, signal: AbortSignal.timeout(30_000) })).json().catch(() => null);
+  const url = result?.images?.[0]?.url;
+  if (!url) throw new Error('FASHN returned no picture.');
+  return url.startsWith('data:') ? url : download(url);
+}
+
+// ---------------------------------------------------------------------------
+// Looks already made are kept (data/tryon-cache), so the same photo and garment are never paid for twice.
+// ---------------------------------------------------------------------------
+
+const CACHE_DIR = join(DATA_DIR, 'tryon-cache');
+const CACHE_MAX = 3000;
+mkdirSync(CACHE_DIR, { recursive: true });
+const cacheKey = (person, garment, category) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).digest('hex').slice(0, 40);
+
+function fromCache(key) {
+  const file = join(CACHE_DIR, `${key}.txt`);
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+}
+
+function toCache(key, image) {
+  try {
+    writeFileSync(join(CACHE_DIR, `${key}.txt`), image);
+    const files = readdirSync(CACHE_DIR);
+    if (files.length > CACHE_MAX) {
+      files.map((f) => ({ f, t: statSync(join(CACHE_DIR, f)).mtimeMs })).sort((a, b) => a.t - b.t)
+        .slice(0, files.length - CACHE_MAX).forEach(({ f }) => unlinkSync(join(CACHE_DIR, f)));
+    }
+  } catch (error) {
+    console.error('Could not keep the look:', error.message);
+  }
+}
+
 /** Returns the person wearing the garment, as a JPEG/PNG data URL. */
 export async function tryOn(person, garment, category, description = '') {
   toBlob(person);
   toBlob(garment);
+  const key = cacheKey(person, garment, category);
+  const cached = fromCache(key);
+  if (cached) return cached;
+  const image = await makeLook(person, garment, category, description);
+  toCache(key, image);
+  return image;
+}
+
+async function makeLook(person, garment, category, description) {
+  if (unlimitedTryOn()) {
+    try {
+      return await fashn(person, garment, category);
+    } catch (error) {
+      console.error('FASHN try-on failed, trying the free models:', error.message);
+    }
+  }
   let first;
   try {
     return await leffa(person, garment, category);

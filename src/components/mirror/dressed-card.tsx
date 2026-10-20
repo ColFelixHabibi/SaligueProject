@@ -34,6 +34,8 @@ interface DressedCardProps {
   landmarks: Point[] | null;
   // The shopper's photo as a data URL, used for realistic try-on on Saligue AI Studio.
   personUrl: string;
+  // The photo as taken, with background: what the realistic AI dresses (falls back to personUrl).
+  photoUrl?: string | null;
   // True when Saligue AI Studio is reachable.
   studio: boolean;
   // Called with the look image when the shopper picks this look.
@@ -48,7 +50,7 @@ interface DressedCardProps {
   compared?: boolean;
 }
 
-export function DressedCard({ product, person, landmarks, parsing, personUrl, studio, onChoose, onWear, worn, auto, onCompare, compared }: DressedCardProps) {
+export function DressedCard({ product, person, landmarks, parsing, personUrl, photoUrl, studio, onChoose, onWear, worn, auto, onCompare, compared }: DressedCardProps) {
   const [dressedUrl, setDressedUrl] = useState<string | null>(null);
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState(false);
@@ -64,7 +66,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
     setRealisticBusy(true);
     setRealisticError(null);
     try {
-      setRealisticUrl(await realisticTryOn(personUrl, product.image, product.category, [product.color, product.type ?? product.name].filter(Boolean).join(' ')));
+      setRealisticUrl(await realisticTryOn(photoUrl ?? personUrl, product.image, product.category, [product.color, product.type ?? product.name].filter(Boolean).join(' ')));
     } catch (error: any) {
       setRealisticError(friendlyError(error));
     } finally {
@@ -75,13 +77,14 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
     if (auto && canBeRealistic) makeRealistic();
     // Once per item and photo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auto, canBeRealistic, product, personUrl]);
+  }, [auto, canBeRealistic, product, personUrl, photoUrl]);
 
   // Clothes are only shown once the AI has really dressed the person in them: never pasted over what they
   // already wear. The pasted-on preview is used only when no realistic AI is reachable at all.
   // Shoes, hats, glasses and bags are placed on the device.
   const waitingForAi = canBeRealistic && !realisticUrl && (realisticBusy || (auto && !realisticError));
-  const shownUrl = canBeRealistic ? realisticUrl ?? personUrl : dressedUrl;
+  const realBase = photoUrl ?? personUrl;
+  const shownUrl = canBeRealistic ? realisticUrl ?? realBase : dressedUrl;
   // Compare against the photo as it was (before the item was put on).
   const afterUrl = canBeRealistic ? realisticUrl : dressedUrl;
   const [note, setNote] = useState<string | undefined>();
@@ -114,7 +117,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, st
     <Card className="overflow-hidden flex flex-col">
       <div className="relative aspect-[3/4] bg-gradient-to-b from-muted to-background">
         {afterUrl && !waitingForAi ? (
-          <BeforeAfter before={personUrl} after={afterUrl} className="absolute inset-0" />
+          <BeforeAfter before={canBeRealistic ? realBase : personUrl} after={afterUrl} className="absolute inset-0" />
         ) : shownUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={shownUrl} alt={`You wearing ${product.name}`} className="absolute inset-0 h-full w-full object-contain p-2" />

@@ -247,6 +247,18 @@ db.exec(`
     primary key (live_id, user_id)
   );
 
+  -- What shoppers do with items (opened, watched, tried on, skipped…), for the For You feed (recommend.mjs).
+  -- Recorded only when the shopper allowed personalisation in the cookie banner.
+  create table if not exists interactions (
+    user_id text not null references users(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    kind text not null,                 -- view | dwell | wear | cart | message | share | skip
+    weight real not null,
+    created_at text not null
+  );
+  create index if not exists interactions_user on interactions(user_id, created_at desc);
+  create index if not exists interactions_time on interactions(created_at);
+
   -- How often each item is opened per day, for the seller's dashboard.
   create table if not exists product_views (
     product_id text not null references products(id) on delete cascade,

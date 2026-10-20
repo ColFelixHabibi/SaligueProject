@@ -7,7 +7,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Compass, Download, Flame, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
-import { dressAsDescribed, getRealistic, getStudio } from '@/lib/ai/studio';
+import { dressAsDescribed, getRealistic, getStudio, isUnlimited } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -34,15 +34,16 @@ import { cn } from '@/lib/utils';
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
 
-// How many search results the realistic AI dresses the shopper in automatically (it has a daily limit).
-const AUTO_REALISTIC = 4;
+// How many search results the realistic AI dresses the shopper in automatically: all of them with the paid
+// try-on (no limit), otherwise the first few (the free AI has a daily limit).
+const autoRealistic = () => (isUnlimited() ? Infinity : 4);
 
 function Mirror() {
   const { toast } = useToast();
   const params = useSearchParams();
   const itemId = params.get('item');
   const { products, isInitialized } = useProductStore();
-  const { personUrl, landmarks: normalizedLandmarks, restore, setPerson, clear } = useMirrorStore();
+  const { personUrl, photoUrl, landmarks: normalizedLandmarks, restore, setPerson, clear } = useMirrorStore();
 
   useEffect(() => restore(), [restore]);
 
@@ -138,7 +139,7 @@ function Mirror() {
       const working = fitWithin(await fileToImage(file), 1600);
       const cutout = await removeBackground(working, 'person', setPersonBusy);
       const pose = await detectPose(working, setPersonBusy);
-      setPerson(cutout, pose);
+      setPerson(cutout, pose, working);
       if (!pose) {
         toast({
           title: 'Body not found',
@@ -332,7 +333,7 @@ function Mirror() {
                     <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
                       <figure className="w-40 shrink-0 snap-start sm:w-48">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={personUrl} alt="You now" className="aspect-[3/4] w-full rounded-lg border bg-gradient-to-b from-muted to-background object-contain p-1" />
+                        <img src={photoUrl ?? personUrl} alt="You now" className="aspect-[3/4] w-full rounded-lg border bg-gradient-to-b from-muted to-background object-contain p-1" />
                         <figcaption className="mt-1 text-center text-xs font-semibold text-muted-foreground">You now</figcaption>
                       </figure>
                       {compare.map(({ product, image }) => (
@@ -355,7 +356,7 @@ function Mirror() {
               )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map((product, index) => (
-                  <DressedCard key={product.id} auto={index < AUTO_REALISTIC} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} onCompare={(image) => toggleCompare(product, image)} compared={compare.some((c) => c.product.id === product.id)} />
+                  <DressedCard key={product.id} auto={index < autoRealistic()} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} photoUrl={photoUrl} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} onCompare={(image) => toggleCompare(product, image)} compared={compare.some((c) => c.product.id === product.id)} />
                 ))}
               </div>
               </>
@@ -376,6 +377,7 @@ function Mirror() {
               person={person}
               landmarks={landmarks}
               personUrl={personUrl}
+              photoUrl={photoUrl}
               studio={realistic}
               photoBusy={personBusy ?? parseBusy}
               onPhoto={handlePersonFile}

@@ -14,6 +14,7 @@ import { useLikesStore } from '@/hooks/use-likes';
 import { useWishlistStore } from '@/hooks/use-wishlist';
 import { forYou, similarTo } from '@/lib/recommend';
 import { interests } from '@/lib/taste';
+import { api } from '@/lib/api';
 import { useCartStore } from '@/hooks/use-cart-store';
 import { useOrders } from '@/lib/orders';
 import type { Product } from '@/lib/types';
@@ -34,10 +35,22 @@ export default function ForYouPage() {
     .join('|');
   // Rank once per visit and when ranking metadata changes, not on every like or save.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const ranked = useMemo(
-    () => forYou(products, liked, new Set(savedIds), { cart: new Set(Object.keys(cartEntries)), bought, interest: interests() }),
-    [catalogKey, isInitialized, likesInitialized, savesInitialized, orders === null]
-  );
+  // The server's feed, learned from everyone's behaviour (server/recommend.mjs); the device's own ranking
+  // is used until it arrives or when offline.
+  const [serverFeed, setServerFeed] = useState<{ id: string; reason: string | null }[] | null>(null);
+  useEffect(() => {
+    if (!likesInitialized) return;
+    api<{ items: { id: string; reason: string | null }[] }>('/feed').then((d) => setServerFeed(d.items)).catch(() => setServerFeed(null));
+  }, [likesInitialized]);
+  const reasons = useMemo(() => new Map((serverFeed ?? []).map((x) => [x.id, x.reason])), [serverFeed]);
+  const ranked = useMemo(() => {
+    if (serverFeed?.length) {
+      const known = new Map(products.map((p) => [p.id, p]));
+      return serverFeed.map((x) => known.get(x.id)).filter(Boolean) as Product[];
+    }
+    return forYou(products, liked, new Set(savedIds), { cart: new Set(Object.keys(cartEntries)), bought, interest: interests() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogKey, isInitialized, likesInitialized, savesInitialized, orders === null, serverFeed]);
 
   // "More like this": liking an item brings two look-alikes right after it.
   const [feed, setFeed] = useState<Product[]>([]);
@@ -103,7 +116,7 @@ export default function ForYouPage() {
         feed
           .map((p) => byId.get(p.id))
           .filter((p) => p?.status === 'active')
-          .map((p) => <FeedSlide key={p!.id} product={p!} />)
+          .map((p) => <FeedSlide key={p!.id} product={p!} reason={reasons.get(p!.id) ?? null} />)
       )}
     </div>
   );

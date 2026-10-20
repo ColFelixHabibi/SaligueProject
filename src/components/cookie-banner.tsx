@@ -7,17 +7,26 @@ import { Button } from '@/components/ui/button';
 
 const KEY = 'saligue-cookie-choice';
 
+/** Also as a cookie, so the server knows whether it may learn from this visitor's behaviour (For You). */
+function setConsentCookie(choice: 'all' | 'essential') {
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `saligue_consent=${choice}; Path=/; Max-Age=${365 * 86_400}; SameSite=Lax${secure}`;
+}
+
 /** Tells visitors which cookies Saligue uses (essential only) and remembers that they read it. */
 export function CookieBanner() {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     try {
-      setOpen(!localStorage.getItem(KEY));
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      setOpen(!saved);
+      if (saved && !/saligue_consent=/.test(document.cookie)) setConsentCookie(saved.choice === 'essential' ? 'essential' : 'all');
     } catch {
       // Storage blocked: don't nag on every page.
     }
   }, []);
   const choose = (choice: 'accepted' | 'essential') => {
+    setConsentCookie(choice === 'essential' ? 'essential' : 'all');
     try {
       localStorage.setItem(KEY, JSON.stringify({ choice, at: new Date().toISOString() }));
     } catch {
@@ -33,11 +42,11 @@ export function CookieBanner() {
         <Cookie className="mt-0.5 h-6 w-6 shrink-0 text-primary" />
         <div className="space-y-3">
           <p className="text-sm leading-relaxed">
-            Saligue uses an <b>essential cookie</b> to keep you signed in and stores your bag and Fitting Room photo on this device. No advertising or tracking cookies.{' '}
+            Saligue uses an <b>essential cookie</b> to keep you signed in. With <b>OK</b>, For You also learns from what you open, watch and try on to show you more of what you like. No advertising cookies, nothing sold.{' '}
             <Link href="/cookies" className="font-semibold text-primary underline">Cookie Policy</Link>
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" className="h-9 px-5" onClick={() => choose('accepted')}>OK, got it</Button>
+            <Button size="sm" className="h-9 px-5" onClick={() => choose('accepted')}>OK, personalise</Button>
             <Button size="sm" variant="outline" className="h-9" onClick={() => choose('essential')}>Essential only</Button>
           </div>
         </div>

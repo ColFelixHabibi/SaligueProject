@@ -12,6 +12,15 @@ const KEEP_PARTS: Record<string, number[]> = {
   bottom: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.upperClothes, PART.leftArm, PART.rightArm, PART.leftShoe, PART.rightShoe, PART.bag, PART.scarf],
   dress: [PART.background, PART.hat, PART.hair, PART.sunglasses, PART.face, PART.leftShoe, PART.rightShoe, PART.bag],
 };
+// Bare skin the AI may redraw: kept from the photo wherever it is skin in both pictures (real skin tone,
+// bracelets, rings, hands), and taken from the AI only where the new garment changes what shows (longer or
+// shorter sleeves or legs).
+const SKIN_PARTS: Record<string, number[]> = {
+  top: [PART.leftArm, PART.rightArm],
+  outerwear: [PART.leftArm, PART.rightArm],
+  bottom: [PART.leftLeg, PART.rightLeg],
+  dress: [PART.leftArm, PART.rightArm, PART.leftLeg, PART.rightLeg],
+};
 // The new garment as the AI drew it: never covered by the old photo, even where the old clothes were.
 const NEW_GARMENT: Record<string, number[]> = {
   top: [PART.upperClothes, PART.scarf],
@@ -57,6 +66,12 @@ export async function keepOnlyChanged(originalUrl: string, resultUrl: string, ca
   const mask = createCanvas(width, height);
   const maskCtx = context2d(mask);
   maskCtx.drawImage(partMask(before, keep, width, height), 0, 0);
+  const skin = createCanvas(width, height);
+  const skinCtx = context2d(skin);
+  skinCtx.drawImage(partMask(before, SKIN_PARTS[category], width, height), 0, 0);
+  skinCtx.globalCompositeOperation = 'destination-in';
+  skinCtx.drawImage(partMask(after, SKIN_PARTS[category], width, height), 0, 0);
+  maskCtx.drawImage(skin, 0, 0);
   maskCtx.globalCompositeOperation = 'destination-out';
   maskCtx.drawImage(partMask(after, NEW_GARMENT[category], width, height), 0, 0);
   // Shrink it a little with a soft edge, so the borders come from the AI's picture (no halos or ghost edges).

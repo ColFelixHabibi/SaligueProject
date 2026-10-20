@@ -92,6 +92,10 @@ async function call(path: string, body: object): Promise<string> {
 }
 
 let cloud: Promise<boolean> | null = null;
+let unlimited = false;
+
+/** True when the server has the paid try-on (no daily limit): every result can be dressed. */
+export const isUnlimited = () => unlimited;
 
 /**
  * Whether "Make it realistic" can run: on Saligue's own AI Studio, or through the Saligue server,
@@ -102,7 +106,9 @@ export function getRealistic(): Promise<boolean> {
     cloud = getStudio().then(async (url) => {
       if (url) return true;
       try {
-        return !!(await api<{ available?: boolean }>('/ai/tryon'))?.available;
+        const info = await api<{ available?: boolean; unlimited?: boolean }>('/ai/tryon');
+        unlimited = !!info?.unlimited;
+        return !!info?.available;
       } catch {
         return false;
       }

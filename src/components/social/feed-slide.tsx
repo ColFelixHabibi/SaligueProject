@@ -85,7 +85,7 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
-export function FeedSlide({ product }: { product: Product }) {
+export function FeedSlide({ product, reason }: { product: Product; reason?: string | null }) {
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { soundOn, unlocked, toggle } = useSoundStore();
@@ -137,6 +137,7 @@ export function FeedSlide({ product }: { product: Product }) {
                 <BadgeCheck className="h-3.5 w-3.5" /> Recommended by INDECIANA
               </span>
             )}
+            {reason && <p className="mb-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">✨ {reason}</p>}
             <Link href={productHref(product)} className="block text-xl font-bold leading-tight hover:underline">{product.name}</Link>
             <p className="mt-1 text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
             {product.shop && (

@@ -70,6 +70,8 @@ interface OutfitStudioProps {
   person: HTMLCanvasElement | null;
   landmarks: Point[] | null;
   personUrl: string | null;
+  // The photo as taken (with background): what the realistic AI dresses.
+  photoUrl?: string | null;
   // True when Saligue AI Studio is reachable.
   studio: boolean;
   // Progress message while the shopper's photo is being prepared.
@@ -84,7 +86,7 @@ interface OutfitStudioProps {
  * The fitting room: the shopper in a full-size mirror wearing the whole outfit, with a button for each
  * part of the body. Picking a part shows matching items in stock; tapping one puts it on.
  */
-export function OutfitStudio({ products, person, landmarks, personUrl, studio, photoBusy, onPhoto, onRemovePhoto, parsing }: OutfitStudioProps) {
+export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl, studio, photoBusy, onPhoto, onRemovePhoto, parsing }: OutfitStudioProps) {
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { slots, wear, takeOff, clear } = useOutfitStore();
@@ -162,7 +164,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
     const stale = () => id !== runId.current;
     setRealisticFailed(false);
     try {
-      let current = personUrl;
+      let current = photoUrl ?? personUrl;
       const clothes = [...redrawable].sort((a, b) => REDRAW_ORDER.indexOf(outfitSlot(a)) - REDRAW_ORDER.indexOf(outfitSlot(b)));
       for (const [i, item] of clothes.entries()) {
         setRealisticBusy(`Saligue AI is dressing you (${i + 1}/${clothes.length})…`);
@@ -272,7 +274,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, studio, p
         {/* The mirror */}
         <div className="relative order-1 aspect-[3/4] max-h-[78vh] w-full bg-[radial-gradient(ellipse_at_center,_#ffffff_0%,_#fde7f1_100%)] md:order-2 md:aspect-auto md:min-h-[560px]">
           {realisticUrl && personUrl ? (
-            <BeforeAfter before={personUrl} after={realisticUrl} labels={['You now', 'In this outfit']} className="absolute inset-0 bg-transparent" />
+            <BeforeAfter before={photoUrl ?? personUrl} after={realisticUrl} labels={['You now', 'In this outfit']} className="absolute inset-0 bg-transparent" />
           ) : shownUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={shownUrl} alt={outfit.length ? 'You wearing your outfit' : 'You'} className="absolute inset-0 h-full w-full object-contain p-3" />

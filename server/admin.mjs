@@ -13,6 +13,7 @@
 //                                               switch on online payments (Flutterwave), e.g. ... FLWSECK-xxx myhash RWF 1450
 //   node server/admin.mjs payments off          switch online payments off
 //   node server/admin.mjs testmail <email>      send a test email (shows whether the mail account works)
+//   node server/admin.mjs tryon <fal key>        unlimited realistic try-on with FASHN on fal.ai (pay per image); "off" to stop
 import { db } from './db.mjs';
 import { learn } from './learn.mjs';
 import { sendEmail } from './mail.mjs';
@@ -81,6 +82,14 @@ if (command === 'official' || command === 'unofficial') {
     db.prepare("insert into app_config (key, value) values ('payments', ?) on conflict(key) do update set value = excluded.value")
       .run(JSON.stringify({ secretKey, secretHash, currency: upper, rate: value }));
     console.log(`Online payments are on (${upper}, 1 USD = ${value} ${upper}). Set the Flutterwave webhook URL to <your site>/api/payments/webhook with the same secret hash.`);
+  }
+} else if (command === 'tryon') {
+  if (!email || email === 'off') {
+    db.prepare("delete from app_config where key = 'tryon'").run();
+    console.log('Unlimited try-on is off; the free models are used (they have a daily limit).');
+  } else {
+    db.prepare("insert into app_config (key, value) values ('tryon', ?) on conflict(key) do update set value = excluded.value").run(JSON.stringify({ falKey: String(email).trim() }));
+    console.log('Unlimited try-on is on (FASHN on fal.ai). No restart needed.');
   }
 } else if (command === 'testmail') {
   sendEmail(String(email ?? ''), { subject: 'Saligue test email', lines: ['If you can read this, Saligue can send emails.'] });

@@ -7,14 +7,22 @@ export default function CookiesPage() {
   return (
     <LegalPage
       title="Cookie Policy"
-      updated="16 October 2026"
-      intro="Saligue uses a small number of cookies and on-device storage to keep you signed in and to remember your choices. We do not use advertising or tracking cookies, and we do not share cookie data with advertisers."
+      updated="20 October 2026"
+      intro="Saligue uses a small number of cookies and on-device storage to keep you signed in, remember your choices and, if you allow it, personalise your For You feed. We do not use advertising cookies, and we never sell or share this data with advertisers."
       sections={[
         {
           heading: 'Essential cookie',
           paragraphs: [
             'saligue_session: keeps you signed in (also as a guest, so your bag, saves and orders stay with you). It is HttpOnly, so scripts on the page cannot read it, sent only over a secure connection on the live site, and expires after 60 days or when you log out.',
             'This cookie is needed for Saligue to work, so it does not need your consent. Blocking it in your browser signs you out each time you close the app.',
+          ],
+        },
+        {
+          heading: 'Personalisation (For You)',
+          paragraphs: [
+            'saligue_consent: remembers your choice in the cookie banner ("all" or "essential"), for one year.',
+            'With "OK, personalise", Saligue records which items you open, how long you watch them in the feed, what you try on, add to your bag, message shops about or skip quickly, linked to your account. Together with likes, saves and orders, and with what shoppers with similar taste enjoy, this decides the order of your For You feed. It is kept for up to 6 months.',
+            'With "Essential only" nothing of this is recorded. You can switch it off or clear what was learned any time in Settings → For You.',
           ],
         },
         {

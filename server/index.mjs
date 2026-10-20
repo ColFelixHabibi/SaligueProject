@@ -7,11 +7,12 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { sendEmail, siteUrl } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
-import { REALISTIC_CATEGORIES, tryOn } from './tryon.mjs';
+import { REALISTIC_CATEGORIES, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
+import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -1502,6 +1503,40 @@ route('POST', '/api/lives/([\\w-]+)/mute/([\\w-]+)', ({ user, params, body }) =>
   return { ok: true };
 });
 
+// ---------------------------------------------------------------------------
+// For You: behaviour shoppers allowed us to use (cookie banner "OK"), and the personal feed (recommend.mjs).
+// ---------------------------------------------------------------------------
+
+// The cookie banner's choice, as a cookie the server can read. "essential" = don't record behaviour.
+const consentOf = (req) => /(?:^|;\s*)saligue_consent=(\w+)/.exec(req.headers.cookie || '')?.[1] ?? null;
+
+route('POST', '/api/interactions', ({ req, user, body }) => {
+  if (!user) return { ok: true, recorded: 0 };
+  if (consentOf(req) === 'essential' || body.consent === 'essential') return { ok: true, recorded: 0 };
+  const events = (Array.isArray(body.events) ? body.events : []).slice(0, 100);
+  let recorded = 0;
+  transaction(() => {
+    for (const e of events) {
+      const weight = INTERACTION_WEIGHTS[e.kind];
+      if (weight === undefined) continue;
+      const productId = String(e.productId ?? '');
+      if (!db.prepare('select 1 from products where id = ?').get(productId)) continue;
+      const times = Math.min(3, Math.max(0.1, Number(e.times) || 1));
+      db.prepare('insert into interactions (user_id, product_id, kind, weight, created_at) values (?, ?, ?, ?, ?)').run(user.id, productId, e.kind, weight * times, now());
+      recorded += 1;
+    }
+  });
+  return { ok: true, recorded };
+});
+
+route('GET', '/api/feed', ({ user }) => feedFor(user?.id ?? null, db.prepare('select * from products').all()));
+
+// A shopper can clear what was learned about them (Settings → Privacy).
+route('DELETE', '/api/interactions', ({ user }) => {
+  if (user) db.prepare('delete from interactions where user_id = ?').run(user.id);
+  return { ok: true };
+});
+
 // Notifications of the signed-in account
 route('GET', '/api/me/notifications', ({ user }) => {
   if (!user) return [];
@@ -1537,13 +1572,15 @@ route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
 
 // Realistic try-on (see tryon.mjs). A few runs per account per hour, since the free AI has a daily limit.
 const tryOnRuns = new Map();
-route('GET', '/api/ai/tryon', () => ({ available: true, categories: REALISTIC_CATEGORIES }));
+route('GET', '/api/ai/tryon', () => ({ available: true, unlimited: unlimitedTryOn(), categories: REALISTIC_CATEGORIES }));
 route('POST', '/api/ai/tryon', async ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   if (!REALISTIC_CATEGORIES.includes(body.category)) fail(400, 'unsupported', 'Realistic try-on works for tops, jackets, trousers and dresses.');
   const hour = Date.now() - 3_600_000;
   const recent = (tryOnRuns.get(user.id) ?? []).filter((t) => t > hour);
-  if (recent.length >= 20) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
+  // With the paid provider there is no daily limit; this only stops runaway scripts.
+  const perHour = unlimitedTryOn() ? 300 : 20;
+  if (recent.length >= perHour) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
   tryOnRuns.set(user.id, [...recent, Date.now()]);
   try {
     return { image: await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120)) };
@@ -1701,6 +1738,21 @@ const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 cancelAbandonedOrders();
 setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
+// The For You model relearns from everyone's behaviour every few minutes.
+try {
+  train();
+} catch (error) {
+  console.error('Could not train the For You model:', error.message);
+}
+setInterval(() => {
+  try {
+    train();
+  } catch (error) {
+    console.error('Could not train the For You model:', error.message);
+  }
+}, 5 * 60_000).unref();
+// Behaviour older than 6 months is forgotten.
+setInterval(() => db.prepare('delete from interactions where created_at < ?').run(new Date(Date.now() - 183 * 86_400_000).toISOString()), 86_400_000).unref();
 // Old sessions are removed once a day.
 const dropOldSessions = () => db.prepare('delete from sessions where created_at < ?').run(new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString());
 dropOldSessions();
