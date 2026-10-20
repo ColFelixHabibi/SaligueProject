@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Saligue uses the camera so you can take a photo of yourself or of an item to try on.</string>
+	<string>Saligue uses the camera so you can take a photo of yourself or of an item to try on, and to go live.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Saligue uses the microphone so viewers can hear you when you go live.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Saligue lets you choose a photo of yourself or of an item to try on.</string>
   <key>CAPACITOR_DEBUG</key>

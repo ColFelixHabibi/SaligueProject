@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack, createLocalTracks } from 'livekit-client';
+import { LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack } from 'livekit-client';
+import { openCamera } from './camera';
 import { api, onServerEvent } from './api';
 import { withMedia, type Burst, type Live, type LiveComment, type LiveGuest } from './lives';
 
@@ -108,6 +109,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
+  const [attempt, setAttempt] = useState(0);
   const localTracks = useRef<LocalTrack[]>([]);
 
   const refresh = useCallback((r: Room) => {
@@ -125,6 +127,9 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
       return { identity: p.identity, name: p.name || 'Guest', role: meta(p).role ?? 'viewer', video, audio, isLocal, speaking: p.isSpeaking };
     };
     const everyone = [toTile(r.localParticipant, true), ...[...r.remoteParticipants.values()].map((p) => toTile(p, false))];
+    // Until the camera is published, show it straight from the device.
+    const preview = localTracks.current.find((t) => t.kind === Track.Kind.Video);
+    if (preview && !everyone[0].video) everyone[0] = { ...everyone[0], video: preview, role: everyone[0].role === 'viewer' ? 'host' : everyone[0].role };
     const onCamera = everyone.filter((t) => t.role === 'host' || t.role === 'guest').sort((a, b) => (a.role === 'host' ? -1 : b.role === 'host' ? 1 : 0));
     setTiles(onCamera);
     setViewers(everyone.length);
@@ -147,24 +152,39 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
       .on(RoomEvent.Disconnected, () => !cancelled && setStatus('error'));
     (async () => {
       setStatus('connecting');
+      setError(null);
+      // 1. The camera first, so the host sees themselves at once (and camera problems are told apart from network ones).
+      if (publishWanted) {
+        try {
+          const { stream, audio } = await openCamera('user', true);
+          if (cancelled) return stream.getTracks().forEach((t) => t.stop());
+          const tracks: LocalTrack[] = [new LocalVideoTrack(stream.getVideoTracks()[0], undefined, true)];
+          if (audio && stream.getAudioTracks()[0]) tracks.push(new LocalAudioTrack(stream.getAudioTracks()[0], undefined, true));
+          localTracks.current = tracks;
+          setMicOn(audio);
+          setTiles([{ identity: 'me', name: 'You', role: 'host', video: tracks[0], audio: null, isLocal: true, speaking: false }]);
+        } catch (e: any) {
+          if (cancelled) return;
+          setStatus('error');
+          setError(e?.message ?? 'The camera could not start.');
+          return;
+        }
+      }
+      // 2. Then the live room.
       try {
         const pass = await api<{ url: string; token: string; role: string }>(`/lives/${liveId}/token`, { body: {} });
         if (cancelled) return;
         setRole(pass.role);
         await r.connect(pass.url, pass.token);
         if (cancelled) return r.disconnect();
-        if (pass.role !== 'viewer' && publishWanted) {
-          const tracks = await createLocalTracks({ audio: true, video: { facingMode: 'user', resolution: { width: 720, height: 1280, frameRate: 30 } } });
-          localTracks.current = tracks;
-          for (const t of tracks) await r.localParticipant.publishTrack(t, { simulcast: true });
-        }
+        if (pass.role !== 'viewer') for (const t of localTracks.current) await r.localParticipant.publishTrack(t, { simulcast: true });
         setRoom(r);
         setStatus('connected');
         update();
       } catch (e: any) {
         if (cancelled) return;
         setStatus('error');
-        setError(/Permission|NotAllowed/i.test(String(e?.message ?? e)) ? 'Allow camera and microphone in your browser to go live.' : e?.message ?? 'Could not connect to the live.');
+        setError(`Your camera works, but the live could not connect${e?.message ? ` (${e.message})` : ''}. Check your internet and tap Try again.`);
       }
     })();
     return () => {
@@ -175,20 +195,27 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
       setRoom(null);
       setTiles([]);
     };
-  }, [liveId, enabled, publishWanted, refresh]);
+  }, [liveId, enabled, publishWanted, refresh, attempt]);
 
+  // Camera and microphone switch on the device's own tracks, so they work before and after connecting.
   const toggleCam = useCallback(async () => {
-    if (!room) return;
-    await room.localParticipant.setCameraEnabled(!camOn);
+    const video = localTracks.current.find((t) => t.kind === Track.Kind.Video);
+    if (!video) return;
+    if (camOn) await video.mute();
+    else await video.unmute();
     setCamOn(!camOn);
-    refresh(room);
+    if (room) refresh(room);
   }, [room, camOn, refresh]);
 
   const toggleMic = useCallback(async () => {
-    if (!room) return;
-    await room.localParticipant.setMicrophoneEnabled(!micOn);
+    const audio = localTracks.current.find((t) => t.kind === Track.Kind.Audio);
+    if (!audio) return;
+    if (micOn) await audio.mute();
+    else await audio.unmute();
     setMicOn(!micOn);
-  }, [room, micOn]);
+  }, [micOn]);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   // Front ↔ back camera on phones.
   const flipCamera = useCallback(async () => {
@@ -198,7 +225,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
     setFacing(next);
   }, [facing]);
 
-  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, facing };
+  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, facing, retry };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */

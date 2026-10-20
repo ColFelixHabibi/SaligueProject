@@ -1,5 +1,6 @@
 'use client';
 
+import { openCamera } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -33,6 +34,7 @@ function Setup() {
   const [picked, setPicked] = useState<string[]>([]);
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [camError, setCamError] = useState<string | null>(null);
+  const [camTry, setCamTry] = useState(0);
   const [starting, setStarting] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
 
@@ -40,19 +42,22 @@ function Setup() {
   useEffect(() => {
     let stream: MediaStream | null = null;
     let cancelled = false;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: facing, width: 720, height: 1280 }, audio: false })
-      .then((s) => {
+    setCamError(null);
+    openCamera(facing, false)
+      .then(({ stream: s }) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
-        setCamError(null);
-        if (video.current) video.current.srcObject = s;
+        if (video.current) {
+          video.current.srcObject = s;
+          video.current.play().catch(() => {});
+        }
       })
-      .catch((e) => setCamError(/NotAllowed|Permission/i.test(String(e)) ? 'Allow the camera in your browser to go live.' : 'No camera found. Connect one or use your phone.'));
+      .catch((e) => !cancelled && setCamError(e?.message ?? 'The camera could not start.'));
     return () => {
       cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [facing]);
+  }, [facing, camTry]);
 
   const mineLive = lives?.lives.find((l) => l.sellerId === authUid);
 
@@ -76,7 +81,13 @@ function Setup() {
     <div className="mx-auto grid max-w-5xl gap-6 p-4 md:grid-cols-[minmax(0,360px)_1fr] md:p-8">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl">
         <video ref={video} autoPlay playsInline muted className={cn('h-full w-full object-cover', facing === 'user' && 'scale-x-[-1]')} />
-        {camError && <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-white/80">{camError}</p>}
+        {camError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white/90">
+            <VideoOff className="h-10 w-10" />
+            <p>{camError}</p>
+            <Button size="sm" variant="secondary" className="bg-white text-primary hover:bg-white/90" onClick={() => setCamTry((n) => n + 1)}>Try again</Button>
+          </div>
+        )}
         <span className="absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-xs font-bold text-white">Preview</span>
         <button type="button" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))} className="absolute right-3 top-3 rounded-full bg-black/50 p-2 text-white" aria-label="Switch camera">
           <SwitchCamera className="h-5 w-5" />
@@ -125,10 +136,10 @@ function Setup() {
             </div>
           )}
         </div>
-        <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={starting || !title.trim() || !!camError}>
+        <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={starting || !title.trim()}>
           {starting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Radio className="mr-2 h-5 w-5" />} Go live now
         </Button>
-        <p className="text-center text-xs text-muted-foreground">Your past customers get a notification that you are live.</p>
+        <p className="text-center text-xs text-muted-foreground">Your browser asks to use the camera and microphone — tap Allow. Your past customers get a notification that you are live.</p>
       </form>
     </div>
   );
@@ -141,7 +152,7 @@ function Studio({ id }: { id: string }) {
   const { authUid } = useAuth();
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera } = useLiveRoom(id, live?.status === 'live', true);
+  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, retry } = useLiveRoom(id, live?.status === 'live', true);
   const elapsed = useElapsed(live?.startedAt);
   const [panel, setPanel] = useState<'products' | 'guests' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
@@ -224,6 +235,12 @@ function Studio({ id }: { id: string }) {
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>
         <Hearts bursts={bursts} />
+        {roomError && (
+          <div className="absolute inset-x-3 top-1/3 z-20 space-y-3 rounded-2xl bg-background/95 p-4 text-center text-sm shadow-xl">
+            <p>{roomError}</p>
+            <Button onClick={retry}>Try again</Button>
+          </div>
+        )}
         {requests.length > 0 && (
           <button type="button" onClick={() => setPanel('guests')} className="absolute left-3 top-16 z-10 flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-lg">
             <Users className="h-4 w-4" /> {requests[0].name}{requests.length > 1 ? ` +${requests.length - 1}` : ''} wants to join
