@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, CircleDashed, CreditCard, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
+import { CheckCircle2, CircleDashed, Copy, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useToast } from '@/hooks/use-toast';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 
 type Platform = {
@@ -51,11 +51,37 @@ export default function PlatformPage() {
   const [testTo, setTestTo] = useState('');
   const [pay, setPay] = useState({ secretKey: '', secretHash: '', currency: 'RWF', rate: '1450' });
   const [falKey, setFalKey] = useState('');
+  const [signing, setSigning] = useState<{ available: boolean; alias?: string } | null>(null);
+  const [signingPassword, setSigningPassword] = useState<string | null>(null);
+  const [keySaved, setKeySaved] = useState(false);
 
   const load = useCallback(() => api<Platform>('/admin/platform').then(setData).catch(() => setData(null)), []);
   useEffect(() => {
-    if (admin) void load();
+    if (!admin) return;
+    void load();
+    api<{ available: boolean; alias?: string }>('/admin/signing-key').then(setSigning).catch(() => setSigning(null));
   }, [admin, load]);
+
+  // The file needs the admin's session, so it is fetched and then saved from the page.
+  const downloadKey = async () => {
+    setBusy('key');
+    try {
+      const token = getToken();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/admin/signing-key/file`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!response.ok) throw new Error('The key file could not be downloaded.');
+      const url = URL.createObjectURL(await response.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'saligue-android-signing-key.p12';
+      a.click();
+      URL.revokeObjectURL(url);
+      setKeySaved(true);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Not downloaded', description: friendlyError(error) });
+    } finally {
+      setBusy(null);
+    }
+  };
   useEffect(() => {
     if (user?.email) setTestTo((t) => t || user.email!);
   }, [user]);
@@ -205,6 +231,38 @@ export default function PlatformPage() {
           </form>
         </CardContent>
       </Card>
+
+      {signing?.available && (
+        <Card className="border-amber-300">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" /> Back up the app signing key</CardTitle>
+            <CardDescription>
+              Every update of the Android app must be signed with this key, or phones refuse to install it. If the server is ever lost, this
+              copy is the only way to keep updating the app. Keep the file and the password in two different safe places (for example the file
+              in Google Drive and the password in a password manager), never in the public code on GitHub.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={downloadKey} disabled={busy === 'key'}>{busy === 'key' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />} Download key file</Button>
+              <Button variant="outline" onClick={() => api<{ password: string }>('/admin/signing-key/password', { body: {} }).then((d) => setSigningPassword(d.password)).catch((e) => toast({ variant: 'destructive', title: 'Not shown', description: friendlyError(e) }))}>
+                <Eye className="mr-2 h-4 w-4" /> Show password
+              </Button>
+            </div>
+            {keySaved && <p className="text-sm text-emerald-600">Key file downloaded: saligue-android-signing-key.p12. Move it from Downloads to a safe place.</p>}
+            {signingPassword && (
+              <div className="space-y-2 rounded-xl border bg-muted/40 p-3">
+                <p className="text-xs text-muted-foreground">Password (key alias: <b>{signing.alias}</b>)</p>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 select-all break-all rounded bg-background px-2 py-1.5 text-sm">{signingPassword}</code>
+                  <Button size="icon" variant="outline" aria-label="Copy password" onClick={() => navigator.clipboard.writeText(signingPassword).then(() => toast({ title: 'Password copied' })).catch(() => {})}><Copy className="h-4 w-4" /></Button>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setSigningPassword(null)}>Hide</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

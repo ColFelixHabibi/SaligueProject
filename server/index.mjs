@@ -2,7 +2,7 @@
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
@@ -1647,6 +1647,38 @@ route('PUT', '/api/admin/platform/tryon', async ({ user, body }) => {
   return { ok: true };
 });
 
+// The Android app's signing key, for the admin to keep a copy off the server. Without it, app updates can't be
+// signed and phones refuse them. The key file is useless without its password, which is shown separately.
+const SIGNING = process.env.SALIGUE_SIGNING || '/etc/saligue/android-signing.properties';
+function signingInfo() {
+  if (!existsSync(SIGNING)) return null;
+  const props = Object.fromEntries(readFileSync(SIGNING, 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
+  return existsSync(props.storeFile ?? '') ? props : null;
+}
+
+route('GET', '/api/admin/signing-key', ({ user }) => {
+  requireAdmin(user);
+  const info = signingInfo();
+  return info ? { available: true, alias: info.keyAlias } : { available: false };
+});
+
+route('GET', '/api/admin/signing-key/file', ({ user, res }) => {
+  requireAdmin(user);
+  const info = signingInfo();
+  if (!info) fail(404, 'not_found', 'There is no app signing key on this server yet.');
+  const data = readFileSync(info.storeFile);
+  res.writeHead(200, { 'Content-Type': 'application/x-pkcs12', 'Content-Length': data.length, 'Content-Disposition': 'attachment; filename="saligue-android-signing-key.p12"', 'Cache-Control': 'no-store' });
+  res.end(data);
+  return undefined;
+});
+
+route('POST', '/api/admin/signing-key/password', ({ user }) => {
+  requireAdmin(user);
+  const info = signingInfo();
+  if (!info) fail(404, 'not_found', 'There is no app signing key on this server yet.');
+  return { password: info.storePassword, alias: info.keyAlias };
+});
+
 // Notifications of the signed-in account
 route('GET', '/api/me/notifications', ({ user }) => {
   if (!user) return [];
@@ -1830,6 +1862,7 @@ const server = http.createServer(async (req, res) => {
     const user = userOf(req);
     const result = await match.handler({ req, res, url, params, body, user });
     // Keep the session cookie in step with the session the app uses.
+    if (res.writableEnded) return;
     if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));
     else if (bearer && user && cookieToken(req) !== tokenOf(req)) res.setHeader('Set-Cookie', sessionCookie(req, tokenOf(req)));
     send(res, 200, result ?? null);
