@@ -245,7 +245,11 @@ function Mirror() {
               <div className="min-w-0 flex-1 space-y-1">
                 <h2 className="text-lg font-semibold">1. Your photo {personUrl && <span className="ml-1 text-sm font-medium text-emerald-600">✓ Ready</span>}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {personBusy ?? (personUrl ? 'Clothes you choose are drawn on you as if you wore them — not pasted on top.' : 'Stand straight, head to feet, arms a little away from your body, in good light. It stays on your device until the AI dresses you.')}
+                  {personBusy ?? (personUrl
+                    ? photoUrl
+                      ? 'Clothes you choose are drawn on you as if you wore them — not pasted on top.'
+                      : 'Tap Upload and add your photo once more: the newest Fitting Room keeps your real photo for a cleaner result.'
+                    : 'Stand straight, head to feet, arms a little away from your body, in good light. It stays on your device until the AI dresses you.')}
                 </p>
               </div>
               <div className="flex items-center gap-2">

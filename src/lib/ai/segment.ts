@@ -130,13 +130,60 @@ function removeSpeckles(mask: Float32Array, width: number, height: number) {
  * Removes the background. The returned canvas has the original pixels untouched;
  * only the alpha channel changes, so the person or item looks exactly as photographed.
  */
+/**
+ * A person has no holes: spots the model left see-through inside the body (shiny fabric, dark clothes against
+ * a light wall) are filled, and the edge is softened by about one pixel so it isn't jagged when enlarged.
+ */
+function cleanPersonMask(mask: Float32Array | number[], width: number, height: number): Float32Array {
+  const out = Float32Array.from(mask);
+  // Background = see-through pixels connected to the photo's border. Anything see-through not connected is a hole.
+  const outside = new Uint8Array(width * height);
+  const stack: number[] = [];
+  const push = (i: number) => {
+    if (!outside[i] && out[i] < 0.5) {
+      outside[i] = 1;
+      stack.push(i);
+    }
+  };
+  for (let x = 0; x < width; x++) {
+    push(x);
+    push((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y++) {
+    push(y * width);
+    push(y * width + width - 1);
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % width, y = (i - x) / width;
+    if (x > 0) push(i - 1);
+    if (x < width - 1) push(i + 1);
+    if (y > 0) push(i - width);
+    if (y < height - 1) push(i + width);
+  }
+  for (let i = 0; i < out.length; i++) if (!outside[i] && out[i] < 0.5) out[i] = 1;
+  // Soften the edge: 3×3 average, only where the mask changes.
+  const soft = Float32Array.from(out);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      let sum = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) sum += out[i + dy * width + dx];
+      const avg = sum / 9;
+      if (avg > 0.02 && avg < 0.98) soft[i] = avg;
+    }
+  }
+  return soft;
+}
+
 export async function removeBackground(
   source: ImageSource,
   kind: CutoutKind,
   onProgress?: Progress
 ): Promise<HTMLCanvasElement> {
   const working = fitWithin(source, MAX_WORKING_EDGE);
-  const { mask, width, height } = await predictMask(working, kind, onProgress);
+  const { mask: raw, width, height } = await predictMask(working, kind, onProgress);
+  const mask = kind === 'person' ? cleanPersonMask(raw, width, height) : raw;
 
   // Upscale the mask smoothly to the photo's size.
   const maskCanvas = createCanvas(width, height);

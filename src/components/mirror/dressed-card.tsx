@@ -84,9 +84,11 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
   // Shoes, hats, glasses and bags are placed on the device.
   const waitingForAi = canBeRealistic && !realisticUrl && (realisticBusy || (auto && !realisticError));
   const realBase = photoUrl ?? personUrl;
-  const shownUrl = canBeRealistic ? realisticUrl ?? realBase : dressedUrl;
+  // Clothes without a realistic AI are not painted on: the photo stays as it is.
+  const isClothes = CLOTHES.has(product.category);
+  const shownUrl = canBeRealistic ? realisticUrl ?? realBase : isClothes ? personUrl : dressedUrl;
   // Compare against the photo as it was (before the item was put on).
-  const afterUrl = canBeRealistic ? realisticUrl : dressedUrl;
+  const afterUrl = canBeRealistic ? realisticUrl : isClothes ? null : dressedUrl;
   const [note, setNote] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -150,8 +152,8 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
             <Button size="sm" onClick={makeRealistic}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button>
           </div>
         )}
-        {!canBeRealistic && dressedUrl && CLOTHES.has(product.category) && (
-          <span className="absolute left-2 bottom-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium text-muted-foreground shadow">Quick preview</span>
+        {!canBeRealistic && isClothes && (
+          <span className="absolute inset-x-2 top-1/3 rounded-xl bg-background/95 p-3 text-center text-xs shadow">Realistic try-on is not available right now, so this item isn’t drawn on you.</span>
         )}
         {note && dressedUrl && !realisticUrl && !waitingForAi && (
           <p className="absolute left-2 right-20 bottom-2 rounded bg-background/90 px-2 py-1 text-xs text-muted-foreground">{note}</p>

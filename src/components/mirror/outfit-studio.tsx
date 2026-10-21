@@ -127,12 +127,18 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     }
     let cancelled = false;
     setDressing(true);
+    // Only shoes, hats, glasses, bags and accessories are placed on the device. Clothes are never painted onto
+    // the photo: only the realistic AI draws them, so they look worn instead of pasted on top.
+    const placeable = outfit.filter((p) => !REALISTIC_CATEGORIES.includes(outfitSlot(p)));
+    if (!placeable.length) {
+      setLookUrl(null);
+      setMissing([]);
+      return;
+    }
     enqueue(async () => {
       if (cancelled) return;
-      const pieces = await Promise.all(outfit.map(async (p) => ({ canvas: await itemCutout(p), category: outfitSlot(p) })));
+      const pieces = await Promise.all(placeable.map(async (p) => ({ canvas: await itemCutout(p), category: outfitSlot(p) })));
       if (cancelled) return;
-      // Wait until the photo has been analysed, so clothes replace what is worn instead of going on top.
-      if (parsing === undefined && pieces.some((p) => REALISTIC_CATEGORIES.includes(p.category))) return;
       const result = dressOutfit(person, landmarks, pieces, { parsing, showMissing: false });
       if (cancelled) return;
       // Keep showing the previous look until the new one is ready, so changing one item doesn't flash.
@@ -156,6 +162,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState<string | null>(null);
   const [realisticFailed, setRealisticFailed] = useState(false);
+  const [realisticError, setRealisticError] = useState<string | null>(null);
   const runId = useRef(0);
   const redrawable = outfit.filter((p) => REALISTIC_CATEGORIES.includes(outfitSlot(p)));
   const makeRealistic = async () => {
@@ -191,7 +198,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     } catch (error: any) {
       if (stale()) return;
       setRealisticFailed(true);
-      toast({ variant: 'destructive', title: 'Showing a quick preview', description: friendlyError(error) });
+      setRealisticError(friendlyError(error));
     } finally {
       if (!stale()) setRealisticBusy(null);
     }
@@ -294,6 +301,13 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
           {busy && (
             <div className="absolute inset-x-0 top-3 mx-auto flex w-fit items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur">
               <Loader2 className="h-4 w-4 animate-spin text-primary" /> {busy}
+            </div>
+          )}
+          {realisticFailed && redrawable.length > 0 && !realisticBusy && (
+            <div className="absolute inset-x-3 top-14 z-10 space-y-2 rounded-xl bg-background/95 p-3 text-center text-sm shadow-lg">
+              <p className="font-semibold">Your clothes aren’t drawn yet</p>
+              <p className="text-xs text-muted-foreground">{realisticError ?? 'The realistic AI could not dress you this time.'} Clothes are only shown once the AI draws them on you, never pasted on top.</p>
+              <Button size="sm" onClick={makeRealistic}>Try again</Button>
             </div>
           )}
           {missing.length > 0 && lookUrl && !realisticUrl && (
