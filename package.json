@@ -2,6 +2,7 @@
   "name": "saligue",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "predev": "node scripts/copy-ort.mjs",
     "dev": "next dev -p 9002",
