@@ -10,6 +10,8 @@ import { navFor, isActive } from './nav';
 export default function Footer() {
   const pathname = usePathname();
   const { role } = useAuth();
+  // Lives fill the whole screen, like TikTok.
+  if (/\/live\/(studio|watch)/.test(pathname)) return null;
   return (
     <>
       {/* Phones: the app's main destinations, each once. */}

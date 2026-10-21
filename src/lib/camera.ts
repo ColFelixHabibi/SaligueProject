@@ -46,6 +46,7 @@ export async function openCamera(facing: 'user' | 'environment', audio: boolean)
   for (const video of videoOptions) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio });
+      await widest(stream);
       return { stream, audio };
     } catch (error) {
       lastError = error;
@@ -55,6 +56,7 @@ export async function openCamera(facing: 'user' | 'environment', audio: boolean)
       if (audio && (name === 'NotFoundError' || name === 'NotAllowedError' || name === 'NotReadableError')) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio: false });
+          await widest(stream);
           return { stream, audio: false };
         } catch (videoOnly) {
           lastError = videoOnly;
@@ -64,4 +66,25 @@ export async function openCamera(facing: 'user' | 'environment', audio: boolean)
     }
   }
   throw explain(lastError);
+}
+
+type ZoomCaps = { min: number; max: number; step?: number };
+
+/** The camera's zoom range, when the phone lets the browser control it (null on most computers). */
+export function zoomRange(track: MediaStreamTrack | undefined | null): (ZoomCaps & { value: number }) | null {
+  const caps = (track?.getCapabilities?.() as { zoom?: ZoomCaps } | undefined)?.zoom;
+  if (!track || !caps || caps.max <= caps.min) return null;
+  const value = (track.getSettings() as { zoom?: number }).zoom ?? caps.min;
+  return { ...caps, value };
+}
+
+export async function setZoom(track: MediaStreamTrack, zoom: number) {
+  await track.applyConstraints({ advanced: [{ zoom } as MediaTrackConstraintSet] }).catch(() => {});
+}
+
+// Some phones open the camera zoomed in: start at the widest view.
+async function widest(stream: MediaStream) {
+  const track = stream.getVideoTracks()[0];
+  const range = zoomRange(track);
+  if (range && range.value > range.min) await setZoom(track, range.min);
 }

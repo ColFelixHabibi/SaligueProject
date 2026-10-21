@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import { Hearts, LiveChat, LiveStage, LiveTopBar, PinnedProduct } from '@/components/live/live-parts';
+import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct } from '@/components/live/live-parts';
 import ProductCard from '@/components/product-card';
 import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
@@ -130,7 +130,7 @@ function Watch() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] max-w-6xl gap-6 md:h-dvh md:p-6">
+    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
@@ -159,14 +159,12 @@ function Watch() {
               <button type="button" onClick={flipCamera} className="rounded-full bg-black/45 px-3 py-2 text-xs font-semibold text-white">Flip</button>
             </div>
           )}
-          <form onSubmit={send} className="flex items-center gap-2">
+          <form onSubmit={send} className="flex items-end gap-2">
             <button type="button" onClick={() => setQuestion((q) => !q)} aria-pressed={question} title="Ask as a question"
               className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full', question ? 'bg-primary text-white' : 'bg-black/40 text-white')}>
               <HelpCircle className="h-5 w-5" />
             </button>
-            <Input value={text} onChange={(e) => setText(e.target.value)} disabled={muted} maxLength={300}
-              placeholder={muted ? 'Comments are off for you' : question ? 'Ask the host a question…' : 'Say something…'}
-              className="h-11 rounded-full border-0 bg-white/20 text-white placeholder:text-white/70 focus-visible:ring-primary" />
+            <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : question ? 'Ask the host a question…' : 'Say something…'} />
             <button type="submit" disabled={sending || !text.trim()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50" aria-label="Send">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>

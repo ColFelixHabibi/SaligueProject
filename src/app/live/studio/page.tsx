@@ -1,6 +1,6 @@
 'use client';
 
-import { openCamera } from '@/lib/camera';
+import { openCamera, setZoom, zoomRange } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { Hearts, LiveChat, LiveStage, LiveTopBar, PinnedProduct } from '@/components/live/live-parts';
+import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct } from '@/components/live/live-parts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -35,6 +35,8 @@ function Setup() {
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
   const [camError, setCamError] = useState<string | null>(null);
   const [camTry, setCamTry] = useState(0);
+  const [zoom, setZoomState] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
   const [starting, setStarting] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
 
@@ -47,6 +49,8 @@ function Setup() {
       .then(({ stream: s }) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
+        trackRef.current = s.getVideoTracks()[0];
+        setZoomState(zoomRange(trackRef.current));
         if (video.current) {
           video.current.srcObject = s;
           video.current.play().catch(() => {});
@@ -92,6 +96,17 @@ function Setup() {
         <button type="button" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))} className="absolute right-3 top-3 rounded-full bg-black/50 p-2 text-white" aria-label="Switch camera">
           <SwitchCamera className="h-5 w-5" />
         </button>
+        {zoom && (
+          <div className="absolute inset-x-4 bottom-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs font-semibold text-white">
+            <span>{zoom.value.toFixed(1)}×</span>
+            <input type="range" aria-label="Zoom" className="w-full accent-primary" min={zoom.min} max={zoom.max} step={zoom.step || 0.1} value={zoom.value}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setZoomState({ ...zoom, value: v });
+                if (trackRef.current) void setZoom(trackRef.current, v);
+              }} />
+          </div>
+        )}
       </div>
 
       <form onSubmit={start} className="space-y-5">
@@ -228,7 +243,7 @@ function Studio({ id }: { id: string }) {
   );
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] max-w-6xl gap-6 md:h-dvh md:p-6">
+    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
@@ -254,7 +269,7 @@ function Studio({ id }: { id: string }) {
             if (!say.trim()) return;
             void act(() => sendLiveComment(id, say.trim())).then(() => setSay(''));
           }}>
-            <Input value={say} onChange={(e) => setSay(e.target.value)} maxLength={300} placeholder="Write to your viewers…" className="h-11 rounded-full border-0 bg-white/20 text-white placeholder:text-white/70" />
+            <LiveInput value={say} onChange={setSay} placeholder="Write to your viewers…" />
           </form>
           {controls}
         </div>

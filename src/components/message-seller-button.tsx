@@ -90,7 +90,7 @@ export function MessageSellerButton({ label = 'Message seller', className, size 
               void send(text);
             }}
           >
-            <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Or write your own message…" maxLength={2000} className="min-h-24" />
+            <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Or write your own message…" maxLength={3000} className="min-h-24" />
             <Button type="submit" className={cn('w-full')} disabled={sending || !text.trim()}>
               {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Send
             </Button>

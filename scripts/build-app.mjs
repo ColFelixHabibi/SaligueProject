@@ -3,7 +3,7 @@
 //   node scripts/build-app.mjs --apk           → also build the Android app (signed release APK) into data/downloads/saligue.apk;
 //                                                AI models load from the server, so the app stays small
 // SALIGUE_SERVER sets the server address (default: SITE_URL, else the live link).
-// The website's own build (out/) is replaced by this one; run `npm run build` afterwards for the website.
+// The app build temporarily replaces the website's build (out/); with --apk the website is rebuilt at the end.
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -37,5 +37,7 @@ if (apk) {
   const target = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads');
   mkdirSync(target, { recursive: true });
   copyFileSync(built, join(target, 'saligue.apk'));
-  console.log(`Android app ready: ${server}/download/saligue.apk`);
+  // Put the website's own build back (with its AI models), so the live site keeps working.
+  execSync('npm run build', { stdio: 'inherit', env: { ...process.env, NEXT_PUBLIC_API_URL: '', NEXT_PUBLIC_MODELS_URL: '', NEXT_PUBLIC_BUNDLED_MODELS: '' } });
+  console.log(`Android app ready: ${server}/download/saligue.apk (website rebuilt; restart the server)`);
 }

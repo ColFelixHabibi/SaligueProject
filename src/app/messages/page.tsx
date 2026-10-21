@@ -190,7 +190,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
             }
           }}
           placeholder="Write a message…"
-          maxLength={2000}
+          maxLength={3000}
           rows={1}
           className="max-h-32 min-h-11 resize-none rounded-2xl"
         />

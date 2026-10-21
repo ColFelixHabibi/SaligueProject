@@ -901,7 +901,7 @@ function ownConversation(user, id) {
 
 const messageRuns = new Map();
 function addMessage(user, c, { text, productId = null, orderId = null }) {
-  const clean = String(text ?? '').trim().slice(0, 2000);
+  const clean = String(text ?? '').trim().slice(0, 3000);
   if (!clean) fail(400, 'empty_message', 'Write a message first.');
   const minute = Date.now() - 60_000;
   const recent = (messageRuns.get(user.id) ?? []).filter((t) => t > minute);
@@ -1431,7 +1431,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
   if ((parse(live.muted) ?? []).includes(user.id)) fail(403, 'muted', 'The host has turned off comments for you in this live.');
   const kind = body.kind === 'question' ? 'question' : body.kind === 'join' ? 'join' : 'comment';
-  const text = kind === 'join' ? 'joined' : String(body.text ?? '').trim().slice(0, 300);
+  const text = kind === 'join' ? 'joined' : String(body.text ?? '').trim().slice(0, 2500);
   if (!text) fail(400, 'empty_comment', 'Write a comment first.');
   const window = Date.now() - 10_000;
   const recent = (liveCommentRuns.get(user.id) ?? []).filter((t) => t > window);
@@ -1755,6 +1755,19 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
     if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
     fail(error.status ?? 502, 'tryon_failed', error.message);
   }
+});
+
+// Crashes on shoppers' phones and browsers (src/lib/report-error.ts), written to the server log.
+const clientErrors = new Map();
+route('POST', '/api/client-errors', ({ req, user, body }) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] ?? req.socket.remoteAddress;
+  const minute = Date.now() - 60_000;
+  const recent = (clientErrors.get(ip) ?? []).filter((t) => t > minute);
+  if (recent.length >= 10) return { ok: true };
+  clientErrors.set(ip, [...recent, Date.now()]);
+  const clip = (v, n) => String(v ?? '').replace(/[\r\n]+/g, ' | ').slice(0, n);
+  console.error(`CLIENT ERROR ${body.app ? '[app]' : '[web]'} ${clip(body.where, 120)} user=${user?.id?.slice(0, 8) ?? '-'} ua=${clip(req.headers['user-agent'], 120)}\n  ${clip(body.message, 500)}\n  ${clip(body.stack, 1500)}`);
+  return { ok: true };
 });
 
 route('GET', '/api/health', () => ({ ok: true, products: db.prepare('select count(*) as n from products').get().n }));

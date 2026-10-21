@@ -3,9 +3,11 @@
 
 import { useEffect } from 'react';
 import { BASE_PATH } from '@/lib/paths';
+import { watchErrors } from '@/lib/report-error';
 
 // Registers the service worker so the site can be installed as an app on Android and iOS.
 export function PwaRegister() {
+  useEffect(() => watchErrors(), []);
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return;
     // Inside the Android/iOS app the files are already on the device.

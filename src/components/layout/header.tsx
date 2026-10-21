@@ -66,6 +66,8 @@ export default function Header() {
     }
   };
 
+  // Lives fill the whole screen, like TikTok.
+  if (/\/live\/(studio|watch)/.test(pathname)) return null;
   return (
     // Phones only; tablets and computers use the side menu (sidebar.tsx), like TikTok.
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden">

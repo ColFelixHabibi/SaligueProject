@@ -108,7 +108,7 @@ export function LiveChat({ comments, pinned, onAction, className }: { comments: 
           >
             {c.kind === 'question' && <HelpCircle className="mr-1 inline h-3.5 w-3.5" />}
             <b className="mr-1.5">{c.name}</b>
-            <span className="break-words">{c.text}</span>
+            <span className="line-clamp-3 break-words">{c.text}</span>
           </button>
         ))}
         <div ref={end} />
@@ -139,5 +139,30 @@ export function PinnedProduct({ product, onBuy, compact }: { product: Product; o
         </div>
       )}
     </div>
+  );
+}
+
+/** The live typing box: grows up to four lines, Enter sends, Shift+Enter starts a new line; up to about 400 words. */
+export function LiveInput({ value, onChange, placeholder, disabled }: { value: string; onChange: (v: string) => void; placeholder: string; disabled?: boolean }) {
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        e.currentTarget.style.height = 'auto';
+        e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 104)}px`;
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.form?.requestSubmit();
+        }
+      }}
+      rows={1}
+      maxLength={2500}
+      disabled={disabled}
+      placeholder={placeholder}
+      className="max-h-[104px] min-h-11 w-full min-w-0 flex-1 resize-none rounded-3xl border-0 bg-white/20 px-4 py-2.5 text-sm text-white placeholder:text-white/70 focus:outline-none focus:ring-2 focus:ring-primary"
+    />
   );
 }
