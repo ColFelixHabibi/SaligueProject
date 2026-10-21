@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, CircleDashed, Copy, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
+import { CheckCircle2, CircleDashed, Copy, Cpu, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ type Platform = {
   mail: { connected: boolean; from: string; outbox: number; fromEnv: boolean };
   payments: { enabled: boolean; currency: string; rate: number; key: string | null; webhook: string; fromEnv: boolean };
   tryon: { unlimited: boolean; key: string | null; fromEnv: boolean };
+  aiServer: { url: string; ok: boolean; reason?: string; gpu?: string | null; memoryGb?: number | null; ready?: boolean; busy?: boolean; fromEnv: boolean } | null;
   live: { enabled: boolean };
   stats: { users: number; sellers: number; products: number; orders: number };
 };
@@ -51,6 +52,7 @@ export default function PlatformPage() {
   const [testTo, setTestTo] = useState('');
   const [pay, setPay] = useState({ secretKey: '', secretHash: '', currency: 'RWF', rate: '1450' });
   const [falKey, setFalKey] = useState('');
+  const [aiServer, setAiServer] = useState({ url: '', key: '' });
   const [signing, setSigning] = useState<{ available: boolean; alias?: string } | null>(null);
   const [signingPassword, setSigningPassword] = useState<string | null>(null);
   const [keySaved, setKeySaved] = useState(false);
@@ -201,6 +203,39 @@ export default function PlatformPage() {
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Button type="submit" disabled={busy === 'pay'}>{busy === 'pay' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Check and turn on</Button>
               {data.payments.enabled && !data.payments.fromEnv && <Button type="button" variant="ghost" onClick={() => act('pay-off', () => api('/admin/platform/payments', { method: 'PUT', body: { off: true } }), 'Online payments are off')}>Turn off</Button>}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/40">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5 text-primary" /> Own AI server</CardTitle>
+            <Status on={!!data.aiServer?.ok} label={[data.aiServer?.ready === false ? 'Connected · loading' : 'Connected', data.aiServer ? 'Not answering' : 'Not set up']} />
+          </div>
+          <CardDescription>
+            Saligue’s own try-on AI (Leffa) on your own GPU server: no daily limit and no outside company. When it is connected, every try-on uses it first.
+            {data.aiServer?.ok && data.aiServer.gpu && <> Running on <b className="text-foreground">{data.aiServer.gpu}</b>{data.aiServer.memoryGb ? ` (${data.aiServer.memoryGb} GB)` : ''}.</>}
+            {data.aiServer && !data.aiServer.ok && <> <span className="text-destructive">{data.aiServer.reason}</span></>}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Order a <b>GPU server</b> at Hetzner (Dedicated → GPU, e.g. GEX44) with Ubuntu 24.04.</>,
+            <>On it, copy the <b>ai-server</b> folder from this project and run <code className="rounded bg-muted px-1 text-foreground">bash install.sh</code> (about 30 minutes).</>,
+            <>Paste the address and secret key it prints below.</>,
+          ]} />
+          {data.aiServer && <p className="text-sm">Address: <b className="break-all">{data.aiServer.url}</b></p>}
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('ai', () => api('/admin/platform/aiserver', { method: 'PUT', body: aiServer }), 'Own AI server connected').then((ok) => ok && setAiServer({ url: '', key: '' }));
+          }}>
+            <div className="space-y-1.5"><Label htmlFor="ai-url">Address</Label><Input id="ai-url" required value={aiServer.url} onChange={(e) => setAiServer({ ...aiServer, url: e.target.value })} placeholder="https://1-2-3-4.sslip.io" /></div>
+            <div className="space-y-1.5"><Label htmlFor="ai-key">Secret key</Label><Input id="ai-key" type="password" required value={aiServer.key} onChange={(e) => setAiServer({ ...aiServer, key: e.target.value })} autoComplete="off" /></div>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button type="submit" disabled={busy === 'ai'}>{busy === 'ai' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Check and connect</Button>
+              {data.aiServer && !data.aiServer.fromEnv && <Button type="button" variant="ghost" onClick={() => act('ai-off', () => api('/admin/platform/aiserver', { method: 'PUT', body: { off: true } }), 'Own AI server disconnected')}>Disconnect</Button>}
             </div>
           </form>
         </CardContent>

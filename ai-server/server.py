@@ -10,9 +10,11 @@ Body keypoints come from MediaPipe Pose (Apache-2.0) instead of OpenPose.
 
 Endpoints (JSON in/out, images as data URLs):
   GET  /api/health
-  POST /api/tryon  {person, garment, category}
+  POST /api/tryon  {person, garment, category, variant}
   POST /api/dress  {person, prompt, coverage}
-A test page for the browser is served at /studio.
+Only Saligue's own server may call it: every request carries the secret key (header X-Saligue-Key), set with
+SALIGUE_AI_KEY. A test page for the browser is served at /studio only when STUDIO_PAGE=1.
+Install on a GPU server with install.sh.
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, ImageFilter
 from pydantic import BaseModel
 
@@ -35,6 +36,7 @@ LEFFA_DIR = Path(os.environ.get("LEFFA_DIR", "./Leffa")).resolve()
 CKPTS = Path(os.environ.get("LEFFA_CKPTS", LEFFA_DIR / "ckpts")).resolve()
 SDXL_INPAINT = os.environ.get("SDXL_INPAINT", "diffusers/stable-diffusion-xl-1.0-inpainting-0.1")
 STEPS = int(os.environ.get("STEPS", "30"))
+API_KEY = os.environ.get("SALIGUE_AI_KEY", "")
 sys.path.insert(0, str(LEFFA_DIR))
 
 # One GPU: run one job at a time.
@@ -148,7 +150,7 @@ def leffa():
 GARMENT_TYPES = {"top": "upper_body", "outerwear": "upper_body", "dress": "dresses", "bottom": "lower_body"}
 
 
-def try_on(person: Image.Image, garment: Image.Image, category: str, steps: int) -> Image.Image:
+def try_on(person: Image.Image, garment: Image.Image, category: str, steps: int, variant: int = 0) -> Image.Image:
     garment_type = GARMENT_TYPES.get(category)
     if not garment_type:
         raise HTTPException(status_code=422, detail=f"Realistic try-on supports tops, jackets, dresses and trousers, not '{category}'.")
@@ -170,7 +172,7 @@ def try_on(person: Image.Image, garment: Image.Image, category: str, steps: int)
         densepose = Image.fromarray(np.concatenate([iuv[:, :, 0:1]] * 3, axis=-1))
 
     data = m["transform"]({"src_image": [src], "ref_image": [ref], "mask": [mask], "densepose": [densepose]})
-    output = m["hd" if use_hd else "dc"](data, ref_acceleration=False, num_inference_steps=steps, guidance_scale=2.5, seed=42, repaint=False)
+    output = m["hd" if use_hd else "dc"](data, ref_acceleration=False, num_inference_steps=steps, guidance_scale=2.5, seed=42 + variant * 1009, repaint=False)
     return output["generated_image"][0]
 
 
@@ -242,7 +244,20 @@ def dress(person: Image.Image, prompt: str, coverage: str, steps: int) -> Image.
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Saligue AI Studio")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def require_key(request, call_next):
+    """Only Saligue's server (which knows the key) may use the AI; the health check stays open for monitoring."""
+    import hmac
+
+    from fastapi.responses import JSONResponse
+
+    if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+        given = request.headers.get("x-saligue-key", "")
+        if not API_KEY or not hmac.compare_digest(given, API_KEY):
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
+    return await call_next(request)
 
 
 class TryOnRequest(BaseModel):
@@ -250,6 +265,8 @@ class TryOnRequest(BaseModel):
     garment: str
     category: str = "top"
     steps: int | None = None
+    # Another attempt asks for a different variation (Saligue retries when a look changed more than the garment).
+    variant: int = 0
 
 
 class DressRequest(BaseModel):
@@ -263,7 +280,9 @@ class DressRequest(BaseModel):
 def health():
     import torch
 
-    return {"ok": True, "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, "busy": gpu_lock.locked()}
+    gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+    memory = round(torch.cuda.get_device_properties(0).total_memory / 2**30) if gpu else None
+    return {"ok": True, "gpu": gpu, "memoryGb": memory, "busy": gpu_lock.locked(), "ready": bool(_leffa), "keyed": bool(API_KEY)}
 
 
 @app.post("/api/tryon")
@@ -271,7 +290,7 @@ def api_tryon(request: TryOnRequest):
     person, garment = decode_image(request.person), decode_image(request.garment)
     with gpu_lock:
         start = time.time()
-        result = try_on(person, garment, request.category, request.steps or STEPS)
+        result = try_on(person, garment, request.category, min(request.steps or STEPS, 60), max(0, min(request.variant, 5)))
     return {"image": encode_image(result), "seconds": round(time.time() - start, 1)}
 
 
@@ -318,7 +337,8 @@ def build_studio_page():
     return demo
 
 
-if os.environ.get("STUDIO_PAGE", "1") == "1":
+# The test page has no key check, so it is off unless asked for (e.g. while setting up).
+if os.environ.get("STUDIO_PAGE", "0") == "1":
     import gradio as gr
 
     app = gr.mount_gradio_app(app, build_studio_page(), path="/studio")
@@ -330,4 +350,5 @@ if __name__ == "__main__":
     if os.environ.get("PRELOAD", "1") == "1":
         print("Loading Leffa…", flush=True)
         leffa()
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "7860")))
+    # Behind Caddy (HTTPS) on the same machine; not reachable directly from the internet.
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "7860")))

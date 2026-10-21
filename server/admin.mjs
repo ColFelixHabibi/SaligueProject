@@ -14,6 +14,7 @@
 //                                               switch on online payments (Flutterwave), e.g. ... FLWSECK-xxx myhash RWF 1450
 //   node server/admin.mjs payments off          switch online payments off
 //   node server/admin.mjs testmail <email>      send a test email (shows whether the mail account works)
+//   node server/admin.mjs aiserver <url> <key>   use Saligue's own AI server (ai-server/install.sh) first; "off" to stop
 //   node server/admin.mjs tryon <fal key>        unlimited realistic try-on with FASHN on fal.ai (pay per image); "off" to stop
 import { db } from './db.mjs';
 import { learn } from './learn.mjs';
@@ -87,6 +88,19 @@ if (command === 'official' || command === 'unofficial') {
     db.prepare("insert into app_config (key, value) values ('payments', ?) on conflict(key) do update set value = excluded.value")
       .run(JSON.stringify({ secretKey, secretHash, currency: upper, rate: value }));
     console.log(`Online payments are on (${upper}, 1 USD = ${value} ${upper}). Set the Flutterwave webhook URL to <your site>/api/payments/webhook with the same secret hash.`);
+  }
+} else if (command === 'aiserver') {
+  const key = process.argv[4];
+  if (!email || email === 'off') {
+    db.prepare("delete from app_config where key = 'aiserver'").run();
+    console.log('Own AI server is disconnected.');
+  } else if (!key) {
+    console.error('Usage: node server/admin.mjs aiserver <https://address> <secret key>');
+    process.exit(1);
+  } else {
+    db.prepare("insert into app_config (key, value) values ('aiserver', ?) on conflict(key) do update set value = excluded.value")
+      .run(JSON.stringify({ url: String(email).replace(/\/+$/, ''), key }));
+    console.log('Saligue now uses its own AI server first. No restart needed.');
   }
 } else if (command === 'tryon') {
   if (!email || email === 'off') {

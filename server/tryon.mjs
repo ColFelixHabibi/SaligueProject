@@ -105,12 +105,47 @@ async function idmVton(person, garment, description, variant = 0) {
 // FASHN (fal.ai queue API): https://queue.fal.run/fal-ai/fashn/tryon/v1.6
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Saligue's own AI server (ai-server/, installed with install.sh on a GPU server): used first, no daily limit.
+// Set with AI_SERVER_URL + AI_SERVER_KEY, Platform settings, or `node server/admin.mjs aiserver <url> <key>`.
+// ---------------------------------------------------------------------------
+
+export function ownAi() {
+  const saved = parse(db.prepare("select value from app_config where key = 'aiserver'").get()?.value) ?? {};
+  const url = (process.env.AI_SERVER_URL || saved.url || '').replace(/\/+$/, '');
+  const key = process.env.AI_SERVER_KEY || saved.key || '';
+  return url && key ? { url, key } : null;
+}
+
+/** Checks the own AI server: reachable, key accepted, which GPU. */
+export async function checkOwnAi(url, key) {
+  const health = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null);
+  if (!health?.ok) return { ok: false, reason: 'The AI server does not answer at this address.' };
+  // An empty request with the key is refused for missing photos (422), without the right key with 403.
+  const probe = await fetch(`${url}/api/tryon`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Saligue-Key': key }, body: '{}', signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  if (!probe || probe.status === 403) return { ok: false, reason: 'The AI server refused the secret key.' };
+  return { ok: true, gpu: health.gpu, memoryGb: health.memoryGb, ready: health.ready, busy: health.busy };
+}
+
+async function ownAiTryOn(person, garment, category, variant = 0) {
+  const { url, key } = ownAi();
+  const response = await fetch(`${url}/api/tryon`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Saligue-Key': key },
+    body: JSON.stringify({ person, garment, category, variant }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.image) throw new Error(`Own AI server: ${data?.detail ?? response.status}`);
+  return data.image;
+}
+
 export function falKey() {
   return process.env.FAL_KEY || parse(db.prepare("select value from app_config where key = 'tryon'").get()?.value)?.falKey || null;
 }
 
 /** Whether a paid, unlimited try-on provider is switched on. */
-export const unlimitedTryOn = () => !!falKey();
+export const unlimitedTryOn = () => !!falKey() || !!ownAi();
 
 const FAL_CATEGORY = { top: 'tops', outerwear: 'tops', bottom: 'bottoms', dress: 'one-pieces' };
 const FAL_QUEUE = (process.env.FAL_QUEUE_URL || 'https://queue.fal.run').replace(/\/+$/, '');
@@ -199,7 +234,14 @@ export async function tryOn(person, garment, category, description = '', variant
 }
 
 async function makeLook(person, garment, category, description, variant) {
-  if (unlimitedTryOn()) {
+  if (ownAi()) {
+    try {
+      return await ownAiTryOn(person, garment, category, variant);
+    } catch (error) {
+      console.error('Own AI server failed, trying the backups:', String(error?.message ?? error).slice(0, 200));
+    }
+  }
+  if (falKey()) {
     try {
       return await fashn(person, garment, category, variant);
     } catch (error) {

@@ -7,7 +7,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
-import { REALISTIC_CATEGORIES, falKey, tryOn, unlimitedTryOn } from './tryon.mjs';
+import { REALISTIC_CATEGORIES, checkOwnAi, falKey, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
@@ -1553,8 +1553,10 @@ const saveConfig = (key, value) =>
     : db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(key, json(value));
 const masked = (secret) => (secret ? `••••${String(secret).slice(-4)}` : null);
 
-route('GET', '/api/admin/platform', ({ user }) => {
+route('GET', '/api/admin/platform', async ({ user }) => {
   requireAdmin(user);
+  const own = ownAi();
+  const ownStatus = own ? await checkOwnAi(own.url, own.key) : null;
   const pay = paymentSettings();
   const count = (sql) => db.prepare(sql).get().n;
   let outbox = 0;
@@ -1568,6 +1570,7 @@ route('GET', '/api/admin/platform', ({ user }) => {
     mail: { connected: mailConfigured(), from: mailFrom(), outbox, fromEnv: !!process.env.SMTP_URL },
     payments: { enabled: paymentsEnabled(), currency: pay.currency, rate: pay.rate, key: masked(pay.secretKey), webhook: `${siteUrl()}/api/payments/webhook`, fromEnv: !!process.env.FLW_SECRET_KEY },
     tryon: { unlimited: unlimitedTryOn(), key: masked(falKey()), fromEnv: !!process.env.FAL_KEY },
+    aiServer: own ? { url: own.url, ...ownStatus, fromEnv: !!process.env.AI_SERVER_URL } : null,
     live: { enabled: liveSettings().enabled },
     stats: {
       users: count('select count(*) as n from users where is_guest = 0'),
@@ -1633,6 +1636,22 @@ route('PUT', '/api/admin/platform/payments', async ({ user, body }) => {
   if (check && check.status === 401) fail(400, 'invalid_key', 'Flutterwave says this secret key is not valid.');
   saveConfig('payments', { secretKey, secretHash, currency, rate });
   return { ok: true, checked: !!check?.ok };
+});
+
+route('PUT', '/api/admin/platform/aiserver', async ({ user, body }) => {
+  requireAdmin(user);
+  if (body.off) {
+    saveConfig('aiserver', null);
+    return { ok: true };
+  }
+  const url = String(body.url ?? '').trim().replace(/\/+$/, '');
+  const key = String(body.key ?? '').trim();
+  if (!/^https:\/\/[\w.-]+(:\d+)?$/.test(url)) fail(400, 'invalid_url', 'Enter the address the installer printed, starting with https://');
+  if (key.length < 32) fail(400, 'invalid_key', 'Paste the secret key the installer printed.');
+  const status = await checkOwnAi(url, key);
+  if (!status.ok) fail(400, 'not_reachable', status.reason);
+  saveConfig('aiserver', { url, key });
+  return { ok: true, ...status };
 });
 
 route('PUT', '/api/admin/platform/tryon', async ({ user, body }) => {
