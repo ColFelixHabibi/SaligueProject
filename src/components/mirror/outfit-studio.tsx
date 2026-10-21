@@ -54,10 +54,10 @@ export function PhotoInputs({ onFile, disabled, compact }: { onFile: (file: File
   return (
     <div className="flex gap-2">
       <Button type="button" size={compact ? 'sm' : 'lg'} onClick={() => cameraRef.current?.click()} disabled={disabled}>
-        <Camera className="mr-2 h-4 w-4" /> {compact ? 'Retake' : 'Take photo'}
+        <Camera className="mr-2 h-4 w-4" /> {compact ? 'Retake' : 'Camera'}
       </Button>
       <Button type="button" size={compact ? 'sm' : 'lg'} variant="secondary" onClick={() => galleryRef.current?.click()} disabled={disabled}>
-        <ImageUp className="mr-2 h-4 w-4" /> Upload
+        <ImageUp className="mr-2 h-4 w-4" /> {compact ? 'Change' : 'Gallery'}
       </Button>
       <input ref={cameraRef} type="file" accept="image/*" capture="user" className="sr-only" onChange={handle} />
       <input ref={galleryRef} type="file" accept="image/*" className="sr-only" onChange={handle} />
@@ -242,8 +242,16 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   const shownUrl = realisticUrl ?? (waitingForAi ? personUrl : lookUrl ?? personUrl);
   const busy = photoBusy ?? realisticBusy ?? (waitingForAi ? 'Saligue AI is getting ready to dress you…' : dressing && person ? 'Dressing you…' : null);
 
+  // A real item from the shop pictures each part of the body (faded until something is worn there).
+  const slotCovers = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of products) if (p.status === 'active' && !map.has(outfitSlot(p))) map.set(outfitSlot(p), p.cutout || p.image);
+    return map;
+  }, [products]);
+
   const slotButton = ({ category, label, icon: Icon }: (typeof SLOTS)[number]) => {
     const item = wornIn(category);
+    const cover = slotCovers.get(category);
     const active = activeSlot === category;
     return (
       <button
@@ -257,9 +265,9 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
         aria-pressed={active}
       >
         <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-lg bg-muted">
-          {item ? (
+          {item || cover ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.cutout || item.image} alt="" className="h-full w-full object-contain p-0.5" />
+            <img src={item ? item.cutout || item.image : cover} alt="" className={cn('h-full w-full object-contain p-0.5', !item && 'opacity-40 grayscale')} />
           ) : (
             <Icon className="h-5 w-5 text-muted-foreground" />
           )}
@@ -286,15 +294,11 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
             // eslint-disable-next-line @next/next/no-img-element
             <img src={shownUrl} alt={outfit.length ? 'You wearing your outfit' : 'You'} className="absolute inset-0 h-full w-full object-contain p-3" />
           ) : !photoBusy ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-primary/40">
-                <Camera className="h-9 w-9 text-primary" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-primary/40">
+                <Camera className="h-7 w-7 text-primary" />
               </div>
-              <div>
-                <p className="text-xl font-bold">Step into the mirror</p>
-                <p className="mt-1 text-sm text-muted-foreground">A full-body photo, head to feet, standing straight. It stays on your device.</p>
-              </div>
-              <PhotoInputs onFile={onPhoto} />
+              <p className="text-sm font-medium">Your photo appears here</p>
             </div>
           ) : null}
 
@@ -364,12 +368,12 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
             )}
             {studio && person && redrawable.length > 0 && (
               <p className="text-center text-[11px] text-muted-foreground">
-                Saligue AI redraws you wearing the clothes (about 20 s per piece). This sends your photo to Saligue&apos;s AI.
+                About 20 s per item
               </p>
             )}
           </div>
           {outfit.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Or pick a part of your body on the left and tap an item below to put it on.</p>
+            null
           ) : (
             <ul className="space-y-2">
               {SLOTS.flatMap((s) => {
@@ -398,7 +402,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
         <div className="border-t border-border bg-muted/40 p-3">
           <div className="mb-2 flex items-center justify-between px-1">
             <h3 className="text-sm font-semibold">
-              {SLOTS.find((s) => s.category === activeSlot)?.label} · <span className="font-normal text-muted-foreground">in stock, matched to your outfit by AI</span>
+              {SLOTS.find((s) => s.category === activeSlot)?.label}
             </h3>
             {wornIn(activeSlot) && (
               <button type="button" onClick={() => takeOff(activeSlot)} className="text-xs text-muted-foreground hover:text-foreground">Take off</button>

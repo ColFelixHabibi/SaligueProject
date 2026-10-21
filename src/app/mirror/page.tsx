@@ -5,7 +5,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Compass, Download, Flame, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
+import { Download, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
 import { dressAsDescribed, getRealistic, getStudio, isUnlimited } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
@@ -213,24 +213,9 @@ function Mirror() {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="container mx-auto px-4 py-6 md:py-10">
+    <div className="container mx-auto px-4 pb-6 pt-3 md:py-10">
       {chosen && <LocateSellerDialog product={chosen.product} image={chosen.image} onClose={() => setChosen(null)} />}
-      <PageIntro
-        icon={Wand2}
-        title="Fitting Room"
-        subtitle="See yourself wearing it before you buy: add your photo, choose items, compare the looks."
-        links={[{ href: '/', label: 'For You', icon: Flame }, { href: '/search', label: 'Explore', icon: Compass }]}
-        className="mb-6"
-      >
-        <ol className="grid grid-cols-3 gap-2 text-xs font-semibold sm:text-sm">
-          {[['1', 'Your photo', !!personUrl], ['2', 'Choose items', !!results || Object.keys(slots).length > 0], ['3', 'Compare & buy', compare.length > 0]].map(([n, label, done]) => (
-            <li key={n as string} className={cn('flex items-center gap-2 rounded-xl px-3 py-2', done ? 'bg-white text-primary' : 'bg-white/15')}>
-              <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs', done ? 'bg-primary text-primary-foreground' : 'bg-white/25')}>{done ? '✓' : n}</span>
-              {label}
-            </li>
-          ))}
-        </ol>
-      </PageIntro>
+      <PageIntro icon={Wand2} title="Fitting Room" subtitle="See yourself wearing it before you buy." className="mb-6" />
 
       <div className="space-y-6">
           {/* Step 1: a standing photo, so the AI can dress the person as they really are. */}
@@ -246,10 +231,8 @@ function Mirror() {
                 <h2 className="text-lg font-semibold">1. Your photo {personUrl && <span className="ml-1 text-sm font-medium text-emerald-600">✓ Ready</span>}</h2>
                 <p className="text-sm text-muted-foreground">
                   {personBusy ?? (personUrl
-                    ? photoUrl
-                      ? 'Clothes you choose are drawn on you as if you wore them — not pasted on top.'
-                      : 'Tap Upload and add your photo once more: the newest Fitting Room keeps your real photo for a cleaner result.'
-                    : 'Stand straight, head to feet, arms a little away from your body, in good light. It stays on your device until the AI dresses you.')}
+                    ? photoUrl ? 'Ready to dress you.' : 'Add your photo again for a cleaner result.'
+                    : 'Head to feet · standing · good light')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -260,7 +243,7 @@ function Mirror() {
 
           <Card>
             <CardContent className="space-y-4 p-4">
-              <h2 className="text-lg font-semibold">2. What do you want to wear?</h2>
+              <h2 className="text-lg font-semibold">2. What to wear</h2>
               <form onSubmit={handleSubmit} onFocus={warmUpSearch} className="space-y-4">
                 <DescribeForm value={wearForm} onChange={setWearForm} products={products} />
                 <Button type="submit" className="w-full" size="lg" disabled={!!searchBusy || !hasWearForm(wearForm)}>

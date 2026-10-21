@@ -4,7 +4,8 @@ import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Camera, Compass, Flame, Loader2, Search, SlidersHorizontal, Star, Wand2, X } from 'lucide-react';
+import { Camera, Compass, Loader2, Search, SlidersHorizontal, Star, X } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +15,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Skeleton } from '@/components/ui/skeleton';
 import ProductCard from '@/components/product-card';
 import { PageIntro } from '@/components/layout/page-intro';
+import { CategoryStrip } from '@/components/category-strip';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { CATEGORIES } from '@/lib/categories';
@@ -196,67 +198,53 @@ function SearchContent() {
   }, [results, products, filters, sort]);
 
   return (
-    <div className="container mx-auto space-y-6 px-4 py-6 md:py-8">
-      <PageIntro
-        icon={Compass}
-        title="Explore"
-        subtitle="Every item on Saligue, all kinds mixed. Search or filter to narrow it down."
-        links={[{ href: '/', label: 'For You', icon: Flame }, { href: '/mirror', label: 'Fitting Room', icon: Wand2 }]}
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQueryPhoto(null);
-            run({ text });
-          }}
-          className="flex gap-2"
-        >
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onFocus={warmUpSearch}
-              placeholder="Search items, brands, colours…"
-              className="h-12 rounded-full border-0 bg-background pl-10 text-base text-foreground shadow"
-              enterKeyHint="search"
-            />
-          </div>
-          <Button type="submit" size="lg" className="h-12 rounded-full bg-white px-6 text-primary hover:bg-white/90" disabled={!!busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-          </Button>
-          <Button type="button" size="lg" className="h-12 rounded-full bg-white/20 px-4 text-white hover:bg-white/30" onClick={() => photoRef.current?.click()} disabled={!!busy} aria-label="Search with a photo" title="Search with a photo">
-            <Camera className="h-5 w-5" /><span className="ml-2 hidden sm:inline">Photo</span>
-          </Button>
-          <input
-            ref={photoRef}
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) handlePhoto(file);
+    <div className="container mx-auto space-y-4 px-4 pb-6 pt-2 md:space-y-6 md:py-8">
+      <PageIntro icon={Compass} title="Explore" subtitle="Every item on Saligue. Search, filter and compare." />
+      <div className="sticky top-16 z-30 -mx-4 bg-background/95 px-4 py-2 backdrop-blur md:static md:mx-0 md:bg-transparent md:p-0">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setQueryPhoto(null);
+              run({ text });
             }}
-          />
-        </form>
-      </PageIntro>
-
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        <button type="button" onClick={() => setFilters({ ...filters, categories: [] })}
-          className={cn('h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition', !filters.categories.length ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:border-primary')}>
-          All
-        </button>
-        {CATEGORIES.map((c) => {
-          const on = filters.categories.includes(c.value);
-          return (
-            <button key={c.value} type="button" onClick={() => setFilters({ ...filters, categories: on ? filters.categories.filter((x) => x !== c.value) : [c.value] })}
-              className={cn('h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition', on ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:border-primary')}>
-              {c.label}
-            </button>
-          );
-        })}
+            className="flex gap-2"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onFocus={warmUpSearch}
+                placeholder="Search items, brands, colours…"
+                className="h-11 rounded-full bg-muted pl-10 text-base"
+                enterKeyHint="search"
+              />
+            </div>
+            <Button type="submit" className="hidden h-11 rounded-full px-6 sm:inline-flex" disabled={!!busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+            </Button>
+            <Button type="button" variant="secondary" className="h-11 w-11 shrink-0 rounded-full p-0 sm:w-auto sm:px-4" onClick={() => photoRef.current?.click()} disabled={!!busy} aria-label="Search with a photo" title="Search with a photo">
+              <Camera className="h-5 w-5" /><span className="ml-2 hidden sm:inline">Search by photo</span>
+            </Button>
+            <input
+              ref={photoRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) handlePhoto(file);
+              }}
+            />
+          </form>
       </div>
+
+      <CategoryStrip
+        value={filters.categories[0] ?? null}
+        onChange={(c) => setFilters({ ...filters, categories: c ? [c] : [] })}
+        withBoutique
+      />
 
       <div>
         <div className="min-w-0 space-y-4">
@@ -264,7 +252,7 @@ function SearchContent() {
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" className="h-10 rounded-full">
-                  <SlidersHorizontal className="mr-2 h-4 w-4" /> Filters{filterCount > 0 && <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{filterCount}</span>}
+                  <SlidersHorizontal className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">Filters</span>{filterCount > 0 && <span className="ml-1.5 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{filterCount}</span>}
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-[85vw] max-w-sm overflow-y-auto">

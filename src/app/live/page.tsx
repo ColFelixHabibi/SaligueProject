@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Compass, Eye, Flame, Heart, Radio } from 'lucide-react';
+import { Eye, Heart, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -43,18 +43,12 @@ export default function LivesPage() {
   const { role } = useAuth();
   return (
     <div className="container mx-auto space-y-6 px-4 py-6 md:py-8">
-      <PageIntro
-        icon={Radio}
-        title="Live"
-        subtitle="Shops showing their items on camera right now. Chat, send hearts, buy while they talk — or join them on camera."
-        links={[{ href: '/', label: 'For You', icon: Flame }, { href: '/search', label: 'Explore', icon: Compass }]}
-      >
-        {role === 'seller' && (
-          <Button size="lg" className="h-12 rounded-full bg-white px-6 text-primary hover:bg-white/90" asChild>
-            <Link href="/live/studio"><Radio className="mr-2 h-5 w-5" /> Go live</Link>
-          </Button>
-        )}
+      <PageIntro icon={Radio} title="Live" subtitle="Shops showing their items on camera right now.">
+        {role === 'seller' && <Button asChild><Link href="/live/studio"><Radio className="mr-2 h-4 w-4" /> Go live</Link></Button>}
       </PageIntro>
+      {role === 'seller' && (
+        <Button className="h-12 w-full rounded-full md:hidden" asChild><Link href="/live/studio"><Radio className="mr-2 h-5 w-5" /> Go live</Link></Button>
+      )}
       {!lives ? (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="aspect-[9/14] rounded-2xl" />)}</div>
       ) : lives.lives.length === 0 ? (

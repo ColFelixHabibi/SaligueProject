@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Compass, Flame, PlusCircle, Radio, Wand2 } from 'lucide-react';
+import { PlusCircle, Radio } from 'lucide-react';
 import { useLives } from '@/lib/lives';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
@@ -83,11 +83,7 @@ export default function ForYouPage() {
     <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
       <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-start px-3">
-        <div className="pointer-events-auto mt-3 flex items-center gap-0.5 rounded-full border bg-background/95 p-1 text-xs font-semibold text-foreground shadow-md backdrop-blur">
-          <span className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-primary-foreground"><Flame className="h-3.5 w-3.5" /> For You</span>
-          <Link href="/search" className="flex items-center gap-1 rounded-full px-2.5 py-1.5 hover:bg-muted"><Compass className="h-3.5 w-3.5" /> Explore</Link>
-          <Link href="/mirror" className="flex items-center gap-1 rounded-full px-2.5 py-1.5 hover:bg-muted"><Wand2 className="h-3.5 w-3.5" /> Try on</Link>
-        </div>
+
         {lives.length > 0 && (
           <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} className="pointer-events-auto ml-2 mt-3 flex items-center gap-1.5 rounded-full bg-primary py-1 pl-1 pr-3 text-xs font-extrabold text-primary-foreground shadow-md">
             <span className="flex -space-x-2">{lives.slice(0, 3).map((l) => <SellerAvatar key={l.id} src={l.sellerAvatar} name={l.sellerName} className="h-6 w-6 ring-2 ring-primary" />)}</span>

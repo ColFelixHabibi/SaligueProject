@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CATEGORIES, typesOf } from '@/lib/categories';
+import { typesOf } from '@/lib/categories';
+import { CategoryStrip } from '@/components/category-strip';
 import type { WearForm } from '@/lib/search';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -37,17 +38,11 @@ export function DescribeForm({ value, onChange, products, compact }: { value: We
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label className="font-semibold">What kind of item?</Label>
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-          {CATEGORIES.map((c) => (
-            <button key={c.value} type="button" className={chip(value.category === c.value)}
-              onClick={() => onChange({ ...value, category: value.category === c.value ? undefined : c.value, type: undefined, size: undefined, brand: undefined })}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <CategoryStrip
+        value={value.category ?? null}
+        allowAll={false}
+        onChange={(c) => onChange({ ...value, category: c ?? undefined, type: undefined, size: undefined, brand: undefined })}
+      />
 
       {types.length > 0 && (
         <div className="space-y-2">
@@ -101,7 +96,7 @@ export function DescribeForm({ value, onChange, products, compact }: { value: We
           </Select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="wear-budget" className="font-semibold">Budget (max $)</Label>
+          <Label htmlFor="wear-budget" className="font-semibold">Max price ($)</Label>
           <Input id="wear-budget" type="number" min="1" step="1" inputMode="numeric" placeholder="Any price"
             value={value.maxPrice ?? ''} onChange={(e) => set({ maxPrice: e.target.value ? Math.max(1, Number(e.target.value)) : undefined })} />
         </div>
@@ -118,7 +113,7 @@ export function DescribeForm({ value, onChange, products, compact }: { value: We
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="wear-details" className="font-semibold">Anything else? <span className="font-normal text-muted-foreground">(optional)</span></Label>
+        <Label htmlFor="wear-details" className="font-semibold">Details <span className="font-normal text-muted-foreground">(optional)</span></Label>
         <Input id="wear-details" maxLength={80} placeholder="e.g. slim fit, cotton, long sleeves" value={value.details ?? ''} onChange={(e) => set({ details: e.target.value || undefined })} />
       </div>
     </div>

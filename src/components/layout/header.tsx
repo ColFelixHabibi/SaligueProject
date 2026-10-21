@@ -5,7 +5,7 @@ import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, LogOut, MessageCircle, Radio, ShoppingBag, User } from 'lucide-react';
+import { CircleUserRound, LogOut, MessageCircle, Radio, Search, ShoppingBag, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,6 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
-import { useNotificationStore } from '@/hooks/use-notification-store';
 import { useUnreadMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -32,7 +31,7 @@ export function Logo({ light, compact }: { light?: boolean; compact?: boolean })
   return (
     <span className="flex items-center gap-2">
       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-lg font-extrabold text-primary-foreground">S</span>
-      <span className={cn('flex-col leading-none', compact ? 'hidden' : 'hidden min-[400px]:flex')}>
+      <span className={cn('flex-col leading-none', compact ? 'hidden' : 'hidden min-[420px]:flex')}>
         <span className={cn('text-xl font-extrabold tracking-tight', light ? 'text-white' : 'text-foreground')}>Saligue</span>
         <span className={cn('text-[9px] font-semibold uppercase tracking-[0.25em]', light ? 'text-white/70' : 'text-primary')}>by INDECIANA</span>
       </span>
@@ -46,7 +45,6 @@ export default function Header() {
   const pathname = usePathname();
   const { user, role } = useAuth();
   const { cartItems } = useCart();
-  const unread = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
   const unreadMessages = useUnreadMessages();
   const liveCount = useLives()?.lives.length ?? 0;
   const [loginOpen, setLoginOpen] = useState(false);
@@ -76,17 +74,13 @@ export default function Header() {
         <Logo />
 
 
-        <div className="flex items-center gap-1">
-          {/* INDECIANA's own boutique: its single entry point in the app. */}
-          <Link
-            href="/indeciana"
-            className={cn(
-              'mr-0.5 rounded-full px-2.5 py-1.5 font-serif text-[10px] tracking-[0.15em] transition-colors sm:text-xs',
-              pathname.includes('/indeciana') ? 'bg-primary text-primary-foreground' : 'border border-foreground bg-background text-foreground hover:bg-muted'
-            )}
-          >
-            INDECIANA
-          </Link>
+        {/* Icons only, like TikTok and Instagram. INDECIANA is in Explore's categories; notifications are under Me. */}
+        <div className="flex items-center">
+          {!pathname.replace(/\/+$/, '').endsWith('/search') && (
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/search" aria-label="Search"><Search className="h-5 w-5" /></Link>
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/live" aria-label="Live">
               <Radio className="h-5 w-5" />
@@ -101,16 +95,6 @@ export default function Header() {
               )}
             </Link>
           </Button>
-          {user && (
-            <Button variant="ghost" size="icon" className="relative" asChild>
-              <Link href={pathname.startsWith('/dashboard') ? '/dashboard/notifications' : '/notifications'} aria-label={`Notifications, ${unread} unread`}>
-                <Bell className="h-5 w-5" />
-                {unread > 0 && (
-                  <Badge className="absolute -right-0.5 -top-0.5 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">{unread > 9 ? '9+' : unread}</Badge>
-                )}
-              </Link>
-            </Button>
-          )}
           {role !== 'seller' && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />
@@ -145,8 +129,8 @@ export default function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button size="sm" className="rounded-full px-3.5" onClick={() => setLoginOpen(true)}>
-              Log in
+            <Button variant="ghost" size="icon" onClick={() => setLoginOpen(true)} aria-label="Log in">
+              <CircleUserRound className="h-6 w-6 text-primary" />
             </Button>
           )}
         </div>
