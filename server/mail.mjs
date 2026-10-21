@@ -66,3 +66,46 @@ export function sendEmail(to, { subject, title = subject, lines, button }) {
   }
   transport.sendMail(message).catch((error) => console.error(`Could not send email to ${to}:`, error.message));
 }
+
+/** Builds the mail-server address from an email account and its app password (Gmail, Outlook, Yahoo, Zoho, or a host). */
+export function smtpUrlFor({ email, password, host }) {
+  const domain = String(email).split('@')[1]?.toLowerCase() ?? '';
+  // Port 587 with STARTTLS (encryption required): many hosts, Hetzner included, block outgoing port 465 and 25.
+  const known = {
+    'gmail.com': 'smtp.gmail.com', 'googlemail.com': 'smtp.gmail.com',
+    'outlook.com': 'smtp.office365.com', 'hotmail.com': 'smtp.office365.com', 'live.com': 'smtp.office365.com',
+    'yahoo.com': 'smtp.mail.yahoo.com', 'zoho.com': 'smtp.zoho.com',
+  };
+  const server = host ? String(host).replace(/^smtps?:\/\//, '').replace(/:\d+$/, '') : known[domain];
+  const base = server ? `smtp://${server}:587?requireTLS=true` : null;
+  if (!base) return null;
+  const url = new URL(base);
+  url.username = encodeURIComponent(email);
+  url.password = encodeURIComponent(password);
+  return url.toString().replace(/\/$/, '');
+}
+
+/** Logs in to a mail server to check the account works. Throws with the server's reason when it doesn't. */
+export async function verifyMailAccount(url) {
+  const t = nodemailer.createTransport(url, { connectionTimeout: 15_000, greetingTimeout: 15_000 });
+  try {
+    await t.verify();
+  } finally {
+    t.close();
+  }
+}
+
+/** Sends one email now and waits for the result (for "Send a test email"). */
+export async function sendEmailNow(to, { subject, title = subject, lines }) {
+  const { url, from } = settings();
+  if (!url) throw new Error('No email account is connected yet.');
+  const t = nodemailer.createTransport(url);
+  try {
+    await t.sendMail({ from, to, subject, text: [title, '', ...lines].join('\n'), html: html({ title, lines }) });
+  } finally {
+    t.close();
+  }
+}
+
+export const mailConfigured = () => !!settings().url;
+export const mailFrom = () => settings().from;

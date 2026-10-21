@@ -9,6 +9,8 @@ export type AccountUser = {
   displayName: string | null;
   role: 'buyer' | 'seller';
   official: boolean;
+  // Can open Platform settings (email, payments, try-on).
+  admin?: boolean;
   shop: Shop | null;
   // Profile photo (/media/… link). Sellers need one before listing.
   avatar: string | null;

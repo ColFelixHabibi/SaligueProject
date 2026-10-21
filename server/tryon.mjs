@@ -15,6 +15,9 @@ import { DATA_DIR, db, parse } from './db.mjs';
 
 const SPACE = process.env.TRYON_SPACE || 'franciszzj/Leffa';
 const FALLBACK_SPACE = process.env.TRYON_FALLBACK_SPACE || 'yisol/IDM-VTON';
+// Last free fallback: Kolors Virtual Try-On (Kuaishou's public demo; not on Hugging Face's shared GPU quota).
+// It sometimes redraws other clothes too; the app checks every look and throws those away (composite.ts).
+const LAST_SPACE = process.env.TRYON_LAST_SPACE || 'Kwai-Kolors/Kolors-Virtual-Try-On';
 const auth = () => (process.env.HF_TOKEN ? { hf_token: process.env.HF_TOKEN } : undefined);
 
 const clients = new Map();
@@ -32,6 +35,16 @@ async function download(url) {
   if (!response.ok) throw new Error(`Could not download the result (${response.status}).`);
   const type = response.headers.get('content-type') || 'image/png';
   return `data:${type};base64,${Buffer.from(await response.arrayBuffer()).toString('base64')}`;
+}
+
+// A model whose free daily quota is used up is skipped until the time Hugging Face gives ("Try again in 12:17:54"),
+// so shoppers don't wait for refusals before the next model answers.
+const resting = new Map(); // space → time it can be tried again
+const available = (space) => (resting.get(space) ?? 0) < Date.now();
+function rest(space, error) {
+  const m = /Try again in (\d+):(\d+):(\d+)/.exec(String(error?.message ?? error));
+  if (m) resting.set(space, Date.now() + ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * 1000);
+  else if (isBusy(String(error?.message ?? error))) resting.set(space, Date.now() + 10 * 60_000);
 }
 
 const isBusy = (message) => /quota|exceeded|GPU|rate|queue|busy|limit/i.test(message);
@@ -164,6 +177,15 @@ function toCache(key, image) {
   }
 }
 
+async function kolors(person, garment, variant = 0) {
+  const app = await connect(LAST_SPACE);
+  // Inputs: person, garment, seed, random seed.
+  const result = await app.predict(2, [handle_file(toBlob(person)), handle_file(toBlob(garment)), 42 + variant * 1009, false]);
+  const url = result?.data?.[0]?.url;
+  if (!url) throw new Error('Kolors returned no picture.');
+  return download(url);
+}
+
 /** Returns the person wearing the garment, as a JPEG/PNG data URL. */
 export async function tryOn(person, garment, category, description = '', variant = 0) {
   toBlob(person);
@@ -185,23 +207,41 @@ async function makeLook(person, garment, category, description, variant) {
     }
   }
   let first;
-  try {
-    return await leffa(person, garment, category, variant);
-  } catch (error) {
-    first = error;
-    clients.delete(SPACE);
-  }
-  if (category === 'top' || category === 'outerwear') {
+  if (available(SPACE)) {
     try {
-      return await idmVton(person, garment, description, variant);
+      return await leffa(person, garment, category, variant);
     } catch (error) {
-      clients.delete(FALLBACK_SPACE);
-      console.error('Realistic try-on fallback failed:', error?.message ?? error);
+      first = error;
+      rest(SPACE, error);
+      clients.delete(SPACE);
+    }
+  } else first = new Error('quota: resting');
+  if (category === 'top' || category === 'outerwear') {
+    if (available(FALLBACK_SPACE)) {
+      try {
+        return await idmVton(person, garment, description, variant);
+      } catch (error) {
+        rest(FALLBACK_SPACE, error);
+        clients.delete(FALLBACK_SPACE);
+        console.error('Realistic try-on fallback failed:', String(error?.message ?? error).slice(0, 160));
+      }
+    }
+    // Kolors (kolors() above) is not used: in tests it drew wrong sleeves and smudges and changed other clothes.
+    // Turn it on with TRYON_USE_KOLORS=1 only to experiment; the app's look check still guards every picture.
+    if (process.env.TRYON_USE_KOLORS === '1') {
+      try {
+        return await kolors(person, garment, variant);
+      } catch (error) {
+        clients.delete(LAST_SPACE);
+        console.error('Realistic try-on last fallback failed:', error?.message ?? error);
+      }
     }
   }
   const message = String(first?.message ?? first);
-  if (isBusy(message)) {
-    throw Object.assign(new Error('The free realistic AI is busy or its daily limit is used up. Try again later.'), { status: 503 });
+  if (isBusy(message) || !available(SPACE)) {
+    const back = resting.get(SPACE);
+    const when = back ? new Date(back).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Kigali' }) : null;
+    throw Object.assign(new Error(`The free realistic try-on has used its daily limit${when ? ` and is back at ${when} (Kigali time)` : ''}. Shoes, hats, glasses and bags still work now.`), { status: 503 });
   }
   throw Object.assign(new Error('The realistic AI could not dress you this time. Try again in a moment.'), { status: 502, cause: first });
 }

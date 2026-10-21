@@ -1,6 +1,7 @@
 // Small admin tool for the Saligue database.
 //   node server/admin.mjs official <email>      mark an account as INDECIANA (official)
 //   node server/admin.mjs unofficial <email>    remove the official mark
+//   node server/admin.mjs admin <email>         let an account open Platform settings (email, payments, try-on)
 //   node server/admin.mjs users                 list accounts
 //   node server/admin.mjs support               list support requests
 //   node server/admin.mjs google <client id>    switch on Google sign-in (OAuth web client ID)
@@ -30,6 +31,10 @@ if (command === 'official' || command === 'unofficial') {
   db.prepare('update users set official = ? where id = ?').run(flag, user.id);
   db.prepare('update products set official = ? where seller_id = ?').run(flag, user.id);
   console.log(`${email} is ${flag ? 'now' : 'no longer'} INDECIANA's official account.`);
+} else if (command === 'admin') {
+  const done = db.prepare('update users set admin = 1 where email = ?').run(String(email ?? '').toLowerCase());
+  console.log(done.changes ? `${email} can now open Platform settings (Me → Platform settings).` : `No account with the email ${email}.`);
+  if (!done.changes) process.exit(1);
 } else if (command === 'users') {
   console.table(db.prepare('select email, display_name as name, role, official, created_at from users where is_guest = 0 order by created_at').all());
 } else if (command === 'support') {

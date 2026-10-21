@@ -146,7 +146,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
         )}
         {canBeRealistic && realisticError && !realisticUrl && !realisticBusy && (
           <div className="absolute inset-x-2 top-1/3 flex flex-col items-center gap-2 rounded-xl bg-background/95 p-3 text-center text-sm shadow">
-            <span>Saligue AI couldn&apos;t dress you in it this time.</span>
+            <span>{realisticError ?? 'Saligue AI couldn’t dress you in it this time.'}</span>
             <Button size="sm" onClick={makeRealistic}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button>
           </div>
         )}
@@ -185,7 +185,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
             <Shirt className="mr-2 h-4 w-4" /> Dress me in it
           </Button>
         )}
-        {realisticError && <p className="text-xs text-destructive">{realisticError}</p>}
+
         {onCompare && afterUrl && !waitingForAi && (
           <Button size="sm" variant={compared ? 'secondary' : 'outline'} className="w-full" onClick={() => onCompare(compared ? null : afterUrl)}>
             {compared ? <Check className="mr-2 h-4 w-4" /> : <Columns2 className="mr-2 h-4 w-4" />}

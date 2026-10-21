@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           stopLikes();
         };
       }
-      useUserRoleStore.setState({ role: account.role, official: account.official, shop: account.shop, avatar: mediaUrl(account.avatar ?? undefined) ?? null, pendingRole: null, isInitialized: true });
+      useUserRoleStore.setState({ role: account.role, official: account.official, admin: !!account.admin, shop: account.shop, avatar: mediaUrl(account.avatar ?? undefined) ?? null, pendingRole: null, isInitialized: true });
       setAuthUid(account.id);
       setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);

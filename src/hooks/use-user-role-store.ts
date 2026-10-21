@@ -14,6 +14,7 @@ interface UserRoleState {
   isInitialized: boolean;
   // INDECIANA's official account(s), set with `node server/admin.mjs official <email>`.
   official: boolean;
+  admin: boolean;
   // The seller's shop profile with full address.
   shop: Shop | null;
   // Profile photo, shown with the shop (full address, ready for <img>).
@@ -26,6 +27,7 @@ export const useUserRoleStore = create<UserRoleState>()((set) => ({
   pendingRole: null,
   isInitialized: false,
   official: false,
+  admin: false,
   shop: null,
   avatar: null,
   setRole: (role) => set({ role, pendingRole: role }),

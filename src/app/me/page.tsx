@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bell, Bookmark, ChevronRight, Cookie, FileText, LayoutDashboard, LogOut, MapPin, MessageCircle, Package, PlusSquare, Repeat, Settings, ShoppingBag, Store } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
+import { SlidersHorizontal, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ export default function MePage() {
   const { user, role } = useAuth();
   const unreadMessages = useUnreadMessages();
   const shop = useUserRoleStore((s) => s.shop);
+  const admin = useUserRoleStore((s) => s.admin);
   const { wishlistItems } = useWishlist();
   const { cartItems } = useCart();
   const unread = useNotificationStore((st) => st.notifications.filter((n) => !n.read).length);
@@ -106,6 +108,12 @@ export default function MePage() {
         </>
       )}
 
+      {user && admin && (
+        <Card className="divide-y overflow-hidden border-primary/40">
+          <Row href="/admin" icon={SlidersHorizontal} label="Platform settings" detail="Email, payments, try-on" />
+        </Card>
+      )}
+
       {user && (
         <Card className="divide-y overflow-hidden">
           <Row href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} icon={Settings} label="Settings" />
@@ -121,6 +129,7 @@ export default function MePage() {
       )}
 
       <Card className="mt-4 overflow-hidden">
+        <Row href="/download" icon={Smartphone} label="Get the Android app" />
         <Row href="/terms" icon={FileText} label="Terms of Service" />
         <Row href="/privacy" icon={FileText} label="Privacy Policy" />
         <Row href="/cookies" icon={Cookie} label="Cookie Policy" />

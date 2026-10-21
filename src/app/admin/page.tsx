@@ -1,0 +1,224 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { CheckCircle2, CircleDashed, CreditCard, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/components/auth/auth-provider';
+import { useUserRoleStore } from '@/hooks/use-user-role-store';
+import { useToast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
+import { friendlyError } from '@/lib/errors';
+
+type Platform = {
+  site: string;
+  mail: { connected: boolean; from: string; outbox: number; fromEnv: boolean };
+  payments: { enabled: boolean; currency: string; rate: number; key: string | null; webhook: string; fromEnv: boolean };
+  tryon: { unlimited: boolean; key: string | null; fromEnv: boolean };
+  live: { enabled: boolean };
+  stats: { users: number; sellers: number; products: number; orders: number };
+};
+
+function Status({ on, label }: { on: boolean; label: [string, string] }) {
+  return on ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> {label[0]}</span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600"><CircleDashed className="h-3.5 w-3.5" /> {label[1]}</span>
+  );
+}
+
+function Steps({ items }: { items: React.ReactNode[] }) {
+  return (
+    <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+      {items.map((item, i) => <li key={i}>{item}</li>)}
+    </ol>
+  );
+}
+
+/** Platform settings for Saligue admins: connect email, online payments and unlimited try-on. */
+export default function PlatformPage() {
+  const { toast } = useToast();
+  const { user, isAuthLoading } = useAuth();
+  const admin = useUserRoleStore((s) => s.admin);
+  const [data, setData] = useState<Platform | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [mail, setMail] = useState({ email: '', password: '', host: '', name: 'Saligue by INDECIANA' });
+  const [testTo, setTestTo] = useState('');
+  const [pay, setPay] = useState({ secretKey: '', secretHash: '', currency: 'RWF', rate: '1450' });
+  const [falKey, setFalKey] = useState('');
+
+  const load = useCallback(() => api<Platform>('/admin/platform').then(setData).catch(() => setData(null)), []);
+  useEffect(() => {
+    if (admin) void load();
+  }, [admin, load]);
+  useEffect(() => {
+    if (user?.email) setTestTo((t) => t || user.email!);
+  }, [user]);
+
+  const act = async (name: string, fn: () => Promise<unknown>, done: string) => {
+    setBusy(name);
+    try {
+      await fn();
+      toast({ title: done });
+      await load();
+      return true;
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Not saved', description: friendlyError(error) });
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (isAuthLoading) return <Skeleton className="mx-auto mt-10 h-96 max-w-3xl" />;
+  if (!admin) {
+    return (
+      <div className="mx-auto max-w-md p-10 text-center text-muted-foreground">
+        <SlidersHorizontal className="mx-auto mb-3 h-10 w-10" />
+        Platform settings are for Saligue admins. <Link href="/me" className="text-primary underline">Back</Link>
+      </div>
+    );
+  }
+  if (!data) return <Skeleton className="mx-auto mt-10 h-96 max-w-3xl" />;
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin</p>
+        <h1 className="text-3xl font-extrabold tracking-tight">Platform settings</h1>
+        <p className="text-muted-foreground">Connect the services Saligue needs. Keys are kept on your server and never shown again.</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[['Accounts', data.stats.users], ['Sellers', data.stats.sellers], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
+            <div key={k as string} className="rounded-xl border bg-card p-3"><p className="text-2xl font-bold">{v}</p><p className="text-xs text-muted-foreground">{k}</p></div>
+          ))}
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5 text-primary" /> Email</CardTitle>
+            <Status on={data.mail.connected} label={['Sending emails', 'Not connected']} />
+          </div>
+          <CardDescription>
+            Welcome, order, message and password-reset emails.{' '}
+            {data.mail.connected ? <>Sending as <b className="text-foreground">{data.mail.from}</b>.</> : <>Until connected, {data.mail.outbox} emails were kept on the server instead of sent.</>}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Use a Gmail account for Saligue (or your business email).</>,
+            <>In Google Account → Security, turn on <b>2-Step Verification</b>.</>,
+            <>Open <b>App passwords</b>, create one named “Saligue”, and copy the 16 letters.</>,
+            <>Paste the email and the app password below. Saligue logs in to check before saving.</>,
+          ]} />
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('mail', () => api('/admin/platform/mail', { method: 'PUT', body: mail }), 'Email connected').then((ok) => ok && setMail((m) => ({ ...m, password: '' })));
+          }}>
+            <div className="space-y-1.5"><Label htmlFor="mail-email">Email address</Label><Input id="mail-email" type="email" required value={mail.email} onChange={(e) => setMail({ ...mail, email: e.target.value })} placeholder="saligue.shop@gmail.com" /></div>
+            <div className="space-y-1.5"><Label htmlFor="mail-pass">App password</Label><Input id="mail-pass" type="password" required value={mail.password} onChange={(e) => setMail({ ...mail, password: e.target.value })} placeholder="abcd efgh ijkl mnop" autoComplete="new-password" /></div>
+            <div className="space-y-1.5"><Label htmlFor="mail-name">Sender name</Label><Input id="mail-name" value={mail.name} onChange={(e) => setMail({ ...mail, name: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label htmlFor="mail-host">Mail server <span className="font-normal text-muted-foreground">(only if not Gmail/Outlook/Yahoo)</span></Label><Input id="mail-host" value={mail.host} onChange={(e) => setMail({ ...mail, host: e.target.value })} placeholder="smtp.yourdomain.com" /></div>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button type="submit" disabled={busy === 'mail'}>{busy === 'mail' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Check and connect</Button>
+              {data.mail.connected && !data.mail.fromEnv && <Button type="button" variant="ghost" onClick={() => act('mail-off', () => api('/admin/platform/mail', { method: 'PUT', body: { off: true } }), 'Email disconnected')}>Disconnect</Button>}
+            </div>
+          </form>
+          {data.mail.connected && (
+            <form className="flex flex-wrap items-end gap-2 border-t pt-4" onSubmit={(e) => {
+              e.preventDefault();
+              void act('test', () => api('/admin/platform/test-email', { body: { to: testTo } }), `Test email sent to ${testTo}`);
+            }}>
+              <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="test-to">Send a test email to</Label><Input id="test-to" type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} /></div>
+              <Button type="submit" variant="outline" disabled={busy === 'test'}>{busy === 'test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Send test</Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /> Online payments</CardTitle>
+            <Status on={data.payments.enabled} label={[`On · ${data.payments.currency}`, 'Off']} />
+          </div>
+          <CardDescription>Card and MTN / Airtel Mobile Money through Flutterwave. Until it is on, shoppers pay the shop by Mobile Money, on delivery or at pickup.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Create a business account at <b>flutterwave.com</b> and finish the verification for Rwanda.</>,
+            <>Settings → API keys: copy the <b>Secret key</b> (starts with FLWSECK).</>,
+            <>Settings → Webhooks: URL <code className="break-all rounded bg-muted px-1 text-foreground">{data.payments.webhook}</code>, and type a secret hash of your choice.</>,
+            <>Paste both below with the exchange rate (prices on Saligue are in dollars).</>,
+          ]} />
+          {data.payments.key && <p className="text-sm">Saved key: <b>{data.payments.key}</b> · 1 USD = {data.payments.rate} {data.payments.currency}</p>}
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('pay', () => api('/admin/platform/payments', { method: 'PUT', body: { ...pay, rate: Number(pay.rate) } }), 'Online payments are on').then((ok) => ok && setPay((p) => ({ ...p, secretKey: '', secretHash: '' })));
+          }}>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="flw-key">Secret key</Label><Input id="flw-key" type="password" required value={pay.secretKey} onChange={(e) => setPay({ ...pay, secretKey: e.target.value })} placeholder="FLWSECK-…" autoComplete="off" /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="flw-hash">Webhook secret hash</Label><Input id="flw-hash" type="password" required minLength={8} value={pay.secretHash} onChange={(e) => setPay({ ...pay, secretHash: e.target.value })} autoComplete="off" /></div>
+            <div className="space-y-1.5">
+              <Label>Charge in</Label>
+              <Select value={pay.currency} onValueChange={(v) => setPay({ ...pay, currency: v, rate: v === 'USD' ? '1' : pay.rate })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{['RWF', 'USD', 'KES', 'UGX', 'TZS'].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5"><Label htmlFor="flw-rate">1 USD = how many {pay.currency}</Label><Input id="flw-rate" type="number" min="0.01" step="0.01" disabled={pay.currency === 'USD'} value={pay.rate} onChange={(e) => setPay({ ...pay, rate: e.target.value })} /></div>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button type="submit" disabled={busy === 'pay'}>{busy === 'pay' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Check and turn on</Button>
+              {data.payments.enabled && !data.payments.fromEnv && <Button type="button" variant="ghost" onClick={() => act('pay-off', () => api('/admin/platform/payments', { method: 'PUT', body: { off: true } }), 'Online payments are off')}>Turn off</Button>}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><Shirt className="h-5 w-5 text-primary" /> Unlimited try-on</CardTitle>
+            <Status on={data.tryon.unlimited} label={['Unlimited', 'Free AI · daily limit']} />
+          </div>
+          <CardDescription>FASHN on fal.ai: no daily limit, allowed for selling, paid per picture. Looks already made are reused, so the same photo and item are never paid twice.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Sign up at <b>fal.ai</b> and add credit (Billing).</>,
+            <>Dashboard → <b>Keys</b> → create a key and copy it.</>,
+            <>Paste it below. Every search result in the Fitting Room is then dressed automatically.</>,
+          ]} />
+          {data.tryon.key && <p className="text-sm">Saved key: <b>{data.tryon.key}</b></p>}
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('fal', () => api('/admin/platform/tryon', { method: 'PUT', body: { falKey } }), 'Unlimited try-on is on').then((ok) => ok && setFalKey(''));
+          }}>
+            <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="fal-key">fal.ai key</Label><Input id="fal-key" type="password" required value={falKey} onChange={(e) => setFalKey(e.target.value)} autoComplete="off" /></div>
+            <Button type="submit" disabled={busy === 'fal'}>{busy === 'fal' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Turn on</Button>
+            {data.tryon.unlimited && !data.tryon.fromEnv && <Button type="button" variant="ghost" onClick={() => act('fal-off', () => api('/admin/platform/tryon', { method: 'PUT', body: { off: true } }), 'Back to the free try-on')}>Turn off</Button>}
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><Radio className="h-5 w-5 text-primary" /> Live and app</CardTitle>
+            <Status on={data.live.enabled} label={['Live is on', 'Live is off']} />
+          </div>
+          <CardDescription>Live video runs on your own server. The Android app is ready to install.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild><Link href="/live">Open Live</Link></Button>
+          <Button variant="outline" asChild><a href="/download/saligue.apk">Download the Android app</a></Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

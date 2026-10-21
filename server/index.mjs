@@ -2,12 +2,12 @@
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
-import { sendEmail, siteUrl } from './mail.mjs';
+import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
-import { REALISTIC_CATEGORIES, tryOn, unlimitedTryOn } from './tryon.mjs';
+import { REALISTIC_CATEGORIES, falKey, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
@@ -91,6 +91,8 @@ function publicUser(u) {
     displayName: u.display_name,
     role: u.role,
     official: !!u.official,
+    // Runs the platform (Platform settings: email, payments, try-on). Set with `node server/admin.mjs admin <email>`.
+    admin: !!u.admin,
     shop: parse(u.shop),
     // Profile photo (/media/… link); sellers need one before listing, it is shown with their shop.
     avatar: u.avatar ?? null,
@@ -1537,6 +1539,114 @@ route('DELETE', '/api/interactions', ({ user }) => {
   return { ok: true };
 });
 
+// ---------------------------------------------------------------------------
+// Platform settings (admins): connect email, online payments and unlimited try-on from the browser.
+// Secrets are stored on the server and never sent back, only whether they are set.
+// ---------------------------------------------------------------------------
+
+const requireAdmin = (user) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Only Saligue admins can change platform settings.');
+};
+const saveConfig = (key, value) =>
+  value === null
+    ? db.prepare('delete from app_config where key = ?').run(key)
+    : db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(key, json(value));
+const masked = (secret) => (secret ? `••••${String(secret).slice(-4)}` : null);
+
+route('GET', '/api/admin/platform', ({ user }) => {
+  requireAdmin(user);
+  const pay = paymentSettings();
+  const count = (sql) => db.prepare(sql).get().n;
+  let outbox = 0;
+  try {
+    outbox = readdirSync(join(resolve(process.env.SALIGUE_DATA || 'data'), 'outbox')).length;
+  } catch {
+    // No outbox yet.
+  }
+  return {
+    site: siteUrl(),
+    mail: { connected: mailConfigured(), from: mailFrom(), outbox, fromEnv: !!process.env.SMTP_URL },
+    payments: { enabled: paymentsEnabled(), currency: pay.currency, rate: pay.rate, key: masked(pay.secretKey), webhook: `${siteUrl()}/api/payments/webhook`, fromEnv: !!process.env.FLW_SECRET_KEY },
+    tryon: { unlimited: unlimitedTryOn(), key: masked(falKey()), fromEnv: !!process.env.FAL_KEY },
+    live: { enabled: liveSettings().enabled },
+    stats: {
+      users: count('select count(*) as n from users where is_guest = 0'),
+      sellers: count("select count(*) as n from users where role = 'seller' and is_guest = 0"),
+      products: count("select count(*) as n from products where status = 'active'"),
+      orders: count("select count(*) as n from orders where status != 'cancelled'"),
+    },
+  };
+});
+
+route('PUT', '/api/admin/platform/mail', async ({ user, body }) => {
+  requireAdmin(user);
+  if (body.off) {
+    saveConfig('mail', null);
+    return { ok: true };
+  }
+  const email = String(body.email ?? '').trim();
+  const password = String(body.password ?? '').replace(/\s+/g, '');
+  if (!EMAIL.test(email) || !password) fail(400, 'incomplete', 'Enter the email address and its app password.');
+  const url = smtpUrlFor({ email, password, host: body.host ? String(body.host).trim() : undefined });
+  if (!url) fail(400, 'unknown_provider', 'For this email provider, also enter its mail server (e.g. smtp.yourdomain.com).');
+  try {
+    await verifyMailAccount(url);
+  } catch (error) {
+    const reason = String(error?.message ?? error);
+    fail(400, 'mail_login_failed', /535|Invalid login|Username and Password not accepted|auth/i.test(reason)
+      ? 'The email provider refused the login. For Gmail, turn on 2-Step Verification and use an App Password (Google Account → Security → App passwords), not your normal password.'
+      : `Could not reach the mail server: ${reason.slice(0, 160)}`);
+  }
+  const name = String(body.name ?? '').trim() || 'Saligue by INDECIANA';
+  saveConfig('mail', { url, from: `${name.replace(/[<>"]/g, '')} <${email}>` });
+  return { ok: true };
+});
+
+route('POST', '/api/admin/platform/test-email', async ({ user, body }) => {
+  requireAdmin(user);
+  const to = String(body.to ?? user.email ?? '').trim();
+  if (!EMAIL.test(to)) fail(400, 'invalid_email', 'Enter an email address to send the test to.');
+  try {
+    await sendEmailNow(to, { subject: 'Saligue test email', lines: ['Your Saligue email is working. Customers will now get order, message and password emails.'] });
+  } catch (error) {
+    fail(400, 'mail_failed', `The test email was not sent: ${String(error?.message ?? error).slice(0, 200)}`);
+  }
+  return { ok: true, to };
+});
+
+route('PUT', '/api/admin/platform/payments', async ({ user, body }) => {
+  requireAdmin(user);
+  if (body.off) {
+    saveConfig('payments', null);
+    return { ok: true };
+  }
+  const secretKey = String(body.secretKey ?? '').trim();
+  const secretHash = String(body.secretHash ?? '').trim();
+  const currency = String(body.currency ?? 'RWF').toUpperCase();
+  const rate = currency === 'USD' ? 1 : Number(body.rate);
+  if (!/^FLWSECK/.test(secretKey)) fail(400, 'invalid_key', 'Paste the Secret key from Flutterwave (it starts with FLWSECK).');
+  if (secretHash.length < 8) fail(400, 'invalid_hash', 'Choose a secret hash of at least 8 characters and enter the same one in Flutterwave → Settings → Webhooks.');
+  if (!['RWF', 'USD', 'KES', 'UGX', 'TZS', 'NGN', 'GHS', 'ZAR', 'XAF', 'XOF'].includes(currency)) fail(400, 'invalid_currency', 'Choose a currency Flutterwave supports.');
+  if (!(rate > 0)) fail(400, 'invalid_rate', `Enter how many ${currency} one dollar is worth (e.g. 1450).`);
+  // Check the key with Flutterwave before saving it.
+  const check = await fetch('https://api.flutterwave.com/v3/balances', { headers: { Authorization: `Bearer ${secretKey}` }, signal: AbortSignal.timeout(15_000) }).catch(() => null);
+  if (check && check.status === 401) fail(400, 'invalid_key', 'Flutterwave says this secret key is not valid.');
+  saveConfig('payments', { secretKey, secretHash, currency, rate });
+  return { ok: true, checked: !!check?.ok };
+});
+
+route('PUT', '/api/admin/platform/tryon', async ({ user, body }) => {
+  requireAdmin(user);
+  if (body.off) {
+    saveConfig('tryon', null);
+    return { ok: true };
+  }
+  const key = String(body.falKey ?? '').trim();
+  if (key.length < 20) fail(400, 'invalid_key', 'Paste the API key from fal.ai (Dashboard → Keys).');
+  saveConfig('tryon', { falKey: key });
+  return { ok: true };
+});
+
 // Notifications of the signed-in account
 route('GET', '/api/me/notifications', ({ user }) => {
   if (!user) return [];
@@ -1563,9 +1673,15 @@ route('POST', '/api/support', ({ user, body }) => {
 });
 
 // App settings (e.g. the Saligue AI Studio address), set by INDECIANA.
-route('GET', '/api/config/([\\w-]+)', ({ params }) => parse(db.prepare('select value from app_config where key = ?').get(params[0])?.value));
+// Only these settings are public; the others hold passwords and keys (mail, payments, tryon).
+const PUBLIC_CONFIG = ['ai'];
+route('GET', '/api/config/([\\w-]+)', ({ params }) => {
+  if (!PUBLIC_CONFIG.includes(params[0])) fail(404, 'not_found', 'Not found.');
+  return parse(db.prepare('select value from app_config where key = ?').get(params[0])?.value);
+});
 route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
-  if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can change app settings.');
+  if (!user?.official && !user?.admin) fail(403, 'forbidden', 'Only INDECIANA can change app settings.');
+  if (!PUBLIC_CONFIG.includes(params[0])) fail(403, 'forbidden', 'Change this in Platform settings.');
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(params[0], json(body));
   return { ok: true };
 });
