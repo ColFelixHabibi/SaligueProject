@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { useBlockedIds } from '@/lib/blocks';
 
 import { mixSponsored, useSponsored } from '@/lib/ads';
@@ -117,6 +119,7 @@ export default function ForYouPage() {
   const followedLessons = useLessons({ following: true });
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const blocked = useBlockedIds();
+  const tr = useT();
   const shown = useMemo(() => {
     const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id) && !blocked.has(p.sellerId ?? ''));
     if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) : [];
@@ -138,7 +141,7 @@ export default function ForYouPage() {
         <nav className="pointer-events-auto mt-2 flex items-center gap-0.5 rounded-full bg-background/95 p-1 text-[13px] font-semibold shadow-md backdrop-blur">
           {tabs.map((t) => (
             <button key={t.value} type="button" onClick={() => setMode(t.value)} aria-pressed={mode === t.value}
-              className={cn('rounded-full px-2.5 py-1', mode === t.value ? 'bg-primary text-primary-foreground' : 'text-foreground/70')}>{t.label}</button>
+              className={cn('rounded-full px-2.5 py-1', mode === t.value ? 'bg-primary text-primary-foreground' : 'text-foreground/70')}>{tr(t.label)}</button>
           ))}
         </nav>
       </div>
@@ -168,15 +171,15 @@ export default function ForYouPage() {
       ) : mode === 'following' && followingIds && shown.length === 0 && !followedLessons?.length ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <Users className="h-14 w-14 text-primary" />
-          <p className="text-xl font-bold">Follow shops and teachers to see them here</p>
-          <p className="text-muted-foreground">Only people you follow, newest first. No algorithm.</p>
+          <p className="text-xl font-bold">{tr('Follow shops and teachers to see them here')}</p>
+          <p className="text-muted-foreground">{tr('Only people you follow, newest first. No algorithm.')}</p>
           <Button onClick={() => setMode('foryou')}>Find shops in For You</Button>
         </div>
       ) : mode === 'local' && !city ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 pt-20 text-center">
           <MapPin className="h-14 w-14 text-primary" />
-          <p className="text-xl font-bold">Shops near you</p>
-          <p className="text-muted-foreground">Choose your city. It stays on this phone only.</p>
+          <p className="text-xl font-bold">{tr('Shops near you')}</p>
+          <p className="text-muted-foreground">{tr('Choose your city. It stays on this phone only.')}</p>
           <div className="flex max-w-sm flex-wrap justify-center gap-2">
             {cities.map((c) => <Button key={c} variant="outline" className="rounded-full" onClick={() => chooseCity(c)}>{c}</Button>)}
           </div>

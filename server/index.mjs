@@ -7,7 +7,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
-import { REALISTIC_CATEGORIES, checkOwnAi, falKey, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
+import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { processVideo, receiveUpload } from './video.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
@@ -1699,6 +1699,7 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     mail: { connected: mailConfigured(), from: mailFrom(), outbox, fromEnv: !!process.env.SMTP_URL },
     payments: { enabled: paymentsEnabled(), currency: pay.currency, rate: pay.rate, key: masked(pay.secretKey), webhook: `${siteUrl()}/api/payments/webhook`, fromEnv: !!process.env.FLW_SECRET_KEY },
     tryon: { unlimited: unlimitedTryOn(), key: masked(falKey()), fromEnv: !!process.env.FAL_KEY },
+    hf: { key: masked(hfToken()), fromEnv: !!process.env.HF_TOKEN },
     aiServer: own ? { url: own.url, ...ownStatus, fromEnv: !!process.env.AI_SERVER_URL } : null,
     live: { enabled: liveSettings().enabled },
     stats: {
@@ -1781,6 +1782,23 @@ route('PUT', '/api/admin/platform/aiserver', async ({ user, body }) => {
   if (!status.ok) fail(400, 'not_reachable', status.reason);
   saveConfig('aiserver', { url, key });
   return { ok: true, ...status };
+});
+
+// Hugging Face token for the free try-on models: checked with Hugging Face before it is saved.
+route('PUT', '/api/admin/platform/hftoken', async ({ user, body }) => {
+  requireAdmin(user);
+  if (body.off) {
+    saveConfig('hftoken', null);
+    clearResting();
+    return { ok: true };
+  }
+  const token = String(body.token ?? '').trim();
+  if (!/^hf_[A-Za-z0-9]{20,}$/.test(token)) fail(400, 'invalid_key', 'Paste a Hugging Face token (it starts with hf_).');
+  const who = await fetch('https://huggingface.co/api/whoami-v2', { headers: { Authorization: `Bearer ${token}` } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!who?.name) fail(400, 'invalid_key', 'Hugging Face did not accept this token. Create a new one (Settings → Access Tokens → Read).');
+  saveConfig('hftoken', { token });
+  clearResting();
+  return { ok: true, account: who.name, pro: !!who.isPro };
 });
 
 route('PUT', '/api/admin/platform/tryon', async ({ user, body }) => {

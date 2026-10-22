@@ -1,6 +1,10 @@
 
 'use client';
 
+import { LanguagePicker } from '@/components/language-picker';
+
+import { useT } from '@/lib/i18n';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,10 +26,11 @@ import { useNotificationStore } from '@/hooks/use-notification-store';
 import { useUnreadMessages } from '@/lib/messages';
 
 function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
+  const t = useT();
   const body = (
     <>
       <Icon className="h-5 w-5 text-primary" />
-      <span className="flex-1 font-medium">{label}</span>
+      <span className="flex-1 font-medium">{t(label)}</span>
       {detail && <span className="text-sm text-muted-foreground">{detail}</span>}
       <ChevronRight className="h-4 w-4 text-muted-foreground" />
     </>
@@ -49,6 +54,7 @@ export default function MePage() {
 
   return (
     <div className="mx-auto max-w-xl space-y-6 px-4 py-6 md:py-10">
+      <LanguagePicker className="justify-center" />
       <Card>
         <CardContent className="flex items-center gap-4 p-5">
           <Avatar className="h-16 w-16">

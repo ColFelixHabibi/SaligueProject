@@ -25,7 +25,8 @@ const STORAGE_KEY = 'saligue-mirror-v1';
 function load(): Pick<MirrorState, 'personUrl' | 'photoUrl' | 'landmarks'> {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (saved?.personUrl) return { personUrl: saved.personUrl, photoUrl: saved.photoUrl ?? null, landmarks: saved.landmarks ?? null };
+    // Photos saved before are shown as taken (their old cut-out could have holes).
+    if (saved?.personUrl) return { personUrl: saved.photoUrl ?? saved.personUrl, photoUrl: saved.photoUrl ?? null, landmarks: saved.landmarks ?? null };
   } catch {
     // Nothing saved or storage unavailable.
   }
@@ -41,13 +42,13 @@ export const useMirrorStore = create<MirrorState>()((set, get) => ({
     if (!get().isLoaded) set({ ...load(), isLoaded: true });
   },
   setPerson: (canvas, landmarks, original) => {
-    const personUrl = canvas.toDataURL('image/png');
+    const personUrl = canvas === original ? canvas.toDataURL('image/jpeg', 0.92) : canvas.toDataURL('image/png');
     const photoUrl = original ? original.toDataURL('image/jpeg', 0.92) : null;
     const normalized = landmarks?.map((p) => ({ x: p.x / canvas.width, y: p.y / canvas.height, visibility: p.visibility })) ?? null;
     set({ personUrl, photoUrl, landmarks: normalized, isLoaded: true });
     try {
       // A smaller copy is enough to restore the photo on the next visit.
-      const compact = encodeCanvas(canvas, { transparent: true, maxLength: 2_000_000, maxEdge: 1400 });
+      const compact = encodeCanvas(canvas, { transparent: canvas !== original, maxLength: 2_000_000, maxEdge: 1400 });
       const photo = original ? encodeCanvas(original, { transparent: false, maxLength: 1_000_000, maxEdge: 1400 }) : null;
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ personUrl: compact, photoUrl: photo, landmarks: normalized }));
     } catch {

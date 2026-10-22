@@ -1,5 +1,7 @@
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { useBlockedIds } from '@/lib/blocks';
 
 import { useEffect, useState } from 'react';
@@ -15,6 +17,7 @@ import { cn } from '@/lib/utils';
 /** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
 export function LessonFeed({ startAt, following, className, breakReminder = true }: { startAt?: string | null; following?: boolean; className?: string; breakReminder?: boolean }) {
   const [topic, setTopic] = useState<string | null>(null);
+  const tr = useT();
   const blocked = useBlockedIds();
   const all = useLessons({ topic, following });
   const lessons = all && all.filter((l) => !blocked.has(l.authorId));
@@ -28,15 +31,15 @@ export function LessonFeed({ startAt, following, className, breakReminder = true
     <div className={cn('relative h-full', className)}>
       <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1 overflow-x-auto bg-gradient-to-b from-black/70 to-transparent p-2 pb-6 text-white [scrollbar-width:none]">
         <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-white text-foreground' : 'bg-black/30')} aria-pressed={!topic}>
-          <LayoutGrid className="h-5 w-5" /> All
+          <LayoutGrid className="h-5 w-5" /> {tr('All')}
         </button>
         {LESSON_TOPICS.map((t) => (
           <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-white text-foreground' : 'bg-black/30')} aria-pressed={topic === t.value}>
-            <t.icon className="h-5 w-5" /> {t.label}
+            <t.icon className="h-5 w-5" /> {tr(t.label)}
           </button>
         ))}
         <Link href="/learn/new" className={cn(chip, 'ml-auto bg-primary text-primary-foreground')} aria-label="Teach a lesson">
-          <Plus className="h-5 w-5" /> Teach
+          <Plus className="h-5 w-5" /> {tr('Teach')}
         </Link>
       </div>
       <div className="h-full snap-y snap-mandatory overflow-y-auto">

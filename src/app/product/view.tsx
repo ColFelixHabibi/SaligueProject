@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 
 import { ExpandableText } from '@/components/expandable-text';
@@ -39,6 +41,7 @@ export default function ProductView({ id }: { id: string | null }) {
   const { addToCart } = useCart();
   const [showVideo, setShowVideo] = useState(true);
   const { toast } = useToast();
+  const t = useT();
   
   const allProducts = [...products];
   const product = allProducts.find((p) => p.id === id);
@@ -188,22 +191,22 @@ export default function ProductView({ id }: { id: string | null }) {
 
               <Button size="lg" variant="secondary" className="mt-6 h-auto min-h-14 w-full whitespace-normal py-3 text-lg" asChild>
                 <Link href={`/mirror?item=${product.id}`}>
-                  <Wand2 className="mr-2 h-6 w-6" /> Wear it
+                  <Wand2 className="mr-2 h-6 w-6" /> {t('Wear it')}
                 </Link>
               </Button>
 
               <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
                 <Button size="lg" variant="outline" className="h-14 text-lg" onClick={() => handleAddToCart()} disabled={soldOut}>
-                    <ShoppingCart className="mr-2 h-6 w-6" /> Cart
+                    <ShoppingCart className="mr-2 h-6 w-6" /> {t('Cart')}
                 </Button>
                 <Button size="lg" className="h-14 text-lg" onClick={() => handleAddToCart(true)} disabled={soldOut}>
-                    <Zap className="mr-2 h-6 w-6" /> Buy
+                    <Zap className="mr-2 h-6 w-6" /> {t('Buy')}
                 </Button>
                 <MessageSellerButton product={product} size="icon" variant="secondary" className="h-14 w-14" label={`Message ${product.shop?.name ?? product.seller}`} />
               </div>
               <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5" title="Pay securely online or on delivery"><ShieldCheck className="h-4 w-4 text-primary" /> Secure pay</span>
-                <span className="flex items-center gap-1.5" title="Delivered by the shop, tracked in My orders"><Truck className="h-4 w-4 text-primary" /> Tracked</span>
+                <span className="flex items-center gap-1.5" title="Pay securely online or on delivery"><ShieldCheck className="h-4 w-4 text-primary" /> {t('Secure pay')}</span>
+                <span className="flex items-center gap-1.5" title="Delivered by the shop, tracked in My orders"><Truck className="h-4 w-4 text-primary" /> {t('Tracked')}</span>
                 <ReportButton product={product} iconOnly className="ml-auto" />
               </div>
 

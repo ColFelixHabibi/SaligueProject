@@ -25,6 +25,7 @@ type Platform = {
   mail: { connected: boolean; from: string; outbox: number; fromEnv: boolean };
   payments: { enabled: boolean; currency: string; rate: number; key: string | null; webhook: string; fromEnv: boolean };
   tryon: { unlimited: boolean; key: string | null; fromEnv: boolean };
+  hf?: { key: string | null; fromEnv: boolean };
   aiServer: { url: string; ok: boolean; reason?: string; gpu?: string | null; memoryGb?: number | null; ready?: boolean; busy?: boolean; fromEnv: boolean } | null;
   live: { enabled: boolean };
   stats: { users: number; sellers: number; products: number; orders: number };
@@ -57,6 +58,7 @@ export default function PlatformPage() {
   const [testTo, setTestTo] = useState('');
   const [pay, setPay] = useState({ secretKey: '', secretHash: '', currency: 'RWF', rate: '1450' });
   const [falKey, setFalKey] = useState('');
+  const [hfToken, setHfToken] = useState('');
   const [aiServer, setAiServer] = useState({ url: '', key: '' });
   const [signing, setSigning] = useState<{ available: boolean; alias?: string } | null>(null);
   const [signingPassword, setSigningPassword] = useState<string | null>(null);
@@ -268,6 +270,32 @@ export default function PlatformPage() {
             <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="fal-key">fal.ai key</Label><Input id="fal-key" type="password" required value={falKey} onChange={(e) => setFalKey(e.target.value)} autoComplete="off" /></div>
             <Button type="submit" disabled={busy === 'fal'}>{busy === 'fal' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Turn on</Button>
             {data.tryon.unlimited && !data.tryon.fromEnv && <Button type="button" variant="ghost" onClick={() => act('fal-off', () => api('/admin/platform/tryon', { method: 'PUT', body: { off: true } }), 'Back to the free try-on')}>Turn off</Button>}
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><Shirt className="h-5 w-5 text-primary" /> More free try-ons (Hugging Face)</CardTitle>
+            <Status on={!!data.hf?.key} label={['Token added', 'Anonymous · small daily limit']} />
+          </div>
+          <CardDescription>Until Saligue’s own AI server is running, try-on uses free AI models with a daily limit shared by everyone. A Hugging Face token raises it; a PRO account (about $9/month) raises it much more.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Create a free account at <b>huggingface.co</b> (PRO for a much bigger allowance).</>,
+            <>Settings → <b>Access Tokens</b> → New token → type <b>Read</b> → copy it (starts with hf_).</>,
+            <>Paste it below.</>,
+          ]} />
+          {data.hf?.key && <p className="text-sm">Saved token: <b>{data.hf.key}</b></p>}
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('hf', () => api('/admin/platform/hftoken', { method: 'PUT', body: { token: hfToken } }), 'Token saved: try-on has a bigger daily allowance').then((ok) => ok && setHfToken(''));
+          }}>
+            <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="hf-token">Hugging Face token</Label><Input id="hf-token" type="password" required value={hfToken} onChange={(e) => setHfToken(e.target.value)} autoComplete="off" placeholder="hf_…" /></div>
+            <Button type="submit" disabled={busy === 'hf'}>{busy === 'hf' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save</Button>
+            {data.hf?.key && !data.hf.fromEnv && <Button type="button" variant="ghost" onClick={() => act('hf-off', () => api('/admin/platform/hftoken', { method: 'PUT', body: { off: true } }), 'Token removed')}>Remove</Button>}
           </form>
         </CardContent>
       </Card>

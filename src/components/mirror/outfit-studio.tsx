@@ -22,7 +22,6 @@ import type { Parsing } from '@/lib/ai/parse';
 import { categoryLabel } from '@/lib/categories';
 import { enqueue, itemCutout } from '@/lib/ai/cutout';
 import { context2d, createCanvas, loadImage } from '@/lib/ai/canvas';
-import { removeBackground } from '@/lib/ai/segment';
 import { REALISTIC_CATEGORIES, realisticTryOn } from '@/lib/ai/studio';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
@@ -134,6 +133,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     if (!placeable.length) {
       setLookUrl(null);
       setMissing([]);
+      setDressing(false);
       return;
     }
     enqueue(async () => {
@@ -165,35 +165,49 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   const [realisticFailed, setRealisticFailed] = useState(false);
   const [realisticError, setRealisticError] = useState<string | null>(null);
   const runId = useRef(0);
-  const redrawable = outfit.filter((p) => REALISTIC_CATEGORIES.includes(outfitSlot(p)));
+  const [skipped, setSkipped] = useState<string[]>([]);
+  // What the photo shows: trousers need the legs, shoes the feet (pose landmarks: knees 25/26, ankles 27/28).
+  const seen = (ids: number[]) => !landmarks || ids.some((i) => { const p = landmarks[i]; return !!p && (p.visibility ?? 1) > 0.5 && p.y > 0 && p.y < (person?.height ?? Infinity); });
+  const legsVisible = seen([25, 26]);
+  const feetVisible = seen([27, 28]);
+  const fitsPhoto = (slot: Category) => (slot === 'bottom' ? legsVisible : slot === 'shoes' ? feetVisible : true);
+  const redrawable = outfit.filter((p) => REALISTIC_CATEGORIES.includes(outfitSlot(p)) && fitsPhoto(outfitSlot(p)));
   const makeRealistic = async () => {
     if (!personUrl || !person) return;
     const id = ++runId.current;
     const stale = () => id !== runId.current;
     setRealisticFailed(false);
+    setSkipped(outfit.filter((p) => !fitsPhoto(outfitSlot(p))).map((p) => `${categoryLabel(outfitSlot(p))} (not in your photo)`));
     try {
       let current = photoUrl ?? personUrl;
+      let drawn = 0;
+      let lastError: unknown = null;
       const clothes = [...redrawable].sort((a, b) => REDRAW_ORDER.indexOf(outfitSlot(a)) - REDRAW_ORDER.indexOf(outfitSlot(b)));
+      // Each piece on its own: one that can't be drawn cleanly is skipped (and said), the others still show.
       for (const [i, item] of clothes.entries()) {
         setRealisticBusy(`Saligue AI is dressing you (${i + 1}/${clothes.length})…`);
-        current = await realisticTryOn(current, item.image, outfitSlot(item), [item.color, item.type ?? item.name].filter(Boolean).join(' '));
+        try {
+          current = await realisticTryOn(current, item.image, outfitSlot(item), [item.color, item.type ?? item.name].filter(Boolean).join(' '));
+          drawn++;
+        } catch (error) {
+          lastError = error;
+          if (/daily limit|back at/i.test(String((error as Error)?.message))) throw error;
+          if (!stale()) setSkipped((s) => [...s, categoryLabel(outfitSlot(item))]);
+        }
         if (stale()) return;
       }
-      const others = outfit.filter((p) => !redrawable.includes(p));
+      if (clothes.length && !drawn) throw lastError ?? new Error('The realistic AI could not dress you this time.');
+      const others = outfit.filter((p) => !REALISTIC_CATEGORIES.includes(outfitSlot(p)) && fitsPhoto(outfitSlot(p)));
       if (others.length) {
         setRealisticBusy('Adding shoes and accessories…');
-        const cutout = await removeBackground(await loadImage(current), 'person');
-        // The redrawn photo keeps the pose; scale the landmarks to its size.
-        const sx = cutout.width / person.width, sy = cutout.height / person.height;
+        // On the photo itself (no cut-out); the redrawn photo keeps the pose, so the landmarks are scaled to it.
+        const base = await loadImage(current);
+        const canvas = createCanvas(base.naturalWidth, base.naturalHeight);
+        context2d(canvas).drawImage(base, 0, 0);
+        const sx = canvas.width / person.width, sy = canvas.height / person.height;
         const scaled = landmarks?.map((p) => ({ x: p.x * sx, y: p.y * sy, visibility: p.visibility })) ?? null;
         const pieces = await Promise.all(others.map(async (p) => ({ canvas: await itemCutout(p), category: outfitSlot(p) })));
-        const flat = dressOutfit(cutout, scaled, pieces).canvas;
-        const out = createCanvas(flat.width, flat.height);
-        const ctx = context2d(out);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, out.width, out.height);
-        ctx.drawImage(flat, 0, 0);
-        current = out.toDataURL('image/jpeg', 0.92);
+        current = dressOutfit(canvas, scaled, pieces).canvas.toDataURL('image/jpeg', 0.92);
       }
       if (!stale()) setRealisticUrl(current);
     } catch (error: any) {
@@ -220,7 +234,11 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
 
   // One tap: wear the best match for every essential piece still missing (top, trousers, shoes).
   const completeAutomatically = () => {
-    const picks = missingSlots(outfit).essential.flatMap((c) => rankForSlot(products, outfit, c, 1));
+    // Only what the photo shows: no trousers on a head-and-shoulders photo, no shoes without feet.
+    const slots = missingSlots(outfit).essential.filter(fitsPhoto);
+    const left = missingSlots(outfit).essential.filter((c) => !fitsPhoto(c));
+    if (left.length) toast({ title: 'Your photo shows part of you', description: `For ${left.map(categoryLabel).join(' and ').toLowerCase()}, add a photo from head to feet.` });
+    const picks = slots.flatMap((c) => rankForSlot(products, outfit, c, 1));
     if (!picks.length) {
       toast({ title: 'Nothing to add', description: 'There are no matching items in stock for the missing pieces yet.' });
       return;
@@ -314,6 +332,11 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
               <p className="text-xs text-muted-foreground">{realisticError ?? 'The realistic AI could not dress you this time.'} Clothes are only shown once the AI draws them on you, never pasted on top.</p>
               <Button size="sm" onClick={makeRealistic}>Try again</Button>
             </div>
+          )}
+          {skipped.length > 0 && realisticUrl && !realisticBusy && (
+            <p className="absolute bottom-16 left-3 right-3 z-10 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
+              Not drawn: <b className="text-foreground">{skipped.join(', ')}</b>. Tap a piece to try it again, or use a head-to-feet photo.
+            </p>
           )}
           {missing.length > 0 && lookUrl && !realisticUrl && (
             <p className="absolute bottom-16 left-3 right-3 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">

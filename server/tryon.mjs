@@ -18,9 +18,21 @@ const FALLBACK_SPACE = process.env.TRYON_FALLBACK_SPACE || 'yisol/IDM-VTON';
 // Last free fallback: Kolors Virtual Try-On (Kuaishou's public demo; not on Hugging Face's shared GPU quota).
 // It sometimes redraws other clothes too; the app checks every look and throws those away (composite.ts).
 const LAST_SPACE = process.env.TRYON_LAST_SPACE || 'Kwai-Kolors/Kolors-Virtual-Try-On';
-const auth = () => (process.env.HF_TOKEN ? { hf_token: process.env.HF_TOKEN } : undefined);
+// A Hugging Face token (Platform settings, or HF_TOKEN) gives the free models a bigger daily allowance
+// than an anonymous server; a PRO account (about $9/month) gives much more.
+export function hfToken() {
+  return process.env.HF_TOKEN || parse(db.prepare("select value from app_config where key = 'hftoken'").get()?.value)?.token || null;
+}
+const auth = () => (hfToken() ? { hf_token: hfToken() } : undefined);
+/** Forget connections made without (or with an old) token. */
+export const resetTryOnClients = () => clients.clear();
 
 const clients = new Map();
+/** A new token means new allowance: try every model again. */
+export function clearResting() {
+  resting?.clear?.();
+  clients.clear();
+}
 async function connect(space) {
   if (!clients.has(space)) {
     const client = Client.connect(space, auth());
@@ -31,7 +43,7 @@ async function connect(space) {
 }
 
 async function download(url) {
-  const response = await fetch(url, process.env.HF_TOKEN ? { headers: { Authorization: `Bearer ${process.env.HF_TOKEN}` } } : undefined);
+  const response = await fetch(url, hfToken() ? { headers: { Authorization: `Bearer ${hfToken()}` } } : undefined);
   if (!response.ok) throw new Error(`Could not download the result (${response.status}).`);
   const type = response.headers.get('content-type') || 'image/png';
   return `data:${type};base64,${Buffer.from(await response.arrayBuffer()).toString('base64')}`;

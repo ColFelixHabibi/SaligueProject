@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 
 import { trackAd } from '@/lib/ads';
@@ -112,6 +114,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
   const videoRef = useRef<HTMLVideoElement>(null);
   // Data saver: videos wait for a tap instead of playing by themselves.
   const saver = useDataSaver();
+  const t = useT();
   const [playing, setPlaying] = useState(false);
   useEffect(() => {
     const element = slideRef.current;
@@ -128,7 +131,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
   const showLess = () => {
     noteInterest(product.id, 'less');
     onHide?.();
-    toast({ title: 'You’ll see less like this' });
+    toast({ title: t('You’ll see less like this') });
   };
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = !(soundOn && unlocked);
@@ -175,10 +178,10 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel className="flex items-start gap-2 font-normal">
               <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <span><b className="block text-sm">Why am I seeing this?</b><span className="text-xs text-muted-foreground">{sponsoredBy ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
+              <span><b className="block text-sm">{t('Why am I seeing this?')}</b><span className="text-xs text-muted-foreground">{sponsoredBy ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> Show less like this</DropdownMenuItem>
+            <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> {t('Show less like this')}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -220,7 +223,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
             )}
             <div className="mt-2 flex items-center gap-3">
               <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
-              <Button size="icon" className="h-10 w-10 rounded-full" onClick={add} aria-label="Add to cart" title="Add to cart">
+              <Button size="icon" className="h-10 w-10 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>
                 <ShoppingCart className="h-5 w-5" />
               </Button>
             </div>

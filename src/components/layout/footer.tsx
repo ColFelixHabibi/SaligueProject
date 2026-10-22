@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -10,6 +12,7 @@ import { navFor, isActive } from './nav';
 export default function Footer() {
   const pathname = usePathname();
   const { user, role } = useAuth();
+  const t = useT();
   // Lives fill the whole screen, like TikTok.
   if (/\/live\/(studio|watch)/.test(pathname)) return null;
   return (
@@ -27,7 +30,7 @@ export default function Footer() {
                 aria-current={active ? 'page' : undefined}
               >
                 <Icon className={cn('h-6 w-6', active && 'stroke-[2.5]')} />
-                {label}
+                {t(label)}
               </Link>
             );
           })}

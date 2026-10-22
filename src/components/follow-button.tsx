@@ -1,5 +1,7 @@
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { useEffect, useState } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { Button, type ButtonProps } from '@/components/ui/button';
@@ -32,12 +34,13 @@ export function useFollow(sellerId?: string | null) {
 /** Follow a shop or teacher: you become their client (shows the number of clients when `showCount`). */
 export function FollowButton({ sellerId, className, size = 'sm', showCount, onDark }: { sellerId?: string | null; className?: string; size?: ButtonProps['size']; showCount?: boolean; onDark?: boolean }) {
   const { following, clients, toggle, own } = useFollow(sellerId);
+  const t = useT();
   if (!sellerId || own) return null;
   return (
     <Button type="button" size={size} onClick={toggle} variant={following ? 'outline' : 'default'}
       className={cn('rounded-full', following && onDark && 'border-white/60 bg-transparent text-white hover:bg-white/10', className)} aria-pressed={!!following}>
       {following ? <Check className="mr-1 h-4 w-4" /> : <Plus className="mr-1 h-4 w-4" />}
-      {following ? 'Following' : 'Follow'}
+      {following ? t('Following') : t('Follow')}
       {showCount && clients != null ? <span className="ml-1.5 opacity-70">{clients.toLocaleString()}</span> : null}
     </Button>
   );

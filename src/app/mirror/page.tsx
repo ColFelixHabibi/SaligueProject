@@ -26,7 +26,6 @@ import { DescribeForm, hasWearForm } from '@/components/mirror/describe-form';
 import { categoryLabel } from '@/lib/categories';
 import { LocateSellerDialog } from '@/components/mirror/locate-seller';
 import { context2d, createCanvas, fileToImage, fitWithin, loadImage, trimTransparent } from '@/lib/ai/canvas';
-import { removeBackground } from '@/lib/ai/segment';
 import { detectPose } from '@/lib/ai/pose';
 import { embedImage, warmUpSearch } from '@/lib/ai/embed';
 import { cn } from '@/lib/utils';
@@ -137,14 +136,11 @@ function Mirror() {
     setPersonBusy('Reading your photo…');
     try {
       const working = fitWithin(await fileToImage(file), 1600);
-      const cutout = await removeBackground(working, 'person', setPersonBusy);
+      // The photo stays exactly as taken: no background removal, which could cut holes into skin or clothes.
       const pose = await detectPose(working, setPersonBusy);
-      setPerson(cutout, pose, working);
+      setPerson(working, pose, working);
       if (!pose) {
-        toast({
-          title: 'Body not found',
-          description: 'We removed the background, but could not see your body clearly. Items will be shown next to you.',
-        });
+        toast({ title: 'Body not found', description: 'We could not see your body clearly. Use a photo of you standing, facing the camera, in good light.' });
       }
     } catch (error: any) {
       console.error('Processing photo failed:', error);

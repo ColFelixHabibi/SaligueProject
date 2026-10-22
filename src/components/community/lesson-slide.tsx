@@ -1,5 +1,7 @@
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
@@ -31,6 +33,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const [playing, setPlaying] = useState(false);
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const t = useT();
   const topic = topicOf(lesson.topic);
   const TopicIcon = topic.icon;
 
@@ -130,9 +133,9 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
 
       <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-4 pr-20 pt-20">
         <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-          <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {topic.label}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
           {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
-          {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> New voice</span>}
+          {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
         </div>
         <h2 className="line-clamp-2 text-xl font-bold leading-tight">{lesson.title}</h2>
         {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}

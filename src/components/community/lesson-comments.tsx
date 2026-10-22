@@ -1,5 +1,7 @@
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { useBlockedIds } from '@/lib/blocks';
 
 import { useEffect, useState } from 'react';
@@ -17,6 +19,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
   const { toast } = useToast();
   const { user, authUid } = useAuth();
   const blocked = useBlockedIds();
+  const t = useT();
   const [list, setList] = useState<LessonComment[] | null>(null);
   const [text, setText] = useState('');
   const [question, setQuestion] = useState(false);
@@ -56,11 +59,11 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
         <p className="text-xs font-semibold">
           {c.name}
           {c.teacher && <span className="ml-1.5 rounded bg-primary px-1 py-px text-[10px] font-extrabold uppercase text-white">Teacher</span>}
-          {c.kind === 'question' && <span className={cn('ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-bold', c.answered ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{c.answered ? <CheckCircle2 className="h-3 w-3" /> : <HelpCircle className="h-3 w-3" />}{c.answered ? 'Answered' : 'Question'}</span>}
+          {c.kind === 'question' && <span className={cn('ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-bold', c.answered ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{c.answered ? <CheckCircle2 className="h-3 w-3" /> : <HelpCircle className="h-3 w-3" />}{c.answered ? t('Answered') : t('Question')}</span>}
         </p>
         <p className="whitespace-pre-wrap break-words text-sm">{c.text}</p>
         <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
-          {!reply && user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">Reply</button>}
+          {!reply && user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
           {(c.uid === authUid || lesson.authorId === authUid) && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       </div>
@@ -72,7 +75,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
       <div className="mb-3 flex gap-2 text-sm">
         {(['all', 'questions'] as const).map((f) => (
           <button key={f} type="button" onClick={() => setFilter(f)} className={cn('rounded-full px-3 py-1 font-semibold', filter === f ? 'bg-foreground text-background' : 'bg-muted')}>
-            {f === 'all' ? `All ${list?.filter((c) => !c.parentId).length ?? ''}` : `Questions ${list?.filter((c) => c.kind === 'question').length ?? ''}`}
+            {f === 'all' ? `${t('All')} ${list?.filter((c) => !c.parentId).length ?? ''}` : `${t('Questions')} ${list?.filter((c) => c.kind === 'question').length ?? ''}`}
           </button>
         ))}
       </div>
@@ -96,7 +99,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
                 <HelpCircle className="h-5 w-5" />
               </button>
             )}
-            <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} placeholder={replyTo ? 'Your reply…' : question ? 'Ask the teacher…' : 'Add a comment…'}
+            <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} placeholder={replyTo ? '…' : question ? t('Ask the teacher…') : t('Add a comment…')}
               className="h-10 min-w-0 flex-1 rounded-full border bg-background px-4 text-sm outline-none focus:border-primary" />
             <button type="submit" disabled={sending || !text.trim()} aria-label="Send" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}

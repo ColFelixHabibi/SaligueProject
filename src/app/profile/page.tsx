@@ -1,5 +1,7 @@
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { TipButton } from '@/components/tip-button';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
@@ -61,6 +63,7 @@ function ProfileView({ id }: { id: string }) {
   const lessons = useLessons({ author: id });
   const follow = useFollow(id);
   const blockedIds = useBlockedIds();
+  const t = useT();
   const isBlocked = blockedIds.has(id);
 
   const load = () =>
@@ -102,10 +105,10 @@ function ProfileView({ id }: { id: string }) {
   if (!profile) return <Skeleton className="mx-auto mt-6 h-[70vh] max-w-2xl rounded-2xl" />;
 
   const stats = [
-    { label: 'Items', value: profile.items, onClick: () => setTab('items') },
-    { label: 'Clients', value: profile.clients, onClick: () => openList('clients') },
-    { label: 'Following', value: profile.following, onClick: () => openList('following') },
-    ...(profile.lessons > 0 || !profile.isShop ? [{ label: 'Lessons', value: profile.lessons, onClick: () => setTab('lessons') }] : []),
+    { label: t('Items'), value: profile.items, onClick: () => setTab('items') },
+    { label: t('Clients'), value: profile.clients, onClick: () => openList('clients') },
+    { label: t('Following'), value: profile.following, onClick: () => openList('following') },
+    ...(profile.lessons > 0 || !profile.isShop ? [{ label: t('Lessons'), value: profile.lessons, onClick: () => setTab('lessons') }] : []),
   ];
   const round = 'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-background transition hover:bg-muted';
   const tabs = [
@@ -142,7 +145,7 @@ function ProfileView({ id }: { id: string }) {
           {profile.official && <BadgeCheck className="h-5 w-5 text-primary" />}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-          {profile.isShop ? <span className="flex items-center gap-1"><Store className="h-4 w-4" /> Shop</span> : <span className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> Teacher</span>}
+          {profile.isShop ? <span className="flex items-center gap-1"><Store className="h-4 w-4" /> {t('Shop')}</span> : <span className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> {t('Teacher')}</span>}
           {profile.shop && <span className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {profile.shop.city}</span>}
           {profile.rating != null && <span className="flex items-center gap-1"><Stars rating={profile.rating} size="h-3.5 w-3.5" /> {profile.rating} ({profile.ratingCount})</span>}
           {profile.shop?.hours && <span className="flex items-center gap-1"><Clock className="h-4 w-4" /> {profile.shop.hours}</span>}
@@ -153,12 +156,12 @@ function ProfileView({ id }: { id: string }) {
       <div className="mt-4 flex items-center gap-2">
         {profile.mine ? (
           <>
-            <Button className="h-11 flex-1 rounded-full" variant="secondary" onClick={() => setEditing(true)}><Pencil className="mr-2 h-4 w-4" /> Edit bio</Button>
+            <Button className="h-11 flex-1 rounded-full" variant="secondary" onClick={() => setEditing(true)}><Pencil className="mr-2 h-4 w-4" /> {t('Edit bio')}</Button>
             <Button asChild variant="outline" size="icon" className="h-11 w-11 rounded-full"><Link href={profile.isShop ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-5 w-5" /></Link></Button>
           </>
         ) : (
           <Button className="h-11 flex-1 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following}>
-            {follow.following ? 'Following' : 'Follow'}
+            {follow.following ? t('Following') : t('Follow')}
           </Button>
         )}
         {profile.isShop && !profile.mine && (
@@ -185,7 +188,7 @@ function ProfileView({ id }: { id: string }) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem className={isBlocked ? '' : 'text-destructive'} onClick={() => setBlocked(id, !isBlocked).then(() => toast({ title: isBlocked ? `${profile.name} unblocked` : `${profile.name} blocked`, description: isBlocked ? undefined : 'You won’t see their items, lessons or comments.' })).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }))}>
-                <Ban className="mr-2 h-4 w-4" /> {isBlocked ? 'Unblock' : 'Block'}
+                <Ban className="mr-2 h-4 w-4" /> {isBlocked ? t('Unblock') : t('Block')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

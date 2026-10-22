@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useT } from '@/lib/i18n';
+
 import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -37,6 +39,7 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, role } = useAuth();
+  const t = useT();
   const { cartItems } = useCart();
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -75,7 +78,7 @@ export default function Sidebar() {
           return (
             <Link key={href} href={href} title={label} aria-current={active ? 'page' : undefined} className={cn(row, active ? 'text-primary' : 'text-foreground')}>
               <Icon className={cn('h-7 w-7 shrink-0', active && 'stroke-[2.5]')} />
-              <span className="hidden lg:inline">{label}</span>
+              <span className="hidden lg:inline">{t(label)}</span>
             </Link>
           );
         })}
@@ -85,7 +88,7 @@ export default function Sidebar() {
             <Radio className="h-7 w-7" />
             {liveCount > 0 && <span className="absolute -right-2 -top-1.5 rounded bg-primary px-1 text-[9px] font-extrabold text-primary-foreground">LIVE</span>}
           </span>
-          <span className="hidden lg:inline">Live</span>
+          <span className="hidden lg:inline">{t('Live')}</span>
         </Link>
 
         {user && (
@@ -98,7 +101,7 @@ export default function Sidebar() {
               </span>
             )}
           </span>
-          <span className="hidden lg:inline">Messages</span>
+          <span className="hidden lg:inline">{t('Messages')}</span>
         </Link>
         )}
 
@@ -112,7 +115,7 @@ export default function Sidebar() {
               </span>
             )}
           </span>
-          <span className="hidden lg:inline">Cart</span>
+          <span className="hidden lg:inline">{t('Cart')}</span>
         </Link>
         )}
 
@@ -162,7 +165,7 @@ export default function Sidebar() {
         ) : (
           <>
             <Button className="hidden h-11 w-full rounded-lg text-base lg:flex" onClick={() => setLoginOpen(true)}>
-              Log in
+              {t('Log in')}
             </Button>
             <button type="button" title="Log in" onClick={() => setLoginOpen(true)} className={cn(row, 'w-full justify-center text-primary lg:hidden')}>
               <LogIn className="h-7 w-7" />
