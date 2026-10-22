@@ -64,6 +64,8 @@ export type Shop = {
   landmark?: string;
   mapUrl?: string;
   hours?: string;
+  // The shop's description, shown as the bio on its profile.
+  bio?: string;
 };
 
 export function shopAddressLines(shop: Shop): string[] {

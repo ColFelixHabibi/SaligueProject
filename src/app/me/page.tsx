@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bell, Bookmark, ChevronRight, Cookie, FileText, LayoutDashboard, LogOut, MapPin, MessageCircle, Package, PlusSquare, Repeat, Settings, ShoppingBag, Store } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
-import { SlidersHorizontal, Smartphone } from 'lucide-react';
+import { CircleUserRound, GraduationCap, SlidersHorizontal, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -79,6 +79,7 @@ export default function MePage() {
             <ProfilePhotoField name={shop?.name ?? user.displayName} required />
           </Card>
           <Card className="divide-y overflow-hidden">
+            {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My shop profile" detail="Bio, clients" />}
             <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
             <Row href="/messages" icon={MessageCircle} label="Messages from customers" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
             <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
@@ -95,6 +96,8 @@ export default function MePage() {
         <>
           <Card className="divide-y overflow-hidden">
             <Row href="/orders" icon={Package} label="My orders" />
+            {user && <Row href="/learn/new" icon={GraduationCap} label="Teach a lesson" />}
+            {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My profile" />}
             <Row href="/messages" icon={MessageCircle} label="Messages with shops" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
             <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
             <Row href="/cart" icon={ShoppingBag} label="Cart" detail={String(cartItems.reduce((n, i) => n + i.quantity, 0))} />

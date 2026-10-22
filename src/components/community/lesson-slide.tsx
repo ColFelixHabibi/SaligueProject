@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Clock, Flag, Heart, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { ExpandableText } from '@/components/expandable-text';
-import { FollowButton } from '@/components/follow-button';
-import { SellerAvatar } from '@/components/seller-avatar';
+import Link from 'next/link';
+import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 import { formatLength } from '@/components/video-field';
 import { useSoundStore } from '@/hooks/use-sound';
 import { useToast } from '@/hooks/use-toast';
@@ -104,6 +104,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
       </button>
 
       <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-4 text-foreground">
+        <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
         <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
           <span className={round}><Heart className={cn('h-5 w-5 text-foreground', like.liked && 'fill-primary text-primary')} /></span>
@@ -125,11 +126,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </div>
         <h2 className="line-clamp-2 text-xl font-bold leading-tight">{lesson.title}</h2>
         {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}
-        <div className="mt-2 flex items-center gap-2">
-          <SellerAvatar src={lesson.authorAvatar} name={lesson.authorName} className="h-8 w-8 ring-2 ring-white/70" />
-          <span className="truncate text-sm font-semibold">{lesson.authorName}</span>
-          {!lesson.mine && <FollowButton sellerId={lesson.authorId} onDark className="h-7 px-3 text-xs" />}
-        </div>
+        <Link href={profileHref(lesson.authorId)} className="mt-2 block w-fit max-w-full truncate text-sm font-semibold hover:underline">@{lesson.authorName}</Link>
       </div>
     </section>
   );

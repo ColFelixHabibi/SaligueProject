@@ -92,10 +92,12 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10">
       <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/35 p-1 pr-3 text-white backdrop-blur">
-        <Avatar className="h-9 w-9 ring-2 ring-primary">
-          <AvatarImage src={live.sellerAvatar ?? undefined} className="object-cover" />
-          <AvatarFallback className="bg-primary text-primary-foreground">{live.sellerName.charAt(0)}</AvatarFallback>
-        </Avatar>
+        <Link href={`/profile?id=${live.sellerId}`} aria-label={`${live.sellerName}: profile`}>
+          <Avatar className="h-9 w-9 ring-2 ring-primary">
+            <AvatarImage src={live.sellerAvatar ?? undefined} className="object-cover" />
+            <AvatarFallback className="bg-primary text-primary-foreground">{live.sellerName.charAt(0)}</AvatarFallback>
+          </Avatar>
+        </Link>
         <div className="min-w-0 leading-tight">
           <p className="flex items-center gap-1 truncate text-sm font-bold">{live.sellerName}{live.official && <BadgeCheck className="h-3.5 w-3.5" />}</p>
           <p className="truncate text-[11px] text-white/80">{live.likeCount.toLocaleString()} likes</p>

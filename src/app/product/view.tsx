@@ -1,6 +1,8 @@
 
 'use client';
 
+import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
+
 import { ExpandableText } from '@/components/expandable-text';
 import { FollowButton } from '@/components/follow-button';
 import { noteInterest } from '@/lib/taste';
@@ -212,9 +214,9 @@ export default function ProductView({ id }: { id: string | null }) {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-3 text-xl">
-                  <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-12 w-12" />
-                  <span className="min-w-0 flex-1">{product.shop?.name ?? 'Shop'}</span>
-                  <FollowButton sellerId={product.sellerId} showCount />
+                  {product.sellerId && <ProfileAvatar id={product.sellerId} name={product.shop?.name ?? product.seller} src={product.sellerAvatar} />}
+                  <Link href={product.sellerId ? profileHref(product.sellerId) : '#'} className="min-w-0 flex-1 hover:underline">{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">View profile</span></Link>
+                  <FollowButton sellerId={product.sellerId} />
                 </CardTitle>
               </CardHeader>
               <CardContent>

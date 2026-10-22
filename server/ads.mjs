@@ -126,7 +126,7 @@ export function eligibility(userId) {
   const strikes = db.prepare("select count(*) as n from notifications where user_id = ? and type = 'product' and title like '%was removed%' and created_at > ?")
     .get(userId, new Date(Date.now() - 90 * 86_400_000).toISOString()).n;
   const checks = [
-    { key: 'followers', label: 'Followers', value: followers, target: REQUIREMENTS.followers },
+    { key: 'followers', label: 'Clients', value: followers, target: REQUIREMENTS.followers },
     { key: 'views', label: 'Item views (last 90 days)', value: views90, target: REQUIREMENTS.views90 },
     { key: 'age', label: 'Days since joining', value: accountDays, target: REQUIREMENTS.accountDays },
     { key: 'profile', label: 'Profile photo and shop address', value: user.avatar && parse(user.shop)?.name ? 1 : 0, target: 1 },

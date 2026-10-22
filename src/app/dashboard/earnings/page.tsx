@@ -65,7 +65,7 @@ export default function EarningsPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card className="rounded-2xl"><CardContent className="p-4"><Users className="mb-1 h-5 w-5 text-primary" /><p className="text-2xl font-bold">{data.followers.toLocaleString()}</p><p className="text-xs text-muted-foreground">Followers</p></CardContent></Card>
+        <Card className="rounded-2xl"><CardContent className="p-4"><Users className="mb-1 h-5 w-5 text-primary" /><p className="text-2xl font-bold">{data.followers.toLocaleString()}</p><p className="text-xs text-muted-foreground">Clients</p></CardContent></Card>
         <Card className="rounded-2xl"><CardContent className="p-4">
           {approved ? <BadgeCheck className="mb-1 h-5 w-5 text-emerald-600" /> : data.status === 'applied' ? <Clock className="mb-1 h-5 w-5 text-sky-600" /> : <CircleDashed className="mb-1 h-5 w-5 text-muted-foreground" />}
           <p className="text-lg font-bold">{approved ? 'Monetized' : data.status === 'applied' ? 'In review' : data.status === 'suspended' ? 'Suspended' : 'Not yet'}</p>
@@ -82,7 +82,7 @@ export default function EarningsPage() {
         <Card className="rounded-2xl">
           <CardHeader><CardTitle className="text-base">This month</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-3 gap-3 text-center">
-            {[['Views', data.thisMonth.mine.views], ['Items sold', data.thisMonth.mine.sales], ['New followers', data.thisMonth.mine.followers]].map(([k, v]) => (
+            {[['Views', data.thisMonth.mine.views], ['Items sold', data.thisMonth.mine.sales], ['New clients', data.thisMonth.mine.followers]].map(([k, v]) => (
               <div key={k as string} className="rounded-xl bg-muted p-3"><p className="text-xl font-bold">{(v as number).toLocaleString()}</p><p className="text-xs text-muted-foreground">{k as string}</p></div>
             ))}
           </CardContent>

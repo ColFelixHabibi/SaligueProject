@@ -14,17 +14,17 @@ export default function MonetizationPolicyPage() {
           heading: 'Who can join',
           paragraphs: [
             'A seller account with a profile photo and full shop address, at least 30 days old.',
-            'At least 1,000 followers.',
+            'At least 1,000 clients (people who follow your shop).',
             'At least 50,000 views of your items in the last 90 days.',
             'No items removed for breaking Saligue’s rules in the last 90 days.',
-            'When you meet every requirement, apply in Seller Center → Earnings. INDECIANA reviews each application and may refuse shops that seem to have bought followers or views.',
+            'When you meet every requirement, apply in Seller Center → Earnings. INDECIANA reviews each application and may refuse shops that seem to have bought clients or views.',
           ],
         },
         {
           heading: 'How much you earn',
           paragraphs: [
             'Each month, 50% of Saligue’s advertising income is shared among all monetized shops.',
-            'Your share depends on points you earn that month: 1 point per item view, 50 points per item sold and delivered, and 5 points per new follower. Your earnings = the creators’ pool × your points ÷ all creators’ points.',
+            'Your share depends on points you earn that month: 1 point per item view, 50 points per item sold and delivered, and 5 points per new client. Your earnings = the creators’ pool × your points ÷ all creators’ points.',
             'Seller Center shows an estimate during the month. The final amount is calculated after the month ends.',
           ],
         },
@@ -38,7 +38,7 @@ export default function MonetizationPolicyPage() {
         {
           heading: 'Not allowed',
           paragraphs: [
-            'Buying or faking followers, views, likes or orders, using several accounts, or asking others to click your items in exchange for money or favours.',
+            'Buying or faking clients, views, likes or orders, using several accounts, or asking others to click your items in exchange for money or favours.',
             'Selling counterfeit or misleading items, or breaking the Terms of Service or the Ads Policy.',
             'Breaking these rules can lead to the loss of unpaid earnings, suspension from monetization, or closing of the account.',
           ],

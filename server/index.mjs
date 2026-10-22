@@ -98,6 +98,8 @@ function publicUser(u) {
     shop: parse(u.shop),
     // Profile photo (/media/… link); sellers need one before listing, it is shown with their shop.
     avatar: u.avatar ?? null,
+    // Profile bio for people who aren't shops (a shop's bio is its description, shop.bio).
+    bio: u.bio ?? null,
     isGuest: !!u.is_guest,
     createdAt: u.created_at,
   };
@@ -470,8 +472,11 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
     db.prepare('update users set password_hash = ? where id = ?').run(hashPassword(String(body.password)), user.id);
     notify(user.id, { type: 'account', title: 'Your password was changed', body: 'If this was not you, reset your password now and contact Saligue support.', link: '/my-account/settings' });
   }
+  if (body.bio !== undefined) db.prepare('update users set bio = ? where id = ?').run(String(body.bio ?? '').trim().slice(0, 300) || null, user.id);
   if (body.shop !== undefined) {
-    const shop = body.shop;
+    // Known fields only, each a short text; the description is the shop's bio on its profile.
+    const limits = { name: 80, phone: 30, whatsapp: 30, country: 60, city: 60, district: 80, street: 160, landmark: 120, mapUrl: 500, hours: 120, bio: 300 };
+    const shop = Object.fromEntries(Object.entries(limits).map(([k, max]) => [k, String(body.shop?.[k] ?? '').trim().slice(0, max)]).filter(([, v]) => v));
     if (!shop?.name || !shop.phone || !shop.country || !shop.city || !shop.street) fail(400, 'incomplete_shop', 'Shop name, phone, country, city and street are required.');
     transaction(() => {
       db.prepare('update users set shop = ? where id = ?').run(json(shop), user.id);
@@ -1483,7 +1488,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   if (kind !== 'join' && !isHost && !onCamera && !isLiveMod(live, user)) {
     if (live.chat_mode === 'off') fail(403, 'chat_off', 'The host has turned comments off.');
     if (live.chat_mode === 'followers' && !db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, live.seller_id)) {
-      fail(403, 'followers_only', 'Only followers can comment. Follow the shop to join the chat.');
+      fail(403, 'followers_only', 'Only clients can comment. Follow the shop to join the chat.');
     }
     if (live.slow_seconds > 0) {
       const key = `${live.id}|${user.id}`;
@@ -1969,9 +1974,45 @@ route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
     db.prepare('insert into follows (follower_id, seller_id, created_at) values (?, ?, ?)').run(user.id, seller.id, now());
     return true;
   });
-  if (following && !user.is_guest) notify(seller.id, { type: 'account', title: `${personNameOf(user)} followed your shop`, body: `You now have ${followerCount(seller.id)} followers.`, link: '/dashboard/earnings', email: false });
+  if (following && !user.is_guest) notify(seller.id, { type: 'account', title: `${personNameOf(user)} is now your client`, body: `You now have ${followerCount(seller.id)} clients.`, link: `/profile?id=${seller.id}`, email: false });
   return { following, followers: followerCount(seller.id) };
 });
+
+// Profiles: every shop and teacher has one. "Clients" are the people who follow them.
+const PROFILE_PEOPLE = 'select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official from follows f join users u on u.id = ';
+const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official });
+
+route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
+  const u = db.prepare('select * from users where id = ?').get(params[0]);
+  const teaches = u && db.prepare('select count(*) as n from lessons where user_id = ? and video is not null and hidden = 0').get(u.id).n;
+  if (!u || u.is_guest || (u.role !== 'seller' && !teaches && u.id !== user?.id)) fail(404, 'not_found', 'This profile does not exist.');
+  const shop = u.role === 'seller' ? parse(u.shop) : null;
+  const rating = db.prepare('select avg(r.rating) as avg, count(*) as n from reviews r join products p on p.id = r.product_id where p.seller_id = ?').get(u.id);
+  const live = db.prepare("select id from lives where seller_id = ? and status = 'live'").get(u.id);
+  return {
+    ...personOut(u),
+    bio: shop?.bio || u.bio || '',
+    shop: shop ? { city: shop.city, country: shop.country, hours: shop.hours ?? null, phone: shop.phone, whatsapp: shop.whatsapp ?? null, street: shop.street, district: shop.district ?? null, landmark: shop.landmark ?? null, mapUrl: shop.mapUrl ?? null } : null,
+    email: u.role === 'seller' ? u.email : null,
+    clients: followerCount(u.id),
+    following: db.prepare('select count(*) as n from follows where follower_id = ?').get(u.id).n,
+    items: db.prepare("select count(*) as n from products where seller_id = ? and status = 'active' and hidden = 0").get(u.id).n,
+    lessons: teaches,
+    sold: db.prepare("select coalesce(sum(json_array_length(items)), 0) as n from orders where seller_id = ? and status = 'delivered'").get(u.id).n,
+    rating: rating.n ? Math.round(rating.avg * 10) / 10 : null,
+    ratingCount: rating.n,
+    liveId: live?.id ?? null,
+    isClient: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, u.id)),
+    mine: user?.id === u.id,
+    joinedAt: u.created_at,
+  };
+});
+
+// Who follows a profile (its clients) and who it follows, by name. Accounts without a name (guests) are counted, not listed.
+route('GET', '/api/profiles/([\\w-]+)/clients', ({ params }) =>
+  db.prepare(`${PROFILE_PEOPLE}f.follower_id where f.seller_id = ? and u.is_guest = 0 order by f.created_at desc limit 500`).all(params[0]).map(personOut));
+route('GET', '/api/profiles/([\\w-]+)/following', ({ params }) =>
+  db.prepare(`${PROFILE_PEOPLE}f.seller_id where f.follower_id = ? order by f.created_at desc limit 500`).all(params[0]).map(personOut));
 
 route('GET', '/api/me/following', ({ user }) => (user ? db.prepare('select seller_id from follows where follower_id = ?').all(user.id).map((r) => r.seller_id) : []));
 
@@ -2152,7 +2193,7 @@ route('POST', '/api/admin/creators/([\\w-]+)', ({ user, params, body }) => {
   const done = db.prepare('update creators set status = ?, note = ?, decided_at = ? where user_id = ?').run(decision, note, now(), params[0]);
   if (!done.changes) fail(404, 'not_found', 'Application not found.');
   const titles = { approved: 'You are now a monetized creator', rejected: 'Your monetization application was not approved', suspended: 'Your monetization is suspended' };
-  notify(params[0], { type: 'account', title: titles[decision], body: note ?? (decision === 'approved' ? 'You now earn from your views, sales and new followers every month.' : 'See the Monetization Policy for details.'), link: '/dashboard/earnings' });
+  notify(params[0], { type: 'account', title: titles[decision], body: note ?? (decision === 'approved' ? 'You now earn from your views, sales and new clients every month.' : 'See the Monetization Policy for details.'), link: '/dashboard/earnings' });
   return { ok: true };
 });
 

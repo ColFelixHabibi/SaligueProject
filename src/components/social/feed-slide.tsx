@@ -1,7 +1,8 @@
 
 'use client';
 
-import { FollowButton } from '@/components/follow-button';
+import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
+
 import { trackAd } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
@@ -192,7 +193,8 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
           {soundOn && !unlocked && 'Tap for sound'}
         </button>
 
-        <div className={cn('absolute bottom-6 right-3 z-10', commentsOpen && 'hidden')}>
+        <div className={cn('absolute bottom-6 right-3 z-10 flex flex-col items-center gap-5', commentsOpen && 'hidden')}>
+          {product.sellerId && <ProfileAvatar id={product.sellerId} name={product.shop?.name ?? product.seller} src={product.sellerAvatar} />}
           <ActionRail product={product} variant="overlay" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
         </div>
 
@@ -207,10 +209,9 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
             <Link href={productHref(product)} onClick={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
             {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}
             {product.shop && (
-              <div className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name}</span>
-                {!product.official && <FollowButton sellerId={product.sellerId} className="h-7 px-3 text-xs" />}
-              </div>
+              <Link href={product.sellerId ? profileHref(product.sellerId) : productHref(product)} className="mt-1.5 flex w-fit max-w-full items-center gap-1.5 text-sm font-semibold text-foreground/80 hover:underline">
+                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name} · {product.shop.city}</span>
+              </Link>
             )}
             {product.sound && (
               <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">

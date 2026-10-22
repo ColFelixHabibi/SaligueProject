@@ -205,7 +205,7 @@ function Watch() {
               className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full', question ? 'bg-primary text-white' : 'bg-black/40 text-white')}>
               <HelpCircle className="h-5 w-5" />
             </button>
-            <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : live.chatMode === 'off' && !isGuest ? 'The host turned comments off' : live.chatMode === 'followers' && !isGuest ? 'Followers can comment · follow to join' : question ? 'Ask the host a question…' : live.slowSeconds ? `Slow mode · one comment every ${live.slowSeconds} s` : 'Say something…'} />
+            <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : live.chatMode === 'off' && !isGuest ? 'The host turned comments off' : live.chatMode === 'followers' && !isGuest ? 'Clients can comment · follow to join' : question ? 'Ask the host a question…' : live.slowSeconds ? `Slow mode · one comment every ${live.slowSeconds} s` : 'Say something…'} />
             <button type="submit" disabled={sending || !text.trim()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50" aria-label="Send">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>

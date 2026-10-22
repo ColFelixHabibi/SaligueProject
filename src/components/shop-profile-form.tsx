@@ -1,6 +1,8 @@
 
 'use client';
 
+import { Textarea } from '@/components/ui/textarea';
+
 import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
@@ -15,7 +17,7 @@ import { updateAccount } from '@/lib/auth-actions';
 import { useProductStore } from '@/hooks/use-product-store';
 import { isShopComplete, type Shop } from '@/lib/types';
 
-const EMPTY: Shop = { name: '', phone: '', whatsapp: '', country: 'Rwanda', city: '', district: '', street: '', landmark: '', mapUrl: '', hours: '' };
+const EMPTY: Shop = { name: '', phone: '', whatsapp: '', country: 'Rwanda', city: '', district: '', street: '', landmark: '', mapUrl: '', hours: '', bio: '' };
 
 const FIELDS: { id: keyof Shop; label: string; placeholder: string; required?: boolean; wide?: boolean }[] = [
   { id: 'name', label: 'Shop name', placeholder: 'e.g. Kigali Style House', required: true, wide: true },
@@ -87,6 +89,10 @@ export function ShopProfileForm() {
               />
             </div>
           ))}
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="shop-bio">Shop description <span className="font-normal text-muted-foreground">(bio on your profile)</span></Label>
+            <Textarea id="shop-bio" rows={3} maxLength={300} value={shop.bio ?? ''} onChange={(e) => setShop((prev) => ({ ...prev, bio: e.target.value }))} placeholder="What you sell, your style, delivery…" />
+          </div>
         </CardContent>
         <CardFooter className="border-t px-6 py-4">
           <Button type="submit" disabled={saving}>

@@ -292,7 +292,7 @@ function Studio({ id }: { id: string }) {
       <div className="space-y-2">
         <p className="text-sm font-semibold">Who can comment</p>
         <div className="grid grid-cols-3 gap-2">
-          {([['everyone', 'Everyone'], ['followers', 'Followers'], ['off', 'Off']] as const).map(([v, label]) => (
+          {([['everyone', 'Everyone'], ['followers', 'Clients'], ['off', 'Off']] as const).map(([v, label]) => (
             <Button key={v} type="button" variant={live.chatMode === v ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { chatMode: v }))}>{label}</Button>
           ))}
         </div>

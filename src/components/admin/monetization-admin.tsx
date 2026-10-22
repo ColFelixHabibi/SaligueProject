@@ -100,7 +100,7 @@ export function MonetizationAdmin() {
           {creators.map((c) => (
             <div key={c.userId} className="flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">{c.shop} <span className="font-normal text-muted-foreground">· {c.followers.toLocaleString()} followers</span></p>
+                <p className="font-semibold">{c.shop} <span className="font-normal text-muted-foreground">· {c.followers.toLocaleString()} clients</span></p>
                 <p className="text-muted-foreground">MoMo {c.momoNumber} ({c.momoName}) · {c.eligible ? 'meets all requirements' : 'no longer meets every requirement'}</p>
               </div>
               <Badge variant="outline" className="capitalize">{c.status}</Badge>
