@@ -33,20 +33,24 @@ function explain(error: unknown): CameraError {
  * Opens the camera facing the given way, with the microphone when `audio` is true.
  * If the microphone alone fails (none, or blocked), the camera still opens and `audio` comes back false.
  */
-export async function openCamera(facing: 'user' | 'environment', audio: boolean): Promise<{ stream: MediaStream; audio: boolean }> {
+export async function openCamera(facing: 'user' | 'environment', audio: boolean, choice?: { deviceId?: string; zoom?: number }): Promise<{ stream: MediaStream; audio: boolean }> {
   if (typeof window === 'undefined' || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     throw new CameraError('insecure', 'The camera only works on the secure address (https://). Open Saligue from its https:// link.');
   }
+  const which: MediaTrackConstraints = choice?.deviceId ? { deviceId: { exact: choice.deviceId } } : { facingMode: facing };
+  // The camera's own picture: no fixed shape, because asking for a tall 720×1280 picture makes most cameras
+  // cut a narrow strip out of the sensor, which looks zoomed in. resizeMode 'none' stops Chrome cropping.
   const videoOptions: MediaTrackConstraints[] = [
-    { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 30 } },
-    { facingMode: facing },
+    { ...which, width: { ideal: 1280 }, frameRate: { ideal: 30 }, resizeMode: 'none' } as MediaTrackConstraints,
+    which,
+    ...(choice?.deviceId ? [{ facingMode: facing }] : []),
     {},
   ];
   let lastError: unknown;
   for (const video of videoOptions) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio });
-      await widest(stream);
+      await startZoom(stream, choice?.zoom);
       return { stream, audio };
     } catch (error) {
       lastError = error;
@@ -56,7 +60,7 @@ export async function openCamera(facing: 'user' | 'environment', audio: boolean)
       if (audio && (name === 'NotFoundError' || name === 'NotAllowedError' || name === 'NotReadableError')) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio: false });
-          await widest(stream);
+          await startZoom(stream, choice?.zoom);
           return { stream, audio: false };
         } catch (videoOnly) {
           lastError = videoOnly;
@@ -82,9 +86,45 @@ export async function setZoom(track: MediaStreamTrack, zoom: number) {
   await track.applyConstraints({ advanced: [{ zoom } as MediaTrackConstraintSet] }).catch(() => {});
 }
 
-// Some phones open the camera zoomed in: start at the widest view.
-async function widest(stream: MediaStream) {
+// Some phones open the camera zoomed in: start at the widest view, or the zoom the seller chose.
+async function startZoom(stream: MediaStream, wanted?: number) {
   const track = stream.getVideoTracks()[0];
   const range = zoomRange(track);
-  if (range && range.value > range.min) await setZoom(track, range.min);
+  if (!range) return;
+  const zoom = wanted != null ? Math.min(range.max, Math.max(range.min, wanted)) : range.min;
+  if (zoom !== range.value) await setZoom(track, zoom);
+}
+
+/** The cameras on this device. Phones often list their wide-angle lens as its own camera. */
+export async function listCameras(): Promise<{ deviceId: string; label: string }[]> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === 'videoinput' && d.deviceId)
+      .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+  } catch {
+    return [];
+  }
+}
+
+/** The camera the seller picked before going live (kept on this device). */
+export type CameraChoice = { facing: 'user' | 'environment'; deviceId?: string; zoom?: number };
+const CHOICE_KEY = 'saligue-live-camera';
+
+export function loadCameraChoice(): CameraChoice {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHOICE_KEY) ?? 'null');
+    if (saved && (saved.facing === 'user' || saved.facing === 'environment')) return saved;
+  } catch {
+    // Nothing saved, or storage is blocked.
+  }
+  return { facing: 'user' };
+}
+
+export function saveCameraChoice(choice: CameraChoice) {
+  try {
+    localStorage.setItem(CHOICE_KEY, JSON.stringify(choice));
+  } catch {
+    // Storage blocked: the choice just isn't remembered.
+  }
 }

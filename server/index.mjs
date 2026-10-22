@@ -1356,6 +1356,8 @@ function liveOut(l) {
     // Host's chat settings: who may comment, and how often.
     chatMode: l.chat_mode ?? 'everyone',
     slowSeconds: l.slow_seconds ?? 0,
+    // 'fit': the whole camera picture (never cropped); 'fill': fills the screen.
+    videoFit: l.video_fit === 'fill' ? 'fill' : 'fit',
     startedAt: l.started_at,
     endedAt: l.ended_at,
   };
@@ -1441,6 +1443,7 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   if (body.pinnedCommentId !== undefined) db.prepare('update lives set pinned_comment_id = ? where id = ?').run(body.pinnedCommentId ? String(body.pinnedCommentId) : null, live.id);
   if (body.chatMode !== undefined && ['everyone', 'followers', 'off'].includes(body.chatMode)) db.prepare('update lives set chat_mode = ? where id = ?').run(body.chatMode, live.id);
   if (body.slowSeconds !== undefined) db.prepare('update lives set slow_seconds = ? where id = ?').run([0, 10, 30, 60].includes(Number(body.slowSeconds)) ? Number(body.slowSeconds) : 0, live.id);
+  if (body.videoFit !== undefined && ['fit', 'fill'].includes(body.videoFit)) db.prepare('update lives set video_fit = ? where id = ?').run(body.videoFit, live.id);
   if (body.viewers !== undefined) db.prepare('update lives set peak_viewers = max(peak_viewers, ?) where id = ?').run(Math.max(0, Math.floor(Number(body.viewers) || 0)), live.id);
   const fresh = liveOut(db.prepare('select * from lives where id = ?').get(live.id));
   if (body.viewers === undefined || Object.keys(body).length > 1) liveEvent(live.id, { type: 'updated', live: fresh });

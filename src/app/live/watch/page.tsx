@@ -133,7 +133,7 @@ function Watch() {
   return (
     <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
-        <LiveStage tiles={tiles} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
+        <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
           <FollowButton sellerId={live.sellerId} onDark className="h-7 px-3 text-xs" />
           <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close"><X className="h-4 w-4" /></button>

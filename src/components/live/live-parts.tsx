@@ -10,15 +10,15 @@ import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 /**
- * Fills the frame with tall (portrait) video; shows wide video whole on a blurred copy of itself, so the
- * picture is never cropped into a "zoomed-in" look (phones often send landscape video).
+ * True unless the video is already phone-tall (9:16). Such video is shown whole on a blurred copy of
+ * itself, so the picture is never cropped into a "zoomed-in" look (cameras often send 4:3 or landscape).
  */
 export function useVideoShape(video: React.RefObject<HTMLVideoElement | null>) {
   const [wide, setWide] = useState(false);
   useEffect(() => {
     const el = video.current;
     if (!el) return;
-    const update = () => el.videoWidth && setWide(el.videoWidth > el.videoHeight * 1.05);
+    const update = () => el.videoWidth && setWide(el.videoWidth > el.videoHeight * 0.62);
     el.addEventListener('loadedmetadata', update);
     el.addEventListener('resize', update);
     update();
@@ -36,15 +36,15 @@ function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
   const audio = useRef<HTMLAudioElement>(null);
   const wide = useVideoShape(video);
   useEffect(() => attach(tile.video, video.current), [tile.video]);
-  useEffect(() => (wide ? attach(tile.video, backdrop.current) : () => {}), [tile.video, wide]);
+  useEffect(() => (wide && !cover ? attach(tile.video, backdrop.current) : () => {}), [tile.video, wide, cover]);
   // Your own voice is never played back to you.
   useEffect(() => (tile.isLocal ? () => {} : attach(tile.audio, audio.current)), [tile.audio, tile.isLocal]);
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-neutral-900', tile.speaking && tile.role === 'guest' && 'ring-4 ring-inset ring-primary')}>
       {tile.video ? (
         <>
-          {wide && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.isLocal && '-scale-x-110')} />}
-          <video ref={video} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover && !wide ? 'object-cover' : 'object-contain', tile.isLocal && 'scale-x-[-1]')} />
+          {wide && !cover && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.isLocal && '-scale-x-110')} />}
+          <video ref={video} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover ? 'object-cover' : 'object-contain', tile.isLocal && 'scale-x-[-1]')} />
         </>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/70">
@@ -64,14 +64,14 @@ function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
 }
 
 /** Host full screen; up to three guests share the screen with the host, like TikTok and Instagram multi-guest lives. */
-export function LiveStage({ tiles, waiting }: { tiles: Tile[]; waiting: string }) {
+export function LiveStage({ tiles, waiting, fill }: { tiles: Tile[]; waiting: string; fill?: boolean }) {
   if (!tiles.length) {
     return <div className="flex h-full w-full items-center justify-center bg-neutral-900 p-8 text-center text-white/80">{waiting}</div>;
   }
-  if (tiles.length === 1) return <VideoView tile={tiles[0]} cover />;
+  if (tiles.length === 1) return <VideoView tile={tiles[0]} cover={fill} />;
   return (
     <div className={cn('grid h-full w-full gap-0.5 bg-black', tiles.length === 2 ? 'grid-rows-2' : 'grid-cols-2 grid-rows-2')}>
-      {tiles.map((t) => <VideoView key={t.identity} tile={t} cover />)}
+      {tiles.map((t) => <VideoView key={t.identity} tile={t} cover={fill} />)}
     </div>
   );
 }

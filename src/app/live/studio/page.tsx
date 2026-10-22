@@ -1,10 +1,10 @@
 'use client';
 
-import { openCamera, setZoom, zoomRange } from '@/lib/camera';
+import { listCameras, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Check, Maximize, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,7 +32,10 @@ function Setup() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
-  const [facing, setFacing] = useState<'user' | 'environment'>('user');
+  const [facing, setFacing] = useState<'user' | 'environment'>(() => (typeof window === 'undefined' ? 'user' : loadCameraChoice().facing));
+  const [deviceId, setDeviceId] = useState<string | undefined>(() => (typeof window === 'undefined' ? undefined : loadCameraChoice().deviceId));
+  const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
+  const [fill, setFill] = useState(false);
   const [camError, setCamError] = useState<string | null>(null);
   const [camTry, setCamTry] = useState(0);
   const [zoom, setZoomState] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
@@ -52,12 +55,15 @@ function Setup() {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamError(null);
-    openCamera(facing, false)
+    openCamera(facing, false, { deviceId })
       .then(({ stream: s }) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
         trackRef.current = s.getVideoTracks()[0];
         setZoomState(zoomRange(trackRef.current));
+        saveCameraChoice({ facing, deviceId, zoom: zoomRange(trackRef.current)?.value });
+        // Camera names are only readable once the camera is allowed.
+        void listCameras().then(setCameras);
         if (video.current) {
           video.current.srcObject = s;
           video.current.play().catch(() => {});
@@ -69,7 +75,7 @@ function Setup() {
       cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [facing, camTry]);
+  }, [facing, deviceId, camTry]);
 
   const mineLive = lives?.lives.find((l) => l.sellerId === authUid);
 
@@ -78,6 +84,7 @@ function Setup() {
     setStarting(true);
     try {
       const live = await goLive({ title, description, productIds: picked });
+      if (fill) await updateLive(live.id, { videoFit: 'fill' }).catch(() => {});
       router.replace(`/live/studio?id=${live.id}`);
     } catch (error) {
       toast({ variant: 'destructive', title: 'Could not go live', description: friendlyError(error) });
@@ -92,8 +99,8 @@ function Setup() {
   return (
     <div className="mx-auto grid max-w-5xl gap-6 p-4 md:grid-cols-[minmax(0,360px)_1fr] md:p-8">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl">
-        {previewWide && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
-        <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', previewWide ? 'object-contain' : 'object-cover', facing === 'user' && 'scale-x-[-1]')} />
+        {previewWide && !fill && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
+        <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', fill ? 'object-cover' : 'object-contain', facing === 'user' && 'scale-x-[-1]')} />
         {camError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white/90">
             <VideoOff className="h-10 w-10" />
@@ -102,9 +109,20 @@ function Setup() {
           </div>
         )}
         <span className="absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-xs font-bold text-white">Preview</span>
-        <button type="button" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))} className="absolute right-3 top-3 rounded-full bg-black/50 p-2 text-white" aria-label="Switch camera">
-          <SwitchCamera className="h-5 w-5" />
-        </button>
+        <div className="absolute right-3 top-3 flex flex-col gap-2">
+          <button type="button" onClick={() => { setDeviceId(undefined); setFacing((f) => (f === 'user' ? 'environment' : 'user')); }} className="rounded-full bg-black/50 p-2 text-white" aria-label="Switch camera" title="Switch camera">
+            <SwitchCamera className="h-5 w-5" />
+          </button>
+          <button type="button" onClick={() => setFill((f) => !f)} className="rounded-full bg-black/50 p-2 text-white" aria-label={fill ? 'Show the whole picture' : 'Fill the screen'} title={fill ? 'Whole picture' : 'Fill screen'}>
+            {fill ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+          </button>
+        </div>
+        {cameras.length > 1 && (
+          <select aria-label="Camera" value={deviceId ?? ''} onChange={(e) => setDeviceId(e.target.value || undefined)} className={cn('absolute left-3 max-w-[70%] truncate rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white', zoom ? 'bottom-16' : 'bottom-4')}>
+            <option value="">{facing === 'user' ? 'Front camera' : 'Back camera'}</option>
+            {cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
+          </select>
+        )}
         {zoom && (
           <div className="absolute inset-x-4 bottom-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs font-semibold text-white">
             <span>{zoom.value.toFixed(1)}×</span>
@@ -113,6 +131,7 @@ function Setup() {
                 const v = Number(e.target.value);
                 setZoomState({ ...zoom, value: v });
                 if (trackRef.current) void setZoom(trackRef.current, v);
+                saveCameraChoice({ facing, deviceId, zoom: v });
               }} />
           </div>
         )}
@@ -176,8 +195,10 @@ function Studio({ id }: { id: string }) {
   const { authUid } = useAuth();
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
+  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
+  const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
+  const [cameraId, setCameraId] = useState('');
   const elapsed = useElapsed(live?.startedAt);
   const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
@@ -249,7 +270,7 @@ function Studio({ id }: { id: string }) {
         {requests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold">{requests.length}</span>}
       </button>
       <button type="button" onClick={share} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Share"><Share2 className="h-5 w-5" /></button>
-      <button type="button" onClick={() => { setLiveZoom(zoomRange(videoTrack())); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => { setLiveZoom(zoomRange(videoTrack())); setCameraId(videoTrack()?.getSettings().deviceId ?? ''); void listCameras().then(setCameras); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
     </div>
   );
 
@@ -273,6 +294,30 @@ function Studio({ id }: { id: string }) {
         <p className="text-xs text-muted-foreground">How long each viewer waits between comments.</p>
       </div>
       <div className="space-y-2">
+        <p className="text-sm font-semibold">Picture</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button type="button" variant={live.videoFit !== 'fill' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { videoFit: 'fit' }))}><Minimize className="mr-2 h-4 w-4" /> Whole</Button>
+          <Button type="button" variant={live.videoFit === 'fill' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { videoFit: 'fill' }))}><Maximize className="mr-2 h-4 w-4" /> Fill</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Whole shows your full camera picture to everyone. Fill covers the screen and cuts the edges.</p>
+      </div>
+      {cameras.length > 1 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Camera</p>
+          <div className="grid gap-2">
+            {cameras.map((c) => (
+              <Button key={c.deviceId} type="button" variant={cameraId === c.deviceId ? 'default' : 'outline'} className="justify-start truncate"
+                onClick={() => act(async () => {
+                  await restartCamera({ facing, deviceId: c.deviceId });
+                  setCameraId(c.deviceId);
+                  setLiveZoom(zoomRange(videoTrack()));
+                })}>{c.label}</Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">On many phones one of the back cameras is wide-angle: pick it to show more.</p>
+        </div>
+      )}
+      <div className="space-y-2">
         <p className="text-sm font-semibold">Zoom</p>
         {liveZoom ? (
           <div className="flex items-center gap-3">
@@ -286,7 +331,7 @@ function Studio({ id }: { id: string }) {
               }} />
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">This camera doesn’t allow zoom from the browser. Move the phone closer or further instead.</p>
+          <p className="text-xs text-muted-foreground">This camera doesn’t allow zoom from the browser. Use Whole picture, a wide-angle camera above, or move further away.</p>
         )}
       </div>
     </div>
@@ -295,7 +340,7 @@ function Studio({ id }: { id: string }) {
   return (
     <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
-        <LiveStage tiles={tiles} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
+        <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>

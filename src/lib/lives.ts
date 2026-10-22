@@ -22,6 +22,7 @@ export type Live = {
   peakViewers: number;
   chatMode: 'everyone' | 'followers' | 'off';
   slowSeconds: number;
+  videoFit?: 'fit' | 'fill';
   startedAt: string;
   endedAt: string | null;
 };

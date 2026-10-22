@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack } from 'livekit-client';
-import { openCamera } from './camera';
+import { loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraChoice } from './camera';
 import { api, onServerEvent } from './api';
 import { withMedia, type Burst, type Live, type LiveComment, type LiveGuest } from './lives';
 
@@ -64,7 +64,7 @@ export function useLive(id: string | null, me: string | null) {
 // Actions
 export const goLive = (body: { title: string; description: string; productIds: string[] }) => api<Live>('/lives', { body });
 export const endLive = (id: string) => api<Live>(`/lives/${id}/end`, { body: {} });
-export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number }>) =>
+export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill' }>) =>
   api<Live>(`/lives/${id}`, { method: 'PATCH', body });
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment') => api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind } });
 export const removeLiveComment = (id: string, commentId: string) => api(`/lives/${id}/comments/${commentId}`, { method: 'DELETE' });
@@ -156,7 +156,9 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
       // 1. The camera first, so the host sees themselves at once (and camera problems are told apart from network ones).
       if (publishWanted) {
         try {
-          const { stream, audio } = await openCamera('user', true);
+          const choice = loadCameraChoice();
+          setFacing(choice.facing);
+          const { stream, audio } = await openCamera(choice.facing, true, choice);
           if (cancelled) return stream.getTracks().forEach((t) => t.stop());
           const tracks: LocalTrack[] = [new LocalVideoTrack(stream.getVideoTracks()[0], undefined, true)];
           if (audio && stream.getAudioTracks()[0]) tracks.push(new LocalAudioTrack(stream.getAudioTracks()[0], undefined, true));
@@ -219,15 +221,20 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   // The camera itself (for zoom).
   const videoTrack = useCallback(() => (localTracks.current.find((t) => t.kind === Track.Kind.Video)?.mediaStreamTrack ?? null), []);
 
-  // Front ↔ back camera on phones.
-  const flipCamera = useCallback(async () => {
-    const next = facing === 'user' ? 'environment' : 'user';
+  // Front ↔ back camera on phones, or one chosen camera/lens; the full picture, not a cropped strip.
+  const restartCamera = useCallback(async (next: CameraChoice) => {
     const video = localTracks.current.find((t) => t.kind === Track.Kind.Video) as (LocalTrack & { restartTrack?: (o: object) => Promise<void> }) | undefined;
-    await video?.restartTrack?.({ facingMode: next });
-    setFacing(next);
-  }, [facing]);
+    const which = next.deviceId ? { deviceId: { exact: next.deviceId } } : { facingMode: next.facing };
+    await video?.restartTrack?.({ ...which, width: { ideal: 1280 }, frameRate: { ideal: 30 }, resizeMode: 'none' });
+    const track = video?.mediaStreamTrack;
+    const range = zoomRange(track);
+    if (track && range) await setZoom(track, range.min);
+    setFacing(next.facing);
+    saveCameraChoice({ facing: next.facing, deviceId: next.deviceId });
+  }, []);
+  const flipCamera = useCallback(() => restartCamera({ facing: facing === 'user' ? 'environment' : 'user' }), [facing, restartCamera]);
 
-  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, facing, retry, videoTrack };
+  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */
