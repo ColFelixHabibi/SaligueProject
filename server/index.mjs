@@ -1358,6 +1358,8 @@ function liveOut(l) {
     slowSeconds: l.slow_seconds ?? 0,
     // 'fit': the whole camera picture (never cropped); 'fill': fills the screen.
     videoFit: l.video_fit === 'fill' ? 'fill' : 'fit',
+    // People the host trusts to look after the chat (remove comments, mute, pin, chat settings).
+    moderators: (parse(l.moderators) ?? []).map((uid) => ({ uid, name: personNameOf(db.prepare('select display_name, email, is_guest from users where id = ?').get(uid)) })),
     startedAt: l.started_at,
     endedAt: l.ended_at,
   };
@@ -1373,6 +1375,13 @@ function getLive(id) {
 const ownLive = (user, id) => {
   const live = getLive(id);
   if (live.seller_id !== user?.id) fail(403, 'forbidden', 'Only the host can do this.');
+  return live;
+};
+const isLiveMod = (live, user) => !!user && (parse(live.moderators) ?? []).includes(user.id);
+// The host, or one of their moderators.
+const modLive = (user, id) => {
+  const live = getLive(id);
+  if (live.seller_id !== user?.id && !isLiveMod(live, user)) fail(403, 'forbidden', 'Only the host and moderators can do this.');
   return live;
 };
 const liveEvent = (liveId, data) => broadcast('live', { liveId, ...data });
@@ -1413,7 +1422,7 @@ route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
   const guests = db.prepare("select g.user_id, g.status, u.display_name, u.is_guest from live_guests g join users u on u.id = g.user_id where g.live_id = ? and g.status != 'declined'").all(live.id)
     .map((g) => ({ uid: g.user_id, name: personNameOf({ display_name: g.display_name, is_guest: g.is_guest }), status: g.status }));
   const me = user ? db.prepare('select status from live_guests where live_id = ? and user_id = ?').get(live.id, user.id)?.status ?? null : null;
-  return { live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false };
+  return { live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false, invited: user ? (parse(live.invited) ?? []).includes(user.id) : false };
 });
 
 // A pass into the video room: hosts and accepted guests can use their camera; everyone else watches.
@@ -1426,13 +1435,15 @@ route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
   const name = host ? shopNameOf(user) : personNameOf(user);
   return {
     url: liveSettings().url,
-    token: accessToken({ room: live.id, identity: user.id, name, canPublish: !!(host || guest), metadata: { role: host ? 'host' : guest ? 'guest' : 'viewer', avatar: user.avatar ?? null } }),
+    token: accessToken({ room: live.id, identity: user.id, name, canPublish: !!(host || guest), metadata: { role: host ? 'host' : guest ? 'guest' : 'viewer', avatar: user.avatar ?? null, account: !user.is_guest } }),
     role: host ? 'host' : guest ? 'guest' : 'viewer',
   };
 });
 
 route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
-  const live = ownLive(user, params[0]);
+  const live = modLive(user, params[0]);
+  // Moderators look after the chat; the live itself (title, items, picture) stays the host's.
+  if (live.seller_id !== user.id && Object.keys(body).some((k) => !['pinnedCommentId', 'chatMode', 'slowSeconds'].includes(k))) fail(403, 'forbidden', 'Only the host can change this.');
   if (body.title !== undefined) db.prepare('update lives set title = ? where id = ?').run(String(body.title).trim().slice(0, 100) || live.title, live.id);
   if (body.description !== undefined) db.prepare('update lives set description = ? where id = ?').run(String(body.description).trim().slice(0, 1000), live.id);
   if (body.productIds !== undefined) db.prepare('update lives set product_ids = ? where id = ?').run(json(sellerProductIds(user.id, body.productIds)), live.id);
@@ -1469,7 +1480,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   const kind = body.kind === 'question' ? 'question' : body.kind === 'join' ? 'join' : 'comment';
   const isHost = live.seller_id === user.id;
   const onCamera = db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, user.id);
-  if (kind !== 'join' && !isHost && !onCamera) {
+  if (kind !== 'join' && !isHost && !onCamera && !isLiveMod(live, user)) {
     if (live.chat_mode === 'off') fail(403, 'chat_off', 'The host has turned comments off.');
     if (live.chat_mode === 'followers' && !db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, live.seller_id)) {
       fail(403, 'followers_only', 'Only followers can comment. Follow the shop to join the chat.');
@@ -1502,7 +1513,8 @@ route('DELETE', '/api/lives/([\\w-]+)/comments/([\\w-]+)', ({ user, params }) =>
   const live = getLive(params[0]);
   const comment = db.prepare('select * from live_comments where id = ? and live_id = ?').get(params[1], live.id);
   if (!comment) return { ok: true };
-  if (live.seller_id !== user?.id && comment.user_id !== user?.id) fail(403, 'forbidden', 'Only the host can remove comments.');
+  if (live.seller_id !== user?.id && comment.user_id !== user?.id && !isLiveMod(live, user)) fail(403, 'forbidden', 'Only the host and moderators can remove comments.');
+  if (comment.user_id === live.seller_id && live.seller_id !== user?.id) fail(403, 'forbidden', 'Moderators can’t remove the host’s comments.');
   db.prepare('delete from live_comments where id = ?').run(comment.id);
   liveEvent(live.id, { type: 'comment_removed', commentId: comment.id });
   return { ok: true };
@@ -1521,11 +1533,24 @@ route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
 });
 
 // Joining on camera: a viewer asks, the host accepts (the guest then gets a pass with camera rights) or declines.
-route('POST', '/api/lives/([\\w-]+)/guests', ({ user, params }) => {
+route('POST', '/api/lives/([\\w-]+)/guests', ({ user, params, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to join a live on camera.');
   const live = getLive(params[0]);
   if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
   if (live.seller_id === user.id) fail(400, 'host', 'You are the host.');
+  // Answering the host's invitation to come on camera (co-host).
+  const invited = parse(live.invited) ?? [];
+  if (body?.accept !== undefined && invited.includes(user.id)) {
+    db.prepare('update lives set invited = ? where id = ?').run(json(invited.filter((x) => x !== user.id)), live.id);
+    if (body.accept) {
+      const accepted = db.prepare("select count(*) as n from live_guests where live_id = ? and status = 'accepted'").get(live.id).n;
+      if (accepted >= 3) fail(400, 'full', 'The live already has 3 guests on camera.');
+      db.prepare("insert into live_guests (live_id, user_id, status, created_at) values (?, ?, 'accepted', ?) on conflict(live_id, user_id) do update set status = 'accepted'").run(live.id, user.id, now());
+    }
+    sendTo([live.seller_id], 'live', { liveId: live.id, type: 'invite_answer', uid: user.id, name: personNameOf(user), accepted: !!body.accept });
+    liveEvent(live.id, { type: 'guests_changed' });
+    return { status: body.accept ? 'accepted' : 'declined' };
+  }
   db.prepare("insert into live_guests (live_id, user_id, status, created_at) values (?, ?, 'requested', ?) on conflict(live_id, user_id) do update set status = 'requested', created_at = excluded.created_at")
     .run(live.id, user.id, now());
   sendTo([live.seller_id], 'live', { liveId: live.id, type: 'guest_request', uid: user.id, name: personNameOf(user) });
@@ -1536,9 +1561,18 @@ route('POST', '/api/lives/([\\w-]+)/guests/([\\w-]+)', async ({ user, params, bo
   const live = ownLive(user, params[0]);
   const guestId = params[1];
   const decision = body.decision;
-  if (!['accept', 'decline', 'remove'].includes(decision)) fail(400, 'invalid', 'Choose accept, decline or remove.');
+  if (!['accept', 'decline', 'remove', 'invite'].includes(decision)) fail(400, 'invalid', 'Choose accept, decline, remove or invite.');
   const accepted = db.prepare("select count(*) as n from live_guests where live_id = ? and status = 'accepted'").get(live.id).n;
-  if (decision === 'accept' && accepted >= 3) fail(400, 'full', 'Up to 3 guests can be on camera at once.');
+  if ((decision === 'accept' || decision === 'invite') && accepted >= 3) fail(400, 'full', 'Up to 3 guests can be on camera at once.');
+  // Invite a viewer on camera without waiting for them to ask; they choose to come on or not.
+  if (decision === 'invite') {
+    const target = db.prepare('select id, is_guest from users where id = ?').get(guestId);
+    if (!target || target.is_guest) fail(400, 'no_account', 'Only viewers with a Saligue account can come on camera.');
+    if (guestId === live.seller_id) fail(400, 'host', 'You are the host.');
+    db.prepare('update lives set invited = ? where id = ?').run(json([...new Set([...(parse(live.invited) ?? []), guestId])]), live.id);
+    sendTo([guestId], 'live', { liveId: live.id, type: 'guest_invite', host: shopNameOf(user) });
+    return { ok: true };
+  }
   db.prepare('update live_guests set status = ? where live_id = ? and user_id = ?').run(decision === 'accept' ? 'accepted' : 'declined', live.id, guestId);
   if (decision === 'remove') await removeParticipant(live.id, guestId);
   sendTo([guestId], 'live', { liveId: live.id, type: 'guest_decision', decision });
@@ -1548,12 +1582,36 @@ route('POST', '/api/lives/([\\w-]+)/guests/([\\w-]+)', async ({ user, params, bo
 
 // Host moderation: stop someone commenting in this live.
 route('POST', '/api/lives/([\\w-]+)/mute/([\\w-]+)', ({ user, params, body }) => {
-  const live = ownLive(user, params[0]);
+  const live = modLive(user, params[0]);
+  if (params[1] === live.seller_id) fail(400, 'host', 'The host can’t be muted.');
+  if (live.seller_id !== user.id && (parse(live.moderators) ?? []).includes(params[1])) fail(403, 'forbidden', 'Only the host can mute a moderator.');
   const muted = new Set(parse(live.muted) ?? []);
   if (body.muted === false) muted.delete(params[1]);
   else muted.add(params[1]);
   db.prepare('update lives set muted = ? where id = ?').run(json([...muted]), live.id);
   return { ok: true };
+});
+
+// Host: make a viewer a moderator of this live, or stop it. Moderators need a Saligue account.
+route('POST', '/api/lives/([\\w-]+)/moderators/([\\w-]+)', ({ user, params, body }) => {
+  const live = ownLive(user, params[0]);
+  const uid = params[1];
+  const mods = new Set(parse(live.moderators) ?? []);
+  if (body.moderator === false) mods.delete(uid);
+  else {
+    const target = db.prepare('select id, is_guest from users where id = ?').get(uid);
+    if (!target || target.is_guest) fail(400, 'no_account', 'Only viewers with a Saligue account can be moderators.');
+    if (uid === live.seller_id) fail(400, 'host', 'You are the host.');
+    if (mods.size >= 10) fail(400, 'full', 'Up to 10 moderators per live.');
+    mods.add(uid);
+    // A moderator can always speak.
+    db.prepare('update lives set muted = ? where id = ?').run(json((parse(live.muted) ?? []).filter((x) => x !== uid)), live.id);
+  }
+  db.prepare('update lives set moderators = ? where id = ?').run(json([...mods]), live.id);
+  const fresh = liveOut(db.prepare('select * from lives where id = ?').get(live.id));
+  liveEvent(live.id, { type: 'updated', live: fresh });
+  sendTo([uid], 'live', { liveId: live.id, type: 'moderator', on: body.moderator !== false });
+  return fresh;
 });
 
 // ---------------------------------------------------------------------------

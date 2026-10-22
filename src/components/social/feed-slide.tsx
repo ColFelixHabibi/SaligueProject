@@ -19,6 +19,7 @@ import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { ExpandableText } from '@/components/expandable-text';
 
 /** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
 function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null>) {
@@ -164,17 +165,16 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
         {!commentsOpen && (
           <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-background via-background/85 to-transparent p-4 pr-20 pt-16">
             {product.official && (
-              <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-primary-foreground">
-                <BadgeCheck className="h-3.5 w-3.5" /> Recommended by INDECIANA
+              <span className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold tracking-wider text-primary-foreground">
+                <BadgeCheck className="h-3.5 w-3.5" /> INDECIANA
               </span>
             )}
-            {reason && <p className="mb-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">✨ {reason}</p>}
             {sponsoredBy && <p className="mb-1 inline-flex items-center rounded bg-foreground/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-background">Sponsored</p>}
-            <Link href={productHref(product)} onClick={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className="block text-xl font-bold leading-tight hover:underline">{product.name}</Link>
-            <p className="mt-1 text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+            <Link href={productHref(product)} onClick={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
+            {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}
             {product.shop && (
-              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name} · {product.shop.city}</span>
+              <div className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name}</span>
                 {!product.official && <FollowButton sellerId={product.sellerId} className="h-7 px-3 text-xs" />}
               </div>
             )}
@@ -183,9 +183,12 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
                 <Music2 className="h-4 w-4 shrink-0" /> <span className="truncate">{product.sound.name}</span>
               </p>
             )}
-            <Button size="sm" className="mt-3" onClick={add}>
-              <ShoppingCart className="mr-2 h-4 w-4" /> Add to cart
-            </Button>
+            <div className="mt-2 flex items-center gap-3">
+              <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+              <Button size="icon" className="h-10 w-10 rounded-full" onClick={add} aria-label="Add to cart" title="Add to cart">
+                <ShoppingCart className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         )}
       </div>

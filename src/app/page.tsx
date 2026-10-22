@@ -84,12 +84,16 @@ export default function ForYouPage() {
   return (
     <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
-      <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-start px-3">
-
+      <div className="pointer-events-none sticky top-0 z-40 flex h-0 justify-start px-3">
+        {/* Who is live: the seller's photo in a pink ring with a LIVE tag, like stories. */}
         {lives.length > 0 && (
-          <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} className="pointer-events-auto ml-2 mt-3 flex items-center gap-1.5 rounded-full bg-primary py-1 pl-1 pr-3 text-xs font-extrabold text-primary-foreground shadow-md">
-            <span className="flex -space-x-2">{lives.slice(0, 3).map((l) => <SellerAvatar key={l.id} src={l.sellerAvatar} name={l.sellerName} className="h-6 w-6 ring-2 ring-primary" />)}</span>
-            <Radio className="h-3.5 w-3.5" /> LIVE
+          <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} aria-label={`${lives.length} live now`} className="pointer-events-auto relative mt-3 flex flex-col items-center">
+            <span className="rounded-full bg-gradient-to-tr from-primary to-[#e30613] p-[3px] shadow-lg">
+              <SellerAvatar src={lives[0].sellerAvatar} name={lives[0].sellerName} className="h-12 w-12 ring-2 ring-background" />
+            </span>
+            <span className="-mt-2.5 flex items-center gap-0.5 rounded-md bg-primary px-1.5 py-px text-[10px] font-extrabold tracking-wide text-primary-foreground ring-2 ring-background">
+              <Radio className="h-3 w-3" /> LIVE{lives.length > 1 ? ` ${lives.length}` : ''}
+            </span>
           </Link>
         )}
       </div>

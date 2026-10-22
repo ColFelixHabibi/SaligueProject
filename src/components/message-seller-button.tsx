@@ -34,7 +34,8 @@ export function MessageSellerButton({ label = 'Message seller', className, size 
     if (!message.trim()) return;
     setSending(true);
     try {
-      const id = await startConversation(product ? { productId: product.id } : { orderId: about.orderId }, message.trim());
+      // A live without items still has a shop to message.
+      const id = await startConversation(product ? (product.id ? { productId: product.id } : { sellerId: product.sellerId }) : { orderId: about.orderId }, message.trim());
       setOpen(false);
       setText('');
       router.push(`/messages?c=${id}`);
@@ -58,10 +59,10 @@ export function MessageSellerButton({ label = 'Message seller', className, size 
           <DialogHeader>
             <DialogTitle>{product ? `Message ${shopName}` : 'Message about this order'}</DialogTitle>
             <DialogDescription>
-              {product ? <>About <b className="text-foreground">{product.name}</b>. The shop replies here in Saligue and gets an email.</> : 'The other side gets your message in Saligue and by email.'}
+              {product ? <>{product.id && <>About <b className="text-foreground">{product.name}</b>. </>}The shop replies here in Saligue and gets an email.</> : 'The other side gets your message in Saligue and by email.'}
             </DialogDescription>
           </DialogHeader>
-          {product && (
+          {product?.id && (
             <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={product.cutout || product.image} alt="" className="h-14 w-14 rounded-md bg-background object-contain p-1" />

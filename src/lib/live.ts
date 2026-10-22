@@ -17,6 +17,8 @@ export function useLive(id: string | null, me: string | null) {
   const [guests, setGuests] = useState<LiveGuest[]>([]);
   const [myGuestStatus, setMyGuestStatus] = useState<'requested' | 'accepted' | 'declined' | null>(null);
   const [muted, setMuted] = useState(false);
+  // The host asked me to come on camera.
+  const [invited, setInvited] = useState(false);
   const [bursts, setBursts] = useState<Burst[]>([]);
   const [error, setError] = useState<string | null>(null);
   const burstId = useRef(0);
@@ -30,12 +32,13 @@ export function useLive(id: string | null, me: string | null) {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const d = await api<{ live: Live; comments: LiveComment[]; guests: LiveGuest[]; myGuestStatus: typeof myGuestStatus; muted: boolean }>(`/lives/${id}`);
+      const d = await api<{ live: Live; comments: LiveComment[]; guests: LiveGuest[]; myGuestStatus: typeof myGuestStatus; muted: boolean; invited?: boolean }>(`/lives/${id}`);
       setLive(withMedia(d.live));
       setComments(d.comments);
       setGuests(d.guests);
       setMyGuestStatus(d.myGuestStatus);
       setMuted(d.muted);
+      setInvited(!!d.invited);
     } catch (e: any) {
       setError(e?.message ?? 'This live could not be opened.');
     }
@@ -54,11 +57,12 @@ export function useLive(id: string | null, me: string | null) {
       }
       if (d.type === 'updated') setLive(withMedia(d.live));
       if (d.type === 'ended') setLive((l) => (l ? { ...l, status: 'ended' } : l));
-      if (d.type === 'guests_changed' || d.type === 'guest_request' || d.type === 'guest_decision') void load();
+      if (d.type === 'guest_invite') setInvited(true);
+      if (['guests_changed', 'guest_request', 'guest_decision', 'invite_answer', 'moderator'].includes(d.type)) void load();
     });
   }, [id, me, load, burst]);
 
-  return { live, comments, guests, myGuestStatus, muted, bursts, burst, error, reload: load };
+  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load };
 }
 
 // Actions
@@ -71,6 +75,10 @@ export const removeLiveComment = (id: string, commentId: string) => api(`/lives/
 export const askToJoin = (id: string) => api<{ status: string }>(`/lives/${id}/guests`, { body: {} });
 export const decideGuest = (id: string, uid: string, decision: 'accept' | 'decline' | 'remove') => api(`/lives/${id}/guests/${uid}`, { body: { decision } });
 export const muteInLive = (id: string, uid: string) => api(`/lives/${id}/mute/${uid}`, { body: { muted: true } });
+export const setLiveModerator = (id: string, uid: string, moderator: boolean) => api<Live>(`/lives/${id}/moderators/${uid}`, { body: { moderator } });
+/** Host: invite a viewer onto camera (co-host). The viewer answers with answerInvite. */
+export const inviteOnCamera = (id: string, uid: string) => api(`/lives/${id}/guests/${uid}`, { body: { decision: 'invite' } });
+export const answerInvite = (id: string, accept: boolean) => api<{ status: string }>(`/lives/${id}/guests`, { body: { accept } });
 
 /** Sends hearts in small batches, so many quick taps make one request. */
 export function useHearts(id: string | null, burst: (emoji: string, count?: number) => void) {
@@ -93,6 +101,9 @@ export function useHearts(id: string | null, burst: (emoji: string, count?: numb
   );
 }
 
+/** Someone in the live room (watching or on camera). `account`: has a Saligue account (can be moderator or co-host). */
+export type Watcher = { uid: string; name: string; role: string; account: boolean };
+
 export type Tile = { identity: string; name: string; role: string; video: Track | null; audio: Track | null; isLocal: boolean; speaking: boolean };
 
 /**
@@ -103,6 +114,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   const [room, setRoom] = useState<Room | null>(null);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [viewers, setViewers] = useState(0);
+  const [audience, setAudience] = useState<Watcher[]>([]);
   const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<string>('viewer');
@@ -133,6 +145,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
     const onCamera = everyone.filter((t) => t.role === 'host' || t.role === 'guest').sort((a, b) => (a.role === 'host' ? -1 : b.role === 'host' ? 1 : 0));
     setTiles(onCamera);
     setViewers(everyone.length);
+    setAudience([...r.remoteParticipants.values()].map((p) => ({ uid: p.identity, name: p.name || 'Guest shopper', role: meta(p).role ?? 'viewer', account: meta(p).account !== false })));
   }, []);
 
   useEffect(() => {
@@ -234,7 +247,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, []);
   const flipCamera = useCallback(() => restartCamera({ facing: facing === 'user' ? 'environment' : 'user' }), [facing, restartCamera]);
 
-  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack };
+  return { room, tiles, viewers, audience, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */

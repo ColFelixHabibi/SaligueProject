@@ -1,10 +1,11 @@
 'use client';
 
+import { ExpandableText } from '@/components/expandable-text';
 import { listCameras, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Maximize, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Check, Eye, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,9 +18,10 @@ import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, useV
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { decideGuest, endLive, goLive, muteInLive, removeLiveComment, sendLiveComment, updateLive, useElapsed, useLive, useLiveRoom, useLives, type LiveComment } from '@/lib/live';
+import { decideGuest, endLive, goLive, inviteOnCamera, muteInLive, removeLiveComment, sendLiveComment, setLiveModerator, updateLive, useElapsed, useLive, useLiveRoom, useLives, type Live, type LiveComment, type LiveGuest, type Watcher } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
+import { onServerEvent } from '@/lib/api';
 
 /** Before going live: camera check, title, description and the items to show. */
 function Setup() {
@@ -195,15 +197,20 @@ function Studio({ id }: { id: string }) {
   const { authUid } = useAuth();
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
+  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
   const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
   const [cameraId, setCameraId] = useState('');
   const elapsed = useElapsed(live?.startedAt);
-  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | null>(null);
+  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | 'viewers' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [say, setSay] = useState('');
+
+  // A viewer answered the invitation to come on camera.
+  useEffect(() => onServerEvent('live', (d: { liveId?: string; type?: string; name?: string; accepted?: boolean }) => {
+    if (d?.liveId === id && d.type === 'invite_answer') toast({ title: d.accepted ? `${d.name} is joining you on camera` : `${d.name} said no for now` });
+  }), [id, toast]);
 
   // Remember the most viewers at once.
   useEffect(() => {
@@ -216,6 +223,12 @@ function Studio({ id }: { id: string }) {
   const pinnedComment = comments.find((c) => c.id === live?.pinnedCommentId) ?? null;
   const requests = guests.filter((g) => g.status === 'requested');
   const onCamera = guests.filter((g) => g.status === 'accepted');
+  const roles = useMemo(() => {
+    const r: Record<string, 'Host' | 'Mod'> = {};
+    for (const m of live?.moderators ?? []) r[m.uid] = 'Mod';
+    if (authUid) r[authUid] = 'Host';
+    return r;
+  }, [live?.moderators, authUid]);
 
   const act = async (fn: () => Promise<unknown>, done?: string) => {
     try {
@@ -341,7 +354,7 @@ function Studio({ id }: { id: string }) {
     <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
-        <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
+        <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onViewers={() => setPanel('viewers')}>
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>
         <Hearts bursts={bursts} />
@@ -357,7 +370,7 @@ function Studio({ id }: { id: string }) {
           </button>
         )}
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pt-16">
-          <LiveChat comments={comments} pinned={pinnedComment} onAction={(c) => c.kind !== 'join' && setSelected(c)} />
+          <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={(c) => c.kind !== 'join' && setSelected(c)} />
           {pinned && <PinnedProduct product={pinned} compact />}
           <form className="flex gap-2" onSubmit={(e) => {
             e.preventDefault();
@@ -374,7 +387,7 @@ function Studio({ id }: { id: string }) {
       <aside className="hidden min-w-0 flex-1 flex-col gap-4 overflow-y-auto md:flex">
         <div className="rounded-2xl border bg-card p-5">
           <h1 className="text-xl font-extrabold">{live.title}</h1>
-          {live.description && <p className="mt-1 text-sm text-muted-foreground">{live.description}</p>}
+          {live.description && <ExpandableText text={live.description} lines={3} className="mt-1 text-sm text-muted-foreground" />}
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-muted p-2"><p className="text-lg font-bold">{viewers}</p><p className="text-xs text-muted-foreground">Watching</p></div>
             <div className="rounded-xl bg-muted p-2"><p className="text-lg font-bold">{live.likeCount}</p><p className="text-xs text-muted-foreground">Hearts</p></div>
@@ -383,14 +396,15 @@ function Studio({ id }: { id: string }) {
         </div>
         <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} />
         <GuestsPanel id={id} requests={requests} onCamera={onCamera} />
+        <ViewersPanel id={id} live={live} audience={audience} guests={guests} />
         <div className="rounded-2xl border bg-card p-5"><h2 className="mb-4 font-bold">Live settings</h2>{settingsPanel}</div>
       </aside>
 
       <Sheet open={!!panel} onOpenChange={(v) => !v && setPanel(null)}>
         <SheetContent side="bottom" className={cn('max-h-[75vh] overflow-y-auto rounded-t-3xl', panel !== 'settings' && 'md:hidden')}>
-          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : 'Guests'}</SheetTitle></SheetHeader>
+          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : panel === 'viewers' ? `Watching (${audience.length})` : 'Guests'}</SheetTitle></SheetHeader>
           <div className="mt-4">
-            {panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
+            {panel === 'viewers' ? <ViewersPanel id={id} live={live} audience={audience} guests={guests} bare /> : panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
           </div>
         </SheetContent>
       </Sheet>
@@ -405,6 +419,11 @@ function Studio({ id }: { id: string }) {
                   {live.pinnedCommentId === selected.id ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />} {live.pinnedCommentId === selected.id ? 'Unpin' : 'Pin for everyone'}
                 </Button>
                 <Button variant="outline" onClick={() => act(() => removeLiveComment(id, selected.id), 'Comment removed').then(() => setSelected(null))}><Trash2 className="mr-2 h-4 w-4" /> Remove comment</Button>
+                {selected.uid !== authUid && (
+                  <Button variant="outline" onClick={() => act(() => setLiveModerator(id, selected.uid, !roles[selected.uid]), roles[selected.uid] ? `${selected.name} is no longer a moderator` : `${selected.name} is now a moderator`).then(() => setSelected(null))}>
+                    {roles[selected.uid] ? <ShieldOff className="mr-2 h-4 w-4" /> : <Shield className="mr-2 h-4 w-4" />} {roles[selected.uid] ? 'Remove moderator' : 'Make moderator'}
+                  </Button>
+                )}
                 {selected.uid !== authUid && (
                   <Button variant="outline" className="text-destructive" onClick={() => act(() => muteInLive(id, selected.uid), `${selected.name} can no longer comment`).then(() => setSelected(null))}><VolumeX className="mr-2 h-4 w-4" /> Mute {selected.name}</Button>
                 )}
@@ -491,6 +510,58 @@ function GuestsPanel({ id, requests, onCamera, bare }: { id: string; requests: {
         </div>
       ))}
       {!requests.length && !onCamera.length && <p className="text-sm text-muted-foreground">No requests yet.</p>}
+    </div>
+  );
+}
+
+/** Who is watching right now; the host can make someone a moderator, invite them on camera (co-host) or mute them. */
+function ViewersPanel({ id, live, audience, guests, bare }: { id: string; live: Live; audience: Watcher[]; guests: LiveGuest[]; bare?: boolean }) {
+  const { toast } = useToast();
+  const mods = new Set((live.moderators ?? []).map((m) => m.uid));
+  const onCamera = new Set(guests.filter((g) => g.status === 'accepted').map((g) => g.uid));
+  const act = (fn: () => Promise<unknown>, done: string) => fn().then(() => toast({ title: done })).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }));
+  // Moderators who aren't watching right now still show, so they can be removed.
+  const people = [...audience, ...(live.moderators ?? []).filter((m) => !audience.some((a) => a.uid === m.uid)).map((m) => ({ uid: m.uid, name: m.name, role: 'away', account: true }))];
+  const icon = 'flex h-9 w-9 items-center justify-center rounded-full border transition hover:bg-muted disabled:opacity-40';
+  return (
+    <div className={cn(!bare && 'rounded-2xl border bg-card p-5')}>
+      {!bare && <h2 className="mb-1 flex items-center gap-2 font-bold"><Eye className="h-4 w-4 text-primary" /> Watching ({audience.length})</h2>}
+      <p className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1"><Shield className="h-3.5 w-3.5" /> Moderator</span>
+        <span className="flex items-center gap-1"><Video className="h-3.5 w-3.5" /> Co-host on camera</span>
+        <span className="flex items-center gap-1"><VolumeX className="h-3.5 w-3.5" /> Mute</span>
+      </p>
+      <div className="space-y-1.5">
+        {people.map((p) => {
+          const mod = mods.has(p.uid);
+          const cam = onCamera.has(p.uid) || p.role === 'guest';
+          return (
+            <div key={p.uid} className="flex items-center gap-2 rounded-xl border p-2 text-sm">
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {p.name}
+                {mod && <span className="ml-1.5 rounded bg-sky-500 px-1 py-px text-[10px] font-extrabold uppercase text-white">Mod</span>}
+                {cam && <span className="ml-1.5 rounded bg-primary px-1 py-px text-[10px] font-extrabold uppercase text-white">On camera</span>}
+                {p.role === 'away' && <span className="ml-1.5 text-xs text-muted-foreground">not watching</span>}
+              </span>
+              <button type="button" className={cn(icon, mod && 'border-sky-500 bg-sky-500 text-white hover:bg-sky-600')} disabled={!p.account}
+                title={!p.account ? 'Needs a Saligue account' : mod ? 'Remove moderator' : 'Make moderator'} aria-label={mod ? `Remove ${p.name} as moderator` : `Make ${p.name} a moderator`}
+                onClick={() => act(() => setLiveModerator(id, p.uid, !mod), mod ? `${p.name} is no longer a moderator` : `${p.name} is now a moderator`)}>
+                {mod ? <ShieldOff className="h-4 w-4" /> : <Shield className="h-4 w-4" />}
+              </button>
+              {cam ? (
+                <button type="button" className={cn(icon, 'border-primary text-primary')} title="Take off camera" aria-label={`Take ${p.name} off camera`}
+                  onClick={() => act(() => decideGuest(id, p.uid, 'remove'), `${p.name} is off camera`)}><UserMinus className="h-4 w-4" /></button>
+              ) : (
+                <button type="button" className={icon} disabled={!p.account || p.role === 'away'} title={!p.account ? 'Needs a Saligue account' : 'Invite on camera (co-host)'} aria-label={`Invite ${p.name} on camera`}
+                  onClick={() => act(() => inviteOnCamera(id, p.uid), `Invitation sent to ${p.name}`)}><Video className="h-4 w-4" /></button>
+              )}
+              <button type="button" className={cn(icon, 'text-destructive')} title="Mute" aria-label={`Mute ${p.name}`}
+                onClick={() => act(() => muteInLive(id, p.uid), `${p.name} can no longer comment`)}><VolumeX className="h-4 w-4" /></button>
+            </div>
+          );
+        })}
+        {people.length === 0 && <p className="text-sm text-muted-foreground">No one is watching yet. Share your live to bring people in.</p>}
+      </div>
     </div>
   );
 }

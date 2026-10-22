@@ -1,6 +1,7 @@
 
 'use client';
 
+import { ExpandableText } from '@/components/expandable-text';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -103,7 +104,7 @@ function IndecianaStore() {
                   <p className="mt-5 text-2xl tracking-wider">{formatPrice(Number(selected.price))}</p>
                   <SoundChip key={selected.id} product={selected} autoPlay className="mt-3" />
                 </div>
-                {selected.description && <p className="leading-relaxed text-foreground/80">{selected.description}</p>}
+                {selected.description && <ExpandableText key={selected.id} text={selected.description} lines={3} className="leading-relaxed text-foreground/80" />}
                 <dl className="grid grid-cols-2 gap-px overflow-hidden bg-border text-sm">
                   {[['Size', selected.size], ['Colour', selected.color], ['Brand', selected.brand], ['Condition', selected.condition]]
                     .filter(([, v]) => v)

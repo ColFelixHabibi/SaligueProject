@@ -88,7 +88,7 @@ export function Hearts({ bursts }: { bursts: Burst[] }) {
 }
 
 /** Top bar: who is live, LIVE badge, how long, how many watching. */
-export function LiveTopBar({ live, viewers, elapsed, children }: { live: Live; viewers: number; elapsed: string; children?: React.ReactNode }) {
+export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { live: Live; viewers: number; elapsed: string; onViewers?: () => void; children?: React.ReactNode }) {
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10">
       <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/35 p-1 pr-3 text-white backdrop-blur">
@@ -105,7 +105,11 @@ export function LiveTopBar({ live, viewers, elapsed, children }: { live: Live; v
         <span className={cn('rounded-md px-2 py-1 text-xs font-extrabold tracking-wide text-white', live.status === 'live' ? 'bg-primary' : 'bg-neutral-600')}>
           {live.status === 'live' ? 'LIVE' : 'ENDED'} · {elapsed}
         </span>
-        <span className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white"><Eye className="h-3.5 w-3.5" /> {viewers}</span>
+        {onViewers ? (
+          <button type="button" onClick={onViewers} className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white" aria-label={`${viewers} watching: see who`}><Eye className="h-3.5 w-3.5" /> {viewers}</button>
+        ) : (
+          <span className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white"><Eye className="h-3.5 w-3.5" /> {viewers}</span>
+        )}
         {children}
       </div>
     </div>
@@ -113,7 +117,7 @@ export function LiveTopBar({ live, viewers, elapsed, children }: { live: Live; v
 }
 
 /** Chat over the video, newest at the bottom; questions and the pinned comment stand out. */
-export function LiveChat({ comments, pinned, onAction, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; className?: string }) {
+export function LiveChat({ comments, pinned, onAction, roles, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; roles?: Record<string, 'Host' | 'Mod'>; className?: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [comments.length]);
   return (
@@ -134,6 +138,7 @@ export function LiveChat({ comments, pinned, onAction, className }: { comments: 
             className={cn('w-fit max-w-full rounded-2xl px-3 py-1.5 text-left text-sm text-white', c.kind === 'question' ? 'bg-primary/85' : c.kind === 'join' ? 'bg-transparent py-0.5 text-xs text-white/70' : 'bg-black/40 backdrop-blur-sm')}
           >
             {c.kind === 'question' && <HelpCircle className="mr-1 inline h-3.5 w-3.5" />}
+            {roles?.[c.uid] && <span className={cn('mr-1 rounded px-1 py-px text-[10px] font-extrabold uppercase', roles[c.uid] === 'Host' ? 'bg-primary text-white' : 'bg-sky-500 text-white')}>{roles[c.uid]}</span>}
             <b className="mr-1.5">{c.name}</b>
             <span className="line-clamp-3 break-words">{c.text}</span>
           </button>

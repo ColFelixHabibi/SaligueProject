@@ -1,10 +1,12 @@
 'use client';
 
+import { ExpandableText } from '@/components/expandable-text';
 import { FollowButton } from '@/components/follow-button';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, Radio, Send, Share2, UserPlus, Video, VideoOff, X } from 'lucide-react';
+import { Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, Pin, PinOff, Radio, Send, Share2, Shield, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,7 +18,7 @@ import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { askToJoin, sendLiveComment, useElapsed, useHearts, useLive, useLiveRoom } from '@/lib/live';
+import { answerInvite, askToJoin, muteInLive, removeLiveComment, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, type LiveComment } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 
@@ -30,7 +32,7 @@ function Watch() {
   const { authUid, user } = useAuth();
   const { products } = useProductStore();
   const { addToCart } = useCart();
-  const { live, comments, myGuestStatus, muted, bursts, burst, error } = useLive(id, authUid);
+  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload } = useLive(id, authUid);
   const isGuest = myGuestStatus === 'accepted';
   const { tiles, viewers, status, toggleCam, toggleMic, camOn, micOn, flipCamera } = useLiveRoom(id, live?.status === 'live', isGuest);
   const heart = useHearts(id, burst);
@@ -39,6 +41,34 @@ function Watch() {
   const [question, setQuestion] = useState(false);
   const [sending, setSending] = useState(false);
   const joined = useRef(false);
+  const [selected, setSelected] = useState<LiveComment | null>(null);
+  // Moderators chosen by the host look after the chat.
+  const isMod = !!authUid && !!live?.moderators?.some((m) => m.uid === authUid);
+  const roles = useMemo(() => {
+    const r: Record<string, 'Host' | 'Mod'> = {};
+    for (const m of live?.moderators ?? []) r[m.uid] = 'Mod';
+    if (live) r[live.sellerId] = 'Host';
+    return r;
+  }, [live]);
+  const modAct = async (fn: () => Promise<unknown>, done: string) => {
+    try {
+      await fn();
+      toast({ title: done });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not done', description: friendlyError(err) });
+    }
+    setSelected(null);
+  };
+  const answer = async (accept: boolean) => {
+    if (!id) return;
+    setInvited(false);
+    try {
+      await answerInvite(id, accept);
+      await reload();
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not done', description: friendlyError(err) });
+    }
+  };
 
   // "joined" in the chat, once.
   useEffect(() => {
@@ -142,7 +172,7 @@ function Watch() {
 
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pt-16">
           <div className="flex items-end gap-2">
-            <LiveChat comments={comments} pinned={pinnedComment} className="min-w-0 flex-1" />
+            <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={isMod ? (c) => c.kind !== 'join' && c.uid !== live.sellerId && setSelected(c) : undefined} className="min-w-0 flex-1" />
             <div className="flex shrink-0 flex-col items-center gap-2 pb-1">
               {REACTIONS.map((e) => (
                 <button key={e} type="button" onClick={() => heart(e)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-xl backdrop-blur active:scale-90">{e}</button>
@@ -153,6 +183,15 @@ function Watch() {
             </div>
           </div>
           {pinned && <PinnedProduct product={pinned} onBuy={() => buy(pinned.id)} />}
+          {invited && !isGuest && (
+            <div className="flex items-center gap-2 rounded-2xl bg-white/95 p-3 text-sm text-foreground shadow-lg">
+              <Video className="h-5 w-5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1"><b>{live.sellerName}</b> invites you on camera</span>
+              <Button size="sm" onClick={() => answer(true)}>Join</Button>
+              <Button size="sm" variant="ghost" onClick={() => answer(false)}>No</Button>
+            </div>
+          )}
+          {isMod && <p className="flex items-center gap-1 text-xs font-semibold text-sky-300"><Shield className="h-3.5 w-3.5" /> You are a moderator · tap a comment to manage it</p>}
           {isGuest && (
             <div className="flex items-center justify-center gap-2">
               <span className="rounded-full bg-primary px-3 py-1 text-xs font-bold text-white">You are on camera</span>
@@ -181,12 +220,31 @@ function Watch() {
         </div>
       </div>
 
+      <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl">
+          {selected && id && (
+            <div className="space-y-3">
+              <p className="text-sm"><b>{selected.name}</b>: {selected.text}</p>
+              <div className="grid gap-2">
+                <Button variant="outline" onClick={() => modAct(() => updateLive(id, { pinnedCommentId: live.pinnedCommentId === selected.id ? null : selected.id }), live.pinnedCommentId === selected.id ? 'Unpinned' : 'Pinned')}>
+                  {live.pinnedCommentId === selected.id ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />} {live.pinnedCommentId === selected.id ? 'Unpin' : 'Pin for everyone'}
+                </Button>
+                <Button variant="outline" onClick={() => modAct(() => removeLiveComment(id, selected.id), 'Comment removed')}><Trash2 className="mr-2 h-4 w-4" /> Remove comment</Button>
+                {selected.uid !== authUid && !roles[selected.uid] && (
+                  <Button variant="outline" className="text-destructive" onClick={() => modAct(() => muteInLive(id, selected.uid), `${selected.name} can no longer comment`)}><VolumeX className="mr-2 h-4 w-4" /> Mute {selected.name}</Button>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
       {/* Computers: the live's details and every featured item beside the video. */}
       <aside className="hidden min-w-0 flex-1 flex-col gap-4 overflow-y-auto md:flex">
         <div className="space-y-2 rounded-2xl border bg-card p-5">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-0.5 text-xs font-extrabold text-primary-foreground"><Radio className="h-3.5 w-3.5" /> LIVE</span>
           <h1 className="text-2xl font-extrabold">{live.title}</h1>
-          {live.description && <p className="whitespace-pre-wrap text-muted-foreground">{live.description}</p>}
+          {live.description && <ExpandableText text={live.description} lines={3} className="text-muted-foreground" />}
           <div className="flex flex-wrap gap-2 pt-2">
             {featured[0] && <MessageSellerButton product={featured[0]} label={`Message ${live.sellerName}`} size="default" variant="secondary" />}
             <Button variant="outline" onClick={share}><Share2 className="mr-2 h-4 w-4" /> Share</Button>

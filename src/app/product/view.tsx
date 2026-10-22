@@ -1,6 +1,7 @@
 
 'use client';
 
+import { ExpandableText } from '@/components/expandable-text';
 import { FollowButton } from '@/components/follow-button';
 import { noteInterest } from '@/lib/taste';
 import Link from 'next/link';
@@ -181,7 +182,7 @@ export default function ProductView({ id }: { id: string | null }) {
                 {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
                 {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : 'In stock'}
               </p>
-              {product.description && <CardDescription>{product.description}</CardDescription>}
+              {product.description && <ExpandableText text={product.description} lines={3} className="text-sm text-muted-foreground" />}
 
               <Button size="lg" variant="secondary" className="mt-6 h-auto min-h-14 w-full whitespace-normal py-3 text-lg" asChild>
                 <Link href={`/mirror?item=${product.id}`}>

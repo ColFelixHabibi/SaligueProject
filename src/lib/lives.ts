@@ -23,6 +23,7 @@ export type Live = {
   chatMode: 'everyone' | 'followers' | 'off';
   slowSeconds: number;
   videoFit?: 'fit' | 'fill';
+  moderators?: { uid: string; name: string }[];
   startedAt: string;
   endedAt: string | null;
 };
