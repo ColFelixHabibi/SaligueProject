@@ -682,6 +682,7 @@ route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!text) fail(400, 'empty_comment', 'Write a comment first.');
   const product = db.prepare('select id, name, seller_id, official from products where id = ?').get(params[0]);
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  if (blockedBetween(user.id, product.seller_id)) fail(403, 'blocked', 'You can’t comment here.');
   const name = user.is_guest ? 'Guest' : user.display_name || user.email?.split('@')[0] || 'Saligue user';
   const id = randomUUID();
   db.prepare('insert into comments (id, product_id, user_id, name, text, created_at) values (?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, now());
@@ -921,7 +922,11 @@ function ownConversation(user, id) {
 }
 
 const messageRuns = new Map();
+// Either of two people blocked the other.
+const blockedBetween = (a, b) => !!(a && b && db.prepare('select 1 from blocks where (blocker_id = ? and blocked_id = ?) or (blocker_id = ? and blocked_id = ?)').get(a, b, b, a));
+
 function addMessage(user, c, { text, productId = null, orderId = null }) {
+  if (blockedBetween(c.buyer_id, c.seller_id)) fail(403, 'blocked', 'You can’t message this account.');
   const clean = String(text ?? '').trim().slice(0, 3000);
   if (!clean) fail(400, 'empty_message', 'Write a message first.');
   const minute = Date.now() - 60_000;
@@ -1481,7 +1486,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const live = getLive(params[0]);
   if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
-  if ((parse(live.muted) ?? []).includes(user.id)) fail(403, 'muted', 'The host has turned off comments for you in this live.');
+  if ((parse(live.muted) ?? []).includes(user.id) || blockedBetween(user.id, live.seller_id)) fail(403, 'muted', 'The host has turned off comments for you in this live.');
   const kind = body.kind === 'question' ? 'question' : body.kind === 'join' ? 'join' : 'comment';
   const isHost = live.seller_id === user.id;
   const onCamera = db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, user.id);
@@ -1839,8 +1844,10 @@ function lessonOut(l, viewer) {
     duration: l.duration,
     likeCount: l.like_count,
     viewCount: l.view_count,
+    commentCount: db.prepare('select count(*) as n from lesson_comments where lesson_id = ?').get(l.id).n,
     liked: !!(viewer && db.prepare('select 1 from lesson_likes where lesson_id = ? and user_id = ?').get(l.id, viewer.id)),
     mine: viewer?.id === l.user_id,
+    hidden: viewer?.id === l.user_id ? !!l.hidden : undefined,
     createdAt: l.created_at,
   };
 }
@@ -1855,6 +1862,8 @@ route('GET', '/api/lessons', ({ user, url }) => {
   const args = [];
   if (topic && LESSON_TOPICS.includes(topic)) where.push('topic = ?'), args.push(topic);
   if (author) where.push('user_id = ?'), args.push(author);
+  // Teachers see their own hidden lessons (to appeal).
+  if (author && author === user?.id) where.splice(where.indexOf('hidden = 0'), 1);
   if (following) {
     if (!user) return [];
     where.push('user_id in (select seller_id from follows where follower_id = ?)'), args.push(user.id);
@@ -1921,6 +1930,46 @@ route('POST', '/api/lessons/([\\w-]+)/like', ({ user, params }) => {
   return { liked, likeCount: db.prepare('select like_count from lessons where id = ?').get(l.id).like_count };
 });
 
+// Comments and questions on a lesson. Questions the teacher replied to show as answered.
+route('GET', '/api/lessons/([\\w-]+)/comments', ({ params }) => {
+  const lesson = db.prepare('select user_id from lessons where id = ?').get(params[0]);
+  if (!lesson) fail(404, 'not_found', 'This lesson is not available.');
+  const rows = db.prepare('select c.*, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar from lesson_comments c join users u on u.id = c.user_id where c.lesson_id = ? order by c.created_at limit 500').all(params[0]);
+  const out = rows.map((c) => ({ id: c.id, uid: c.user_id, name: c.role === 'seller' ? shopNameOf(c) : personNameOf(c), avatar: c.avatar ?? null, parentId: c.parent_id, kind: c.kind, text: c.text, teacher: c.user_id === lesson.user_id, createdAt: c.created_at }));
+  const answered = new Set(out.filter((c) => c.teacher && c.parentId).map((c) => c.parentId));
+  return out.map((c) => ({ ...c, answered: c.kind === 'question' && answered.has(c.id) }));
+});
+
+route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to comment on lessons.');
+  const lesson = db.prepare('select id, user_id, title from lessons where id = ?').get(params[0]);
+  if (!lesson) fail(404, 'not_found', 'This lesson is not available.');
+  if (blockedBetween(user.id, lesson.user_id)) fail(403, 'blocked', 'You can’t comment here.');
+  const text = String(body.text ?? '').trim().slice(0, 1000);
+  if (!text) fail(400, 'empty_comment', 'Write a comment first.');
+  const parent = body.parentId ? db.prepare('select id, user_id from lesson_comments where id = ? and lesson_id = ?').get(String(body.parentId), lesson.id) : null;
+  if (body.parentId && !parent) fail(404, 'not_found', 'That comment was removed.');
+  const kind = body.kind === 'question' && !parent ? 'question' : 'comment';
+  const recent = db.prepare('select count(*) as n from lesson_comments where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 60_000).toISOString()).n;
+  if (recent >= 8) fail(429, 'too_many', 'Slow down a little — wait a minute.');
+  const id = randomUUID();
+  db.prepare('insert into lesson_comments (id, lesson_id, user_id, parent_id, kind, text, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, lesson.id, user.id, parent?.id ?? null, kind, text, now());
+  broadcast('lesson_comments', { lessonId: lesson.id });
+  const who = personNameOf(user);
+  if (lesson.user_id !== user.id) notify(lesson.user_id, { type: 'message', title: kind === 'question' ? `${who} asked a question on "${lesson.title}"` : `${who} commented on "${lesson.title}"`, body: text.slice(0, 140), link: `/learn?lesson=${lesson.id}`, email: kind === 'question' });
+  if (parent && parent.user_id !== user.id) notify(parent.user_id, { type: 'message', title: lesson.user_id === user.id ? `The teacher answered you on "${lesson.title}"` : `${who} replied to you on "${lesson.title}"`, body: text.slice(0, 140), link: `/learn?lesson=${lesson.id}`, email: false });
+  return { id };
+});
+
+route('DELETE', '/api/lesson-comments/([\\w-]+)', ({ user, params }) => {
+  const c = db.prepare('select c.*, l.user_id as teacher from lesson_comments c join lessons l on l.id = c.lesson_id where c.id = ?').get(params[0]);
+  if (!c) return { ok: true };
+  if (c.user_id !== user?.id && c.teacher !== user?.id && !user?.admin) fail(403, 'forbidden', 'You can only delete your own comments.');
+  db.prepare('delete from lesson_comments where id = ? or parent_id = ?').run(c.id, c.id);
+  broadcast('lesson_comments', { lessonId: c.lesson_id });
+  return { ok: true };
+});
+
 // A view counts once per person per lesson per day.
 const lessonViews = new Map();
 route('POST', '/api/lessons/([\\w-]+)/view', ({ user, params }) => {
@@ -1950,6 +1999,83 @@ route('POST', '/api/lessons/([\\w-]+)/report', ({ user, params, body }) => {
 });
 
 // ---------------------------------------------------------------------------
+// Blocking and appeals
+// ---------------------------------------------------------------------------
+
+route('GET', '/api/me/blocks', ({ user }) =>
+  user ? db.prepare('select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official from blocks b join users u on u.id = b.blocked_id where b.blocker_id = ? order by b.created_at desc').all(user.id).map(personOut) : []);
+
+// Block or unblock someone. Blocking also ends following in both directions.
+route('POST', '/api/blocks/([\\w-]+)', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to block accounts.');
+  const target = db.prepare('select id from users where id = ?').get(params[0]);
+  if (!target || target.id === user.id) fail(400, 'invalid', 'You can’t block this account.');
+  if (body.blocked === false) db.prepare('delete from blocks where blocker_id = ? and blocked_id = ?').run(user.id, target.id);
+  else transaction(() => {
+    db.prepare('insert or ignore into blocks (blocker_id, blocked_id, created_at) values (?, ?, ?)').run(user.id, target.id, now());
+    db.prepare('delete from follows where (follower_id = ? and seller_id = ?) or (follower_id = ? and seller_id = ?)').run(user.id, target.id, target.id, user.id);
+  });
+  return { blocked: body.blocked !== false };
+});
+
+const APPEAL_TARGETS = { product: 'products', lesson: 'lessons' };
+const appealTarget = (kind, id) => db.prepare(`select id, ${kind === 'product' ? 'name' : 'title'} as title, ${kind === 'product' ? 'seller_id' : 'user_id'} as owner, hidden from ${APPEAL_TARGETS[kind]} where id = ?`).get(id);
+
+route('POST', '/api/appeals', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  if (!APPEAL_TARGETS[body.kind]) fail(400, 'invalid', 'Choose what to appeal.');
+  const target = appealTarget(body.kind, String(body.targetId ?? ''));
+  if (!target || target.owner !== user.id) fail(404, 'not_found', 'Not found.');
+  if (!target.hidden) fail(400, 'not_hidden', 'This is not hidden.');
+  const text = String(body.text ?? '').trim().slice(0, 1000);
+  if (text.length < 10) fail(400, 'invalid', 'Explain in a few words why it should be shown again.');
+  if (db.prepare("select 1 from appeals where kind = ? and target_id = ? and status = 'open'").get(body.kind, target.id)) fail(400, 'already', 'Your appeal is already being reviewed.');
+  const id = randomUUID();
+  db.prepare('insert into appeals (id, user_id, kind, target_id, text, created_at) values (?, ?, ?, ?, ?, ?)').run(id, user.id, body.kind, target.id, text, now());
+  for (const { id: admin } of db.prepare('select id from users where admin = 1 or official = 1').all()) {
+    notify(admin, { type: 'account', title: `Appeal: "${target.title}"`, body: text.slice(0, 140), link: '/admin#appeals', email: false });
+  }
+  return { id, status: 'open' };
+});
+
+route('GET', '/api/me/appeals', ({ user }) =>
+  user ? db.prepare('select id, kind, target_id as targetId, status, note, created_at as createdAt, decided_at as decidedAt from appeals where user_id = ? order by created_at desc').all(user.id) : []);
+
+route('GET', '/api/admin/appeals', ({ user }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  return db.prepare("select * from appeals where status = 'open' order by created_at").all().map((a) => {
+    const target = appealTarget(a.kind, a.target_id);
+    const reasons = db.prepare(`select reason, count(*) as n from ${a.kind === 'product' ? 'reports where product_id' : 'lesson_reports where lesson_id'} = ? group by reason`).all(a.target_id);
+    return { id: a.id, kind: a.kind, targetId: a.target_id, title: target?.title ?? '(removed)', text: a.text, reasons, createdAt: a.created_at };
+  });
+});
+
+// Admin decision: show it again (reports are cleared) or keep it hidden, with a note the owner receives.
+route('POST', '/api/admin/appeals/([\\w-]+)', ({ user, params, body }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  const a = db.prepare("select * from appeals where id = ? and status = 'open'").get(params[0]);
+  if (!a) fail(404, 'not_found', 'Appeal not found.');
+  const restore = body.decision === 'restore';
+  const note = String(body.note ?? '').trim().slice(0, 500) || null;
+  transaction(() => {
+    db.prepare('update appeals set status = ?, note = ?, decided_at = ? where id = ?').run(restore ? 'restored' : 'kept', note, now(), a.id);
+    if (restore) {
+      db.prepare(`update ${APPEAL_TARGETS[a.kind]} set hidden = 0 where id = ?`).run(a.target_id);
+      db.prepare(`delete from ${a.kind === 'product' ? 'reports where product_id' : 'lesson_reports where lesson_id'} = ?`).run(a.target_id);
+    }
+  });
+  broadcast(a.kind === 'product' ? 'products' : 'lessons');
+  const target = appealTarget(a.kind, a.target_id);
+  notify(a.user_id, {
+    type: 'account',
+    title: restore ? `"${target?.title}" is visible again` : `"${target?.title}" stays hidden`,
+    body: note ?? (restore ? 'Saligue reviewed your appeal and agreed. Thank you.' : 'Saligue reviewed your appeal. It does not follow the rules (fashion only, honest, respectful).'),
+    link: a.kind === 'product' ? '/dashboard/products' : '/learn',
+  });
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
 // Following shops
 // ---------------------------------------------------------------------------
 
@@ -1966,6 +2092,7 @@ route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
   const seller = db.prepare("select id, display_name, shop from users where id = ? and (role = 'seller' or exists (select 1 from lessons where user_id = users.id))").get(params[0]);
   if (!seller) fail(404, 'not_found', 'Shop not found.');
   if (seller.id === user.id) fail(400, 'own_shop', 'This is your own shop.');
+  if (blockedBetween(user.id, seller.id)) fail(403, 'blocked', 'You can’t follow this account.');
   const following = transaction(() => {
     if (db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, seller.id)) {
       db.prepare('delete from follows where follower_id = ? and seller_id = ?').run(user.id, seller.id);

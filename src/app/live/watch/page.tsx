@@ -1,5 +1,7 @@
 'use client';
 
+import { useBlockedIds } from '@/lib/blocks';
+
 import { ExpandableText } from '@/components/expandable-text';
 import { FollowButton } from '@/components/follow-button';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,6 +43,7 @@ function Watch() {
   const [question, setQuestion] = useState(false);
   const [sending, setSending] = useState(false);
   const joined = useRef(false);
+  const blocked = useBlockedIds();
   const [selected, setSelected] = useState<LiveComment | null>(null);
   // Moderators chosen by the host look after the chat.
   const isMod = !!authUid && !!live?.moderators?.some((m) => m.uid === authUid);
@@ -172,7 +175,7 @@ function Watch() {
 
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pt-16">
           <div className="flex items-end gap-2">
-            <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={isMod ? (c) => c.kind !== 'join' && c.uid !== live.sellerId && setSelected(c) : undefined} className="min-w-0 flex-1" />
+            <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} onAction={isMod ? (c) => c.kind !== 'join' && c.uid !== live.sellerId && setSelected(c) : undefined} className="min-w-0 flex-1" />
             <div className="flex shrink-0 flex-col items-center gap-2 pb-1">
               {REACTIONS.map((e) => (
                 <button key={e} type="button" onClick={() => heart(e)} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-xl backdrop-blur active:scale-90">{e}</button>

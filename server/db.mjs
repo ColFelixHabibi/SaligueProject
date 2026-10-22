@@ -269,6 +269,37 @@ db.exec(`
     user_id text not null references users(id) on delete cascade,
     primary key (lesson_id, user_id)
   );
+  -- Blocking: the two people no longer see each other's comments, can't message, follow or comment on each other.
+  create table if not exists blocks (
+    blocker_id text not null references users(id) on delete cascade,
+    blocked_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (blocker_id, blocked_id)
+  );
+  -- Appeals: the owner of an item or lesson hidden after reports asks Saligue to look again.
+  create table if not exists appeals (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    kind text not null check (kind in ('product', 'lesson')),
+    target_id text not null,
+    text text not null,
+    status text not null default 'open' check (status in ('open', 'restored', 'kept')),
+    note text,
+    created_at text not null,
+    decided_at text
+  );
+
+  -- Comments and questions under a lesson; replies (parent_id) make Q&A threads with the teacher.
+  create table if not exists lesson_comments (
+    id text primary key,
+    lesson_id text not null references lessons(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    parent_id text,
+    kind text not null default 'comment' check (kind in ('comment', 'question')),
+    text text not null,
+    created_at text not null
+  );
+  create index if not exists lesson_comments_lesson on lesson_comments(lesson_id, created_at);
   create table if not exists lesson_reports (
     lesson_id text not null references lessons(id) on delete cascade,
     user_id text not null references users(id) on delete cascade,

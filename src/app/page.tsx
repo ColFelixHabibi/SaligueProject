@@ -1,11 +1,16 @@
 
 'use client';
 
+import { useBlockedIds } from '@/lib/blocks';
+
 import { mixSponsored, useSponsored } from '@/lib/ads';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { MapPin, PlusCircle, Radio, Users } from 'lucide-react';
 import { LessonFeed } from '@/components/community/lesson-feed';
+import { LessonSlide } from '@/components/community/lesson-slide';
+import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
+import { useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { useLives } from '@/lib/lives';
 import { SellerAvatar } from '@/components/seller-avatar';
@@ -108,13 +113,16 @@ export default function ForYouPage() {
     }
   };
   const cities = useMemo(() => [...new Set(products.filter((p) => p.status === 'active' && p.shop?.city).map((p) => p.shop!.city.trim()))].sort(), [products]);
+  // Following also brings lessons from teachers the viewer follows.
+  const followedLessons = useLessons({ following: true });
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const blocked = useBlockedIds();
   const shown = useMemo(() => {
-    const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id));
+    const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id) && !blocked.has(p.sellerId ?? ''));
     if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) : [];
     if (mode === 'local') return city ? active.filter((p) => p.shop?.city?.trim().toLowerCase() === city.toLowerCase()) : [];
     return active;
-  }, [feed, byId, hidden, mode, followingIds, city]);
+  }, [feed, byId, hidden, mode, followingIds, city, blocked]);
   const tabs = [
     { value: 'following', label: 'Following' },
     { value: 'local', label: 'Local' },
@@ -148,7 +156,7 @@ export default function ForYouPage() {
         )}
       </div>
       {mode === 'learn' ? (
-        <LessonFeed className="h-full pt-0 [&>div:first-child]:top-12" />
+        <LessonFeed breakReminder={false} className="h-full pt-0 [&>div:first-child]:top-12" />
       ) : !isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (
@@ -157,11 +165,11 @@ export default function ForYouPage() {
           <p className="text-muted-foreground">Check your connection and try again.</p>
           <Button onClick={retryProducts}>Retry</Button>
         </div>
-      ) : mode === 'following' && followingIds && shown.length === 0 ? (
+      ) : mode === 'following' && followingIds && shown.length === 0 && !followedLessons?.length ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <Users className="h-14 w-14 text-primary" />
-          <p className="text-xl font-bold">Follow shops to see them here</p>
-          <p className="text-muted-foreground">Only shops you follow, newest first. No algorithm.</p>
+          <p className="text-xl font-bold">Follow shops and teachers to see them here</p>
+          <p className="text-muted-foreground">Only people you follow, newest first. No algorithm.</p>
           <Button onClick={() => setMode('foryou')}>Find shops in For You</Button>
         </div>
       ) : mode === 'local' && !city ? (
@@ -179,6 +187,13 @@ export default function ForYouPage() {
           <p className="text-xl font-bold">Nothing in {city} yet</p>
           <Button variant="outline" onClick={() => chooseCity(null)}>Choose another city</Button>
         </div>
+      ) : mode === 'following' ? (
+        // Newest first from everyone followed: their items and their lessons together.
+        [...shown.map((p) => ({ at: p.createdAt ?? '', el: <FeedSlide key={p.id} product={p} reason="From a shop you follow" onHide={() => setHidden((h) => new Set(h).add(p.id))} /> })),
+          ...(followedLessons ?? []).map((l) => ({ at: l.createdAt, el: <LessonSlide key={l.id} lesson={l} /> }))]
+          .sort((a, b) => b.at.localeCompare(a.at))
+          .map((x) => x.el)
+          .concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
       ) : feed.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-2xl font-bold">Nothing here yet</p>
@@ -196,10 +211,11 @@ export default function ForYouPage() {
           3,
           7
         ).map((p) => (
-          <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : mode === 'following' ? 'From a shop you follow' : mode === 'local' ? `A shop in ${city}` : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy}
+          <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : mode === 'local' ? `A shop in ${city}` : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy}
             onHide={() => setHidden((h) => new Set(h).add(p.id))} />
-        ))
+        )).concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
       )}
+      <BreakReminder />
     </div>
   );
 }

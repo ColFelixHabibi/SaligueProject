@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Gauge, Sparkles } from 'lucide-react';
 import { setDataSaver, useDataSaver } from '@/lib/data-saver';
+import { BREAK_CHOICES, setBreakMinutes, useBreakMinutes } from '@/lib/break-reminder';
+import { Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -16,6 +18,7 @@ const KEY = 'saligue-cookie-choice';
 export function PersonalisationCard() {
   const { toast } = useToast();
   const saver = useDataSaver();
+  const breakMinutes = useBreakMinutes();
   const [on, setOn] = useState(false);
   useEffect(() => {
     try {
@@ -58,6 +61,14 @@ export function PersonalisationCard() {
         <div className="flex items-center justify-between gap-4 border-t pt-4">
           <Label htmlFor="data-saver" className="flex items-center gap-2 font-medium"><Gauge className="h-4 w-4 text-primary" /> Data saver <span className="font-normal text-muted-foreground">· videos play when you tap</span></Label>
           <Switch id="data-saver" checked={saver} onCheckedChange={setDataSaver} />
+        </div>
+        <div className="space-y-2 border-t pt-4">
+          <p className="flex items-center gap-2 text-sm font-medium"><Moon className="h-4 w-4 text-primary" /> Break reminder</p>
+          <div className="flex flex-wrap gap-2">
+            {BREAK_CHOICES.map((m) => (
+              <Button key={m} type="button" size="sm" className="rounded-full" variant={breakMinutes === m ? 'default' : 'outline'} onClick={() => setBreakMinutes(m)}>{m ? `${m} min` : 'Off'}</Button>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -1,18 +1,23 @@
 'use client';
 
+import { useBlockedIds } from '@/lib/blocks';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { GraduationCap, LayoutGrid, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LessonSlide } from '@/components/community/lesson-slide';
+import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
 import { LESSON_TOPICS, useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 
 /** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
-export function LessonFeed({ startAt, following, className }: { startAt?: string | null; following?: boolean; className?: string }) {
+export function LessonFeed({ startAt, following, className, breakReminder = true }: { startAt?: string | null; following?: boolean; className?: string; breakReminder?: boolean }) {
   const [topic, setTopic] = useState<string | null>(null);
-  const lessons = useLessons({ topic, following });
+  const blocked = useBlockedIds();
+  const all = useLessons({ topic, following });
+  const lessons = all && all.filter((l) => !blocked.has(l.authorId));
   // Opened from a shared link: go to that lesson.
   useEffect(() => {
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
@@ -45,9 +50,10 @@ export function LessonFeed({ startAt, following, className }: { startAt?: string
             <Button asChild><Link href="/learn/new"><Plus className="mr-2 h-4 w-4" /> Teach a lesson</Link></Button>
           </div>
         ) : (
-          lessons.map((l) => <LessonSlide key={l.id} lesson={l} />)
+          [...lessons.map((l) => <LessonSlide key={l.id} lesson={l} />), <CaughtUp key="caught-up" />]
         )}
       </div>
+      {breakReminder && <BreakReminder />}
     </div>
   );
 }

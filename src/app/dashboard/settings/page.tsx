@@ -1,6 +1,8 @@
 
 'use client';
 
+import { BlockedCard } from '@/components/blocked-card';
+
 import { PersonalisationCard } from '@/components/personalisation-card';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { friendlyError } from '@/lib/errors';
@@ -104,6 +106,7 @@ export default function SettingsPage() {
   return (
     <div className="grid gap-6">
       <PersonalisationCard />
+      <BlockedCard />
       <Card className="p-6">
         <ProfilePhotoField name={user?.displayName} required />
       </Card>

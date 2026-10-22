@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Flag, Heart, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Clock, Flag, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { LessonComments } from '@/components/community/lesson-comments';
 import { ExpandableText } from '@/components/expandable-text';
 import Link from 'next/link';
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
@@ -26,6 +28,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const [visible, setVisible] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const topic = topicOf(lesson.topic);
   const TopicIcon = topic.icon;
 
@@ -110,6 +113,10 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           <span className={round}><Heart className={cn('h-5 w-5 text-foreground', like.liked && 'fill-primary text-primary')} /></span>
           {like.count > 0 && like.count}
         </button>
+        <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
+          <span className={round}><MessageCircle className="h-5 w-5 text-foreground" /></span>
+          {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
+        </button>
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         {lesson.mine || user?.uid === lesson.authorId ? (
           <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={() => confirm('Delete this lesson?') && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
@@ -128,6 +135,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}
         <Link href={profileHref(lesson.authorId)} className="mt-2 block w-fit max-w-full truncate text-sm font-semibold hover:underline">@{lesson.authorName}</Link>
       </div>
+      <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+        <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">
+          <SheetHeader><SheetTitle className="line-clamp-1 text-left">{lesson.title}</SheetTitle></SheetHeader>
+          <div className="mt-3 min-h-0 flex-1"><LessonComments lesson={lesson} /></div>
+        </SheetContent>
+      </Sheet>
     </section>
   );
 }

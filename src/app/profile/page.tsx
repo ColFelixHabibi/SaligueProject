@@ -3,13 +3,16 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { BadgeCheck, Clock, GraduationCap, Grid3x3, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
+import { Ban, BadgeCheck, Clock, MoreHorizontal, GraduationCap, Grid3x3, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { ExpandableText } from '@/components/expandable-text';
+import { AppealButton } from '@/components/appeal-button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { setBlocked, useBlockedIds } from '@/lib/blocks';
 import { useFollow } from '@/components/follow-button';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import ProductCard from '@/components/product-card';
@@ -55,6 +58,8 @@ function ProfileView({ id }: { id: string }) {
   const { products } = useProductStore();
   const lessons = useLessons({ author: id });
   const follow = useFollow(id);
+  const blockedIds = useBlockedIds();
+  const isBlocked = blockedIds.has(id);
 
   const load = () =>
     api<Profile>(`/profiles/${id}`)
@@ -170,7 +175,20 @@ function ProfileView({ id }: { id: string }) {
         )}
         {profile.email && !profile.mine && <a href={`mailto:${profile.email}`} className={cn(round, 'hidden sm:flex')} aria-label="Email" title={profile.email}><Mail className="h-5 w-5" /></a>}
         <button type="button" onClick={share} className={round} aria-label="Share profile" title="Share"><Share2 className="h-5 w-5" /></button>
+        {!profile.mine && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className={round} aria-label="More"><MoreHorizontal className="h-5 w-5" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className={isBlocked ? '' : 'text-destructive'} onClick={() => setBlocked(id, !isBlocked).then(() => toast({ title: isBlocked ? `${profile.name} unblocked` : `${profile.name} blocked`, description: isBlocked ? undefined : 'You won’t see their items, lessons or comments.' })).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }))}>
+                <Ban className="mr-2 h-4 w-4" /> {isBlocked ? 'Unblock' : 'Block'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
+      {isBlocked && <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-muted-foreground">You blocked this account. Unblock it from ⋯ or Settings.</p>}
 
       <div className="mt-6 flex border-b">
         {tabs.map((t) => (
@@ -188,7 +206,12 @@ function ProfileView({ id }: { id: string }) {
           <div className="grid grid-cols-3 gap-1">
             {lessons.map((l) => {
               const Icon = topicOf(l.topic).icon;
-              return <PosterTile key={l.id} href={`/learn?lesson=${l.id}`} poster={l.poster ?? ''} label={l.title} badge={<Icon className="h-3.5 w-3.5" />} />;
+              return (
+                <div key={l.id}>
+                  <PosterTile href={`/learn?lesson=${l.id}`} poster={l.poster ?? ''} label={l.hidden ? `Hidden after reports · ${l.title}` : l.title} badge={<Icon className="h-3.5 w-3.5" />} />
+                  {l.hidden && <div className="mt-1"><AppealButton kind="lesson" targetId={l.id} title={l.title} /></div>}
+                </div>
+              );
             })}
           </div>
         ) : <Empty icon={GraduationCap} text={profile.mine ? 'Teach your first lesson' : 'No lessons yet'} href={profile.mine ? '/learn/new' : undefined} />)}

@@ -41,8 +41,11 @@ export type Lesson = {
   duration: number | null;
   likeCount: number;
   viewCount: number;
+  commentCount?: number;
   liked: boolean;
   mine: boolean;
+  // Only for the teacher: hidden after reports (can appeal).
+  hidden?: boolean;
   newVoice?: boolean;
   createdAt: string;
 };
@@ -80,3 +83,8 @@ export const deleteLesson = (id: string) => api(`/lessons/${id}`, { method: 'DEL
 export const likeLesson = (id: string) => api<{ liked: boolean; likeCount: number }>(`/lessons/${id}/like`, { body: {} });
 export const viewLesson = (id: string) => api(`/lessons/${id}/view`, { body: {} }).catch(() => {});
 export const reportLesson = (id: string, reason: string) => api(`/lessons/${id}/report`, { body: { reason } });
+
+export type LessonComment = { id: string; uid: string; name: string; avatar: string | null; parentId: string | null; kind: 'comment' | 'question'; text: string; teacher: boolean; answered: boolean; createdAt: string };
+export const lessonComments = (id: string) => api<LessonComment[]>(`/lessons/${id}/comments`).then((list) => list.map((c) => ({ ...c, avatar: mediaUrl(c.avatar ?? undefined) ?? null })));
+export const postLessonComment = (id: string, body: { text: string; kind?: 'comment' | 'question'; parentId?: string }) => api<{ id: string }>(`/lessons/${id}/comments`, { body });
+export const deleteLessonComment = (commentId: string) => api(`/lesson-comments/${commentId}`, { method: 'DELETE' });

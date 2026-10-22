@@ -1,5 +1,7 @@
 'use client';
 
+import { AppealsAdmin } from '@/components/admin/appeals-admin';
+
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -301,6 +303,7 @@ export default function PlatformPage() {
       )}
 
       <h2 className="pt-4 text-xl font-extrabold">Monetization</h2>
+      <AppealsAdmin />
       <MonetizationAdmin />
 
       <Card>

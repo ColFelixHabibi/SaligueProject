@@ -1,5 +1,7 @@
 'use client';
 
+import { AppealButton } from '@/components/appeal-button';
+
 import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -224,7 +226,7 @@ function ProductsTable() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={cn('capitalize', STATUS_STYLE[p.status])}>{p.status}</Badge>
-                        {p.hidden && <Badge variant="destructive" className="ml-1">Reported</Badge>}
+                        {p.hidden && <><Badge variant="destructive" className="ml-1">Hidden after reports</Badge><span className="mt-1 block"><AppealButton kind="product" targetId={p.id} title={p.name} /></span></>}
                       </TableCell>
                       <TableCell><InlineNumber value={p.price} prefix="$" onSave={(v) => patch(p.id, { price: v ?? 0 })} /></TableCell>
                       <TableCell>

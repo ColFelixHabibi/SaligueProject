@@ -1,5 +1,7 @@
 'use client';
 
+import { useBlockedIds } from '@/lib/blocks';
+
 import { useEffect, useState } from 'react';
 import { Loader2, Send, Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -24,6 +26,7 @@ function timeAgo(value?: string | null) {
 export function CommentsPanel({ productId, sellerId, className }: { productId: string; sellerId?: string; className?: string }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
+  const blocked = useBlockedIds();
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -68,7 +71,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
       <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
         {comments === null ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /> : comments.length === 0 ? (
           <p className="py-2 text-center text-sm text-muted-foreground">No comments yet. Be the first!</p>
-        ) : comments.map((comment) => (
+        ) : comments.filter((c) => !blocked.has(c.uid)).map((comment) => (
           <div key={comment.id} className="flex items-start gap-2">
             <Avatar className="h-7 w-7"><AvatarFallback className="text-xs">{comment.name.charAt(0).toUpperCase()}</AvatarFallback></Avatar>
             <div className="min-w-0 flex-1 text-sm">
