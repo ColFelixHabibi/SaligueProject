@@ -88,8 +88,9 @@ function IndecianaStore() {
                   <img src={selected.image} alt={selected.name} className="aspect-[4/5] w-full object-contain p-4" />
                 </div>
                 <div className="mt-2 rounded-md border bg-card text-foreground">
-                  <div className="px-2 py-1">
-                    <ActionRail product={selected} variant="bar" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
+                  <div className="flex items-center gap-1 px-2 py-1">
+                    <ActionRail product={selected} variant="bar" hideWearIt commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
+                    <ReportButton product={selected} iconOnly className="ml-auto" />
                   </div>
                   {commentsOpen && <CommentsPanel productId={selected.id} sellerId={selected.sellerId} className="border-t p-3" />}
                 </div>
@@ -113,16 +114,15 @@ function IndecianaStore() {
                       </div>
                     ))}
                 </dl>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
                   <Button size="lg" className="h-14 rounded-none bg-primary text-base text-primary-foreground hover:bg-primary/90" asChild>
                     <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Wear it</Link>
                   </Button>
                   <Button size="lg" variant="outline" className="h-14 rounded-none border-foreground bg-transparent text-base text-foreground hover:bg-foreground hover:text-background" onClick={add}>
                     <ShoppingBag className="mr-2 h-5 w-5" /> Add to bag
                   </Button>
+                  <MessageSellerButton product={selected} label="Message INDECIANA" size="icon" variant="outline" className="h-14 w-14 rounded-none border-foreground" />
                 </div>
-                <MessageSellerButton product={selected} label="Message INDECIANA" variant="outline" className="h-12 w-full rounded-none border-foreground text-base" />
-                <ReportButton product={selected} />
                 {selected.shop && (
                   <div className="rounded-md border bg-card p-4 text-foreground">
                     <ShopAddress shop={selected.shop} email={selected.sellerEmail} />

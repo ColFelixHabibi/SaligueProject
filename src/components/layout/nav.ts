@@ -18,7 +18,10 @@ export const SELLER_NAV = [
   { href: '/me', label: 'Me', icon: User },
 ] as const;
 
-export const navFor = (role: 'buyer' | 'seller') => (role === 'seller' ? SELLER_NAV : SHOPPER_NAV);
+// Visitors who haven't logged in: browsing and trying on only. Selling, messages and the account come after logging in.
+export const GUEST_NAV = SHOPPER_NAV.filter((d) => d.href !== '/sell' && d.href !== '/me');
+
+export const navFor = (role: 'buyer' | 'seller', signedIn = true) => (!signedIn ? GUEST_NAV : role === 'seller' ? SELLER_NAV : SHOPPER_NAV);
 
 // Kept for places that only need the shopper's destinations.
 export const NAV = SHOPPER_NAV;

@@ -22,13 +22,15 @@ interface ActionRailProps {
   onToggleComments: () => void;
   // "overlay": a column of round buttons over an image (feed); "bar": a compact row below an image (cards).
   variant: 'overlay' | 'bar';
+  // Leave out "Wear it" where the page already has a big Wear it button.
+  hideWearIt?: boolean;
 }
 
 /**
  * Like (public count) · Comments · Save (private) · Wear it · Share.
  * Works for guests too — no login needed.
  */
-export function ActionRail({ product, commentsOpen, onToggleComments, variant }: ActionRailProps) {
+export function ActionRail({ product, commentsOpen, onToggleComments, variant, hideWearIt }: ActionRailProps) {
   const { toast } = useToast();
   const liked = useLiked(product.id);
   const { wishlistItems, addToWishlist, removeFromWishlist } = useWishlist();
@@ -54,38 +56,37 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant }:
   const overlay = variant === 'overlay';
   const button = cn(
     'flex items-center gap-1.5 text-xs font-semibold transition-transform active:scale-90',
-    overlay ? 'flex-col text-foreground' : 'min-w-0 rounded-full px-1.5 py-1.5 text-foreground hover:bg-muted'
+    overlay ? 'flex-col text-foreground' : 'min-w-0 rounded-full p-2 text-foreground hover:bg-muted'
   );
   // On the feed each icon sits in a white circle so it reads on any photo.
   const icon = overlay ? 'h-11 w-11 rounded-full bg-background/90 p-2.5 shadow' : 'h-5 w-5';
 
   return (
     <div className={cn(overlay ? 'flex flex-col items-center gap-5' : 'flex flex-wrap items-center justify-between gap-x-1')}>
-      <button type="button" className={button} onClick={() => run(() => toggleLike(product.id))} aria-pressed={liked} aria-label="Like">
+      <button type="button" className={button} onClick={() => run(() => toggleLike(product.id))} aria-pressed={liked} aria-label="Like" title="Like">
         <Heart className={cn(icon, liked && 'fill-primary text-primary')} />
-        <span>{likeCount > 0 ? compact(likeCount) : 'Like'}</span>
+        {likeCount > 0 && <span>{compact(likeCount)}</span>}
       </button>
-      <button type="button" className={button} onClick={onToggleComments} aria-expanded={commentsOpen} aria-label="Comments">
+      <button type="button" className={button} onClick={onToggleComments} aria-expanded={commentsOpen} aria-label="Comments" title="Comments">
         <MessageCircle className={cn(icon, commentsOpen && 'fill-current')} />
-        <span>Comment</span>
       </button>
       <button
         type="button"
         className={button}
         onClick={() => run(() => (saved ? removeFromWishlist(product.id) : addToWishlist(product)))}
         aria-pressed={saved}
-        aria-label="Save"
+        aria-label={saved ? 'Saved' : 'Save'}
+        title={saved ? 'Saved' : 'Save'}
       >
         <Bookmark className={cn(icon, saved && 'fill-current')} />
-        <span>{saved ? 'Saved' : 'Save'}</span>
       </button>
-      <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Wear it">
-        <Wand2 className={icon} />
-        <span>Wear it</span>
-      </Link>
-      <button type="button" className={button} onClick={share} aria-label="Share">
+      {!hideWearIt && (
+        <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Wear it" title="Wear it">
+          <Wand2 className={icon} />
+        </Link>
+      )}
+      <button type="button" className={button} onClick={share} aria-label="Share" title="Share">
         <Share2 className={icon} />
-        <span>Share</span>
       </button>
     </div>
   );

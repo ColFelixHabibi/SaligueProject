@@ -18,10 +18,9 @@ export function ContactButtons({ contact, email, className }: { contact?: string
       {links.map((link) => {
         const Icon = ICONS[link.kind];
         return (
-          <Button key={link.href} variant="outline" size="sm" className="h-8 max-w-full" asChild>
-            <a href={link.href} target={link.kind === 'call' || link.kind === 'email' ? undefined : '_blank'} rel="noopener noreferrer">
-              <Icon className="mr-1.5 h-4 w-4 shrink-0" />
-              <span className="truncate">{link.label}</span>
+          <Button key={link.href} variant="outline" size="icon" className="h-10 w-10 rounded-full" asChild>
+            <a href={link.href} target={link.kind === 'call' || link.kind === 'email' ? undefined : '_blank'} rel="noopener noreferrer" title={link.label} aria-label={link.label}>
+              <Icon className={cn('h-4 w-4', link.kind === 'whatsapp' && 'text-[#25D366]')} />
             </a>
           </Button>
         );

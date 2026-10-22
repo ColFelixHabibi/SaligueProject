@@ -181,30 +181,28 @@ export default function ProductView({ id }: { id: string | null }) {
                 {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
                 {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : 'In stock'}
               </p>
-              <CardDescription>
-                {product.description || `This is a high-quality ${product.name} from ${product.seller}. Perfect for any occasion and crafted with the finest materials.`}
-              </CardDescription>
+              {product.description && <CardDescription>{product.description}</CardDescription>}
 
               <Button size="lg" variant="secondary" className="mt-6 h-auto min-h-14 w-full whitespace-normal py-3 text-lg" asChild>
                 <Link href={`/mirror?item=${product.id}`}>
-                  <Wand2 className="mr-2 h-6 w-6" /> Wear it — see yourself in the full outfit
+                  <Wand2 className="mr-2 h-6 w-6" /> Wear it
                 </Link>
               </Button>
 
-              <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                <Button size="lg" variant="outline" className="w-full sm:w-1/2 text-lg h-14" onClick={() => handleAddToCart()} disabled={soldOut}>
-                    <ShoppingCart className="mr-2 h-6 w-6" /> Add to Cart
+              <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
+                <Button size="lg" variant="outline" className="h-14 text-lg" onClick={() => handleAddToCart()} disabled={soldOut}>
+                    <ShoppingCart className="mr-2 h-6 w-6" /> Cart
                 </Button>
-                <Button size="lg" className="w-full sm:w-1/2 text-lg h-14" onClick={() => handleAddToCart(true)} disabled={soldOut}>
-                    <Zap className="mr-2 h-6 w-6" /> Buy now
+                <Button size="lg" className="h-14 text-lg" onClick={() => handleAddToCart(true)} disabled={soldOut}>
+                    <Zap className="mr-2 h-6 w-6" /> Buy
                 </Button>
+                <MessageSellerButton product={product} size="icon" variant="secondary" className="h-14 w-14" label={`Message ${product.shop?.name ?? product.seller}`} />
               </div>
-              <MessageSellerButton product={product} variant="secondary" className="mt-2 h-12 w-full text-base" label={`Message ${product.shop?.name ?? product.seller}`} />
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-primary" /> Pay securely online or on delivery</span>
-                <span className="flex items-center gap-1.5"><Truck className="h-4 w-4 text-primary" /> Delivered by the shop, tracked in My orders</span>
+              <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5" title="Pay securely online or on delivery"><ShieldCheck className="h-4 w-4 text-primary" /> Secure pay</span>
+                <span className="flex items-center gap-1.5" title="Delivered by the shop, tracked in My orders"><Truck className="h-4 w-4 text-primary" /> Tracked</span>
+                <ReportButton product={product} iconOnly className="ml-auto" />
               </div>
-              <ReportButton product={product} className="mt-4" />
 
             </CardContent>
           </Card>
@@ -214,12 +212,12 @@ export default function ProductView({ id }: { id: string | null }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-3 text-xl">
                   <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-12 w-12" />
-                  <span className="min-w-0 flex-1">{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">Seller on Saligue</span></span>
+                  <span className="min-w-0 flex-1">{product.shop?.name ?? 'Shop'}</span>
                   <FollowButton sellerId={product.sellerId} showCount />
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ShopAddress shop={product.shop} email={product.sellerEmail} />
+                <ShopAddress shop={product.shop} email={product.sellerEmail} hideName />
               </CardContent>
             </Card>
           )}

@@ -49,8 +49,9 @@ export function MessageSellerButton({ label = 'Message seller', className, size 
 
   return (
     <>
-      <Button type="button" size={size} variant={variant} className={className} onClick={() => setOpen(true)}>
-        <MessageCircle className="mr-2 h-5 w-5" /> {label}
+      <Button type="button" size={size} variant={variant} className={className} onClick={() => setOpen(true)} title={label} aria-label={label}>
+        <MessageCircle className={cn('h-5 w-5', size !== 'icon' && 'mr-2')} />
+        {size !== 'icon' && label}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[92vw] max-w-md">

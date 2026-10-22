@@ -70,7 +70,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="mt-6 flex flex-col gap-1 px-2 lg:px-3">
-        {navFor(role).map(({ href, label, icon: Icon }) => {
+        {navFor(role, !!user).map(({ href, label, icon: Icon }) => {
           const active = isActive(href, pathname);
           return (
             <Link key={href} href={href} title={label} aria-current={active ? 'page' : undefined} className={cn(row, active ? 'text-primary' : 'text-foreground')}>
@@ -88,6 +88,7 @@ export default function Sidebar() {
           <span className="hidden lg:inline">Live</span>
         </Link>
 
+        {user && (
         <Link href="/messages" title="Messages" className={cn(row, inMessages ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">
             <MessageCircle className={cn('h-7 w-7', inMessages && 'stroke-[2.5]')} />
@@ -99,6 +100,7 @@ export default function Sidebar() {
           </span>
           <span className="hidden lg:inline">Messages</span>
         </Link>
+        )}
 
         {role !== 'seller' && (
         <Link href="/cart" title="Cart" className={cn(row, inCart ? 'text-primary' : 'text-foreground')}>
@@ -120,7 +122,7 @@ export default function Sidebar() {
           title="INDECIANA"
           className={cn(
             'mt-3 flex items-center justify-center rounded-lg py-3 font-serif tracking-[0.25em] transition-colors',
-            inIndeciana ? 'bg-primary text-primary-foreground' : 'border border-foreground bg-background text-foreground hover:bg-muted'
+            inIndeciana ? 'border border-foreground bg-foreground text-background' : 'border border-foreground bg-background text-foreground hover:bg-muted'
           )}
         >
           <span className="text-lg lg:hidden">I</span>

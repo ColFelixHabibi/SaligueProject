@@ -18,7 +18,7 @@ const REASONS = [
 ];
 
 /** "Report this item": after several reports an item is hidden until INDECIANA reviews it. */
-export function ReportButton({ product, className }: { product: Product; className?: string }) {
+export function ReportButton({ product, className, iconOnly }: { product: Product; className?: string; iconOnly?: boolean }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,8 +38,8 @@ export function ReportButton({ product, className }: { product: Product; classNa
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground', className)}>
-        <Flag className="h-3.5 w-3.5" /> Report this item
+      <button type="button" onClick={() => setOpen(true)} className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground', iconOnly && 'rounded-full p-2 hover:bg-muted', className)} title="Report" aria-label="Report this item">
+        <Flag className={iconOnly ? 'h-4 w-4' : 'h-3.5 w-3.5'} />{!iconOnly && ' Report'}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">

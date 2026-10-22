@@ -9,7 +9,7 @@ import { navFor, isActive } from './nav';
 
 export default function Footer() {
   const pathname = usePathname();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   // Lives fill the whole screen, like TikTok.
   if (/\/live\/(studio|watch)/.test(pathname)) return null;
   return (
@@ -17,7 +17,7 @@ export default function Footer() {
       {/* Phones: the app's main destinations, each once. */}
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         <div className="flex h-16 items-stretch justify-around">
-          {navFor(role).map(({ href, label, icon: Icon }) => {
+          {navFor(role, !!user).map(({ href, label, icon: Icon }) => {
             const active = isActive(href, pathname);
             return (
               <Link

@@ -89,14 +89,14 @@ export default function Header() {
               {liveCount > 0 && <span className="absolute -right-1 top-0 rounded bg-primary px-1 text-[8px] font-extrabold text-primary-foreground">LIVE</span>}
             </Link>
           </Button>
-          <Button variant="ghost" size="icon" className="relative" asChild>
+          {user && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/messages" aria-label={`Messages, ${unreadMessages} unread`}>
               <MessageCircle className="h-5 w-5" />
               {unreadMessages > 0 && (
                 <Badge className="absolute -right-0.5 -top-0.5 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">{unreadMessages > 9 ? '9+' : unreadMessages}</Badge>
               )}
             </Link>
-          </Button>
+          </Button>}
           {role !== 'seller' && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />
