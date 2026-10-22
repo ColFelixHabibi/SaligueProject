@@ -1,5 +1,6 @@
 'use client';
 
+import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, CircleDashed, Copy, Cpu, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
@@ -298,6 +299,9 @@ export default function PlatformPage() {
           </CardContent>
         </Card>
       )}
+
+      <h2 className="pt-4 text-xl font-extrabold">Monetization</h2>
+      <MonetizationAdmin />
 
       <Card>
         <CardHeader>

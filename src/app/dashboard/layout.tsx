@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, Bell, ExternalLink, Home, LifeBuoy, MessageCircle, Package, PlusCircle, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
+import { BarChart3, Bell, Coins, Megaphone, ExternalLink, Home, LifeBuoy, MessageCircle, Package, PlusCircle, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SellerAvatar } from '@/components/seller-avatar';
@@ -43,6 +43,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard/products', icon: Package, label: 'Products' },
     { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
     { href: '/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
+    { href: '/dashboard/ads', icon: Megaphone, label: 'Ads' },
+    { href: '/dashboard/earnings', icon: Coins, label: 'Earnings' },
     { href: '/dashboard/analytics', icon: BarChart3, label: 'Analytics' },
     { href: '/dashboard/notifications', icon: Bell, label: 'Notifications', count: unreadNotifications },
     // Only INDECIANA reviews reported items.

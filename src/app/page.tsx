@@ -1,6 +1,7 @@
 
 'use client';
 
+import { mixSponsored, useSponsored } from '@/lib/ads';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { PlusCircle, Radio } from 'lucide-react';
@@ -78,6 +79,7 @@ export default function ForYouPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liked, likesInitialized]);
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+  const sponsored = useSponsored('feed', 3);
 
   return (
     <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
@@ -109,10 +111,12 @@ export default function ForYouPage() {
         </div>
       ) : (
         // Live data (like counts) from the store, order from the ranking.
-        feed
-          .map((p) => byId.get(p.id))
-          .filter((p) => p?.status === 'active')
-          .map((p) => <FeedSlide key={p!.id} product={p!} reason={reasons.get(p!.id) ?? null} />)
+        mixSponsored(
+          feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active'),
+          sponsored.map((a) => ({ item: byId.get(a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
+          3,
+          7
+        ).map((p) => <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy} />)
       )}
     </div>
   );

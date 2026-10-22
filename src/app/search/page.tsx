@@ -1,5 +1,6 @@
 'use client';
 
+import { mixSponsored, useSponsored } from '@/lib/ads';
 import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
@@ -113,6 +114,7 @@ function SearchContent() {
   const [queryPhoto, setQueryPhoto] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(() => ({ ...NO_FILTERS, categories: params.get('category') ? [params.get('category')!] : [] }));
   const [sort, setSort] = useState<Sort>('relevance');
+  const sponsored = useSponsored('explore', 2);
   const searchId = useRef(0);
   const photoRef = useRef<HTMLInputElement>(null);
 
@@ -288,7 +290,12 @@ function SearchContent() {
             </div>
           ) : shown.length > 0 ? (
             <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
-              {shown.map((product) => <ProductCard key={product.id} product={product} variant="shop" />)}
+              {mixSponsored(
+                shown,
+                sponsored.map((a) => ({ item: products.find((p) => p.id === a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
+                3,
+                8
+              ).map((product) => <ProductCard key={`${product.id}${product.sponsoredBy ?? ''}`} product={product} variant="shop" sponsoredBy={product.sponsoredBy} />)}
             </div>
           ) : (
             <div className="rounded-2xl border-2 border-dashed py-16 text-center text-muted-foreground">

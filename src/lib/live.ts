@@ -64,7 +64,7 @@ export function useLive(id: string | null, me: string | null) {
 // Actions
 export const goLive = (body: { title: string; description: string; productIds: string[] }) => api<Live>('/lives', { body });
 export const endLive = (id: string) => api<Live>(`/lives/${id}/end`, { body: {} });
-export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number }>) =>
+export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number }>) =>
   api<Live>(`/lives/${id}`, { method: 'PATCH', body });
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment') => api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind } });
 export const removeLiveComment = (id: string, commentId: string) => api(`/lives/${id}/comments/${commentId}`, { method: 'DELETE' });
@@ -216,6 +216,8 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, [micOn]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  // The camera itself (for zoom).
+  const videoTrack = useCallback(() => (localTracks.current.find((t) => t.kind === Track.Kind.Video)?.mediaStreamTrack ?? null), []);
 
   // Front ↔ back camera on phones.
   const flipCamera = useCallback(async () => {
@@ -225,7 +227,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
     setFacing(next);
   }, [facing]);
 
-  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, facing, retry };
+  return { room, tiles, viewers, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, facing, retry, videoTrack };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */

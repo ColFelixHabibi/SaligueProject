@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Eye, HelpCircle, MicOff, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -9,16 +9,43 @@ import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
+/**
+ * Fills the frame with tall (portrait) video; shows wide video whole on a blurred copy of itself, so the
+ * picture is never cropped into a "zoomed-in" look (phones often send landscape video).
+ */
+export function useVideoShape(video: React.RefObject<HTMLVideoElement | null>) {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    const update = () => el.videoWidth && setWide(el.videoWidth > el.videoHeight * 1.05);
+    el.addEventListener('loadedmetadata', update);
+    el.addEventListener('resize', update);
+    update();
+    return () => {
+      el.removeEventListener('loadedmetadata', update);
+      el.removeEventListener('resize', update);
+    };
+  }, [video]);
+  return wide;
+}
+
 function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
+  const backdrop = useRef<HTMLVideoElement>(null);
   const audio = useRef<HTMLAudioElement>(null);
+  const wide = useVideoShape(video);
   useEffect(() => attach(tile.video, video.current), [tile.video]);
+  useEffect(() => (wide ? attach(tile.video, backdrop.current) : () => {}), [tile.video, wide]);
   // Your own voice is never played back to you.
   useEffect(() => (tile.isLocal ? () => {} : attach(tile.audio, audio.current)), [tile.audio, tile.isLocal]);
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-neutral-900', tile.speaking && tile.role === 'guest' && 'ring-4 ring-inset ring-primary')}>
       {tile.video ? (
-        <video ref={video} autoPlay playsInline muted={tile.isLocal} className={cn('h-full w-full', cover ? 'object-cover' : 'object-contain', tile.isLocal && 'scale-x-[-1]')} />
+        <>
+          {wide && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.isLocal && '-scale-x-110')} />}
+          <video ref={video} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover && !wide ? 'object-cover' : 'object-contain', tile.isLocal && 'scale-x-[-1]')} />
+        </>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/70">
           <VideoOff className="h-10 w-10" />

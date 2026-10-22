@@ -78,7 +78,11 @@ export default function CheckoutPage() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Guests can order too: they have a silent guest account, and their orders show under "My orders".
+    // Checkout needs an account, so orders, receipts and delivery updates reach the shopper.
+    if (!user) {
+      setLoginOpen(true);
+      return;
+    }
     if (!authUid) {
       toast({ variant: 'destructive', title: 'One moment', description: 'Still connecting. Please try again.' });
       return;
@@ -116,6 +120,23 @@ export default function CheckoutPage() {
       setPlacing(false);
     }
   };
+
+  // Not signed in: one clear step before the form (the bag is kept and joins the account).
+  if (!user && cartItems.length > 0) {
+    return (
+      <div className="container mx-auto max-w-md px-4 py-16 text-center">
+        <Lock className="mx-auto mb-4 h-12 w-12 text-primary" />
+        <h1 className="text-2xl font-extrabold">Log in to check out</h1>
+        <p className="mt-2 text-muted-foreground">Your bag ({cartItems.length} {cartItems.length === 1 ? 'item' : 'items'}) is kept.</p>
+        <div className="mt-6 grid gap-2">
+          <Button size="lg" onClick={() => setRegisterOpen(true)}>Create account</Button>
+          <Button size="lg" variant="outline" onClick={() => setLoginOpen(true)}>Log in</Button>
+        </div>
+        <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />
+        <RegisterDialog open={registerOpen} onOpenChange={setRegisterOpen} onSwitchToLogin={() => { setRegisterOpen(false); setTimeout(() => setLoginOpen(true), 150); }} />
+      </div>
+    );
+  }
 
   if (cartItems.length === 0) {
     return (
@@ -234,11 +255,7 @@ export default function CheckoutPage() {
               <Button type="submit" size="lg" className="w-full" disabled={placing}>
                 {placing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />} {payment === 'online' ? `Pay ${formatPrice(total)} now` : 'Place order'}
               </Button>
-              {!user && (
-                <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setLoginOpen(true)}>
-                  Have an account? <span className="font-semibold text-primary">Log in</span> (optional)
-                </button>
-              )}
+
             </CardFooter>
           </Card>
         </div>

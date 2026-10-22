@@ -1,5 +1,6 @@
 'use client';
 
+import { FollowButton } from '@/components/follow-button';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -134,6 +135,7 @@ function Watch() {
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
+          <FollowButton sellerId={live.sellerId} onDark className="h-7 px-3 text-xs" />
           <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close"><X className="h-4 w-4" /></button>
         </LiveTopBar>
         <Hearts bursts={bursts} />
@@ -164,7 +166,7 @@ function Watch() {
               className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-full', question ? 'bg-primary text-white' : 'bg-black/40 text-white')}>
               <HelpCircle className="h-5 w-5" />
             </button>
-            <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : question ? 'Ask the host a question…' : 'Say something…'} />
+            <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : live.chatMode === 'off' && !isGuest ? 'The host turned comments off' : live.chatMode === 'followers' && !isGuest ? 'Followers can comment · follow to join' : question ? 'Ask the host a question…' : live.slowSeconds ? `Slow mode · one comment every ${live.slowSeconds} s` : 'Say something…'} />
             <button type="submit" disabled={sending || !text.trim()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50" aria-label="Send">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>

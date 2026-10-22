@@ -133,6 +133,8 @@ export default function MePage() {
         <Row href="/terms" icon={FileText} label="Terms of Service" />
         <Row href="/privacy" icon={FileText} label="Privacy Policy" />
         <Row href="/cookies" icon={Cookie} label="Cookie Policy" />
+        <Row href="/ads-policy" icon={FileText} label="Ads Policy" />
+        <Row href="/monetization-policy" icon={FileText} label="Monetization Policy" />
       </Card>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />

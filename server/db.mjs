@@ -259,6 +259,71 @@ db.exec(`
   create index if not exists interactions_user on interactions(user_id, created_at desc);
   create index if not exists interactions_time on interactions(created_at);
 
+  -- Shoppers following shops (counts toward creator monetization).
+  create table if not exists follows (
+    follower_id text not null references users(id) on delete cascade,
+    seller_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (follower_id, seller_id)
+  );
+  create index if not exists follows_seller on follows(seller_id, created_at);
+
+  -- Saligue Ads: sellers promote an item for a budget; shown as "Sponsored" and billed per 1,000 views (ads.mjs).
+  create table if not exists ad_campaigns (
+    id text primary key,
+    seller_id text not null references users(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    headline text not null default '',
+    budget real not null,               -- dollars
+    spent real not null default 0,
+    cpm real not null,                  -- dollars per 1,000 views, fixed when created
+    days integer not null,
+    placements text not null default '["feed","explore"]',
+    status text not null default 'pending_payment'
+      check (status in ('pending_payment', 'in_review', 'active', 'paused', 'completed', 'rejected')),
+    payment_ref text,
+    review_note text,
+    impressions integer not null default 0,
+    clicks integer not null default 0,
+    starts_at text,
+    ends_at text,
+    created_at text not null
+  );
+  create index if not exists ad_campaigns_status on ad_campaigns(status);
+
+  create table if not exists ad_stats (
+    campaign_id text not null references ad_campaigns(id) on delete cascade,
+    day text not null,
+    impressions integer not null default 0,
+    clicks integer not null default 0,
+    spent real not null default 0,
+    primary key (campaign_id, day)
+  );
+
+  -- Creator monetization: applications, and monthly earnings paid by Mobile Money.
+  create table if not exists creators (
+    user_id text primary key references users(id) on delete cascade,
+    status text not null check (status in ('applied', 'approved', 'rejected', 'suspended')),
+    momo_number text not null,
+    momo_name text not null,
+    note text,
+    applied_at text not null,
+    decided_at text
+  );
+
+  create table if not exists payouts (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    period text not null,               -- YYYY-MM
+    amount real not null,               -- dollars
+    breakdown text not null,            -- JSON: views, sales, followers, points, pool
+    status text not null default 'pending' check (status in ('pending', 'paid')),
+    reference text,
+    paid_at text,
+    created_at text not null,
+    unique (user_id, period)
+  );
+
   -- How often each item is opened per day, for the seller's dashboard.
   create table if not exists product_views (
     product_id text not null references products(id) on delete cascade,
@@ -273,7 +338,7 @@ for (const [table, column, type] of [
   ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
-  ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'],
+  ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);

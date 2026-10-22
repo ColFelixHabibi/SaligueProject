@@ -20,6 +20,8 @@ export type Live = {
   pinnedCommentId: string | null;
   likeCount: number;
   peakViewers: number;
+  chatMode: 'everyone' | 'followers' | 'off';
+  slowSeconds: number;
   startedAt: string;
   endedAt: string | null;
 };

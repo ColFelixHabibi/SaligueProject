@@ -13,6 +13,7 @@ import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck 
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
+import { adIncome, adSettings, campaignOut, closeMonth, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, REQUIREMENTS, startCampaign } from './ads.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -755,7 +756,7 @@ route('DELETE', '/api/me/wishlist/([\\w-]+)', ({ user, params }) => {
 
 // Orders: one per shop; prices always come from the database.
 route('POST', '/api/orders', ({ user, body }) => {
-  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in or create an account to place your order.');
   const lines = Array.isArray(body.items) ? body.items : [];
   if (!lines.length || lines.length > 50) fail(400, 'invalid_order', 'Your cart is empty.');
   if (!PAYMENT_METHODS.includes(body.paymentMethod)) fail(400, 'invalid_payment', 'Choose a payment method.');
@@ -1184,6 +1185,17 @@ route('GET', '/api/payments/config', () => {
 });
 
 function markPaid(payment, providerRef) {
+  // An ad campaign: paid → INDECIANA reviews it against the Ads Policy.
+  if (payment.campaign_id) {
+    const changed = transaction(() => {
+      if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
+      db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+      db.prepare("update ad_campaigns set status = 'in_review', payment_ref = ? where id = ? and status = 'pending_payment'").run(payment.id, payment.campaign_id);
+      return true;
+    });
+    if (changed) adPaid(payment.campaign_id);
+    return;
+  }
   const orderIds = parse(payment.order_ids) ?? [];
   const changed = transaction(() => {
     const current = db.prepare('select status from payments where id = ?').get(payment.id);
@@ -1326,6 +1338,9 @@ function liveOut(l) {
     pinnedCommentId: l.pinned_comment_id,
     likeCount: l.like_count,
     peakViewers: l.peak_viewers,
+    // Host's chat settings: who may comment, and how often.
+    chatMode: l.chat_mode ?? 'everyone',
+    slowSeconds: l.slow_seconds ?? 0,
     startedAt: l.started_at,
     endedAt: l.ended_at,
   };
@@ -1409,6 +1424,8 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
     db.prepare('update lives set pinned_product_id = ? where id = ?').run(pin || null, live.id);
   }
   if (body.pinnedCommentId !== undefined) db.prepare('update lives set pinned_comment_id = ? where id = ?').run(body.pinnedCommentId ? String(body.pinnedCommentId) : null, live.id);
+  if (body.chatMode !== undefined && ['everyone', 'followers', 'off'].includes(body.chatMode)) db.prepare('update lives set chat_mode = ? where id = ?').run(body.chatMode, live.id);
+  if (body.slowSeconds !== undefined) db.prepare('update lives set slow_seconds = ? where id = ?').run([0, 10, 30, 60].includes(Number(body.slowSeconds)) ? Number(body.slowSeconds) : 0, live.id);
   if (body.viewers !== undefined) db.prepare('update lives set peak_viewers = max(peak_viewers, ?) where id = ?').run(Math.max(0, Math.floor(Number(body.viewers) || 0)), live.id);
   const fresh = liveOut(db.prepare('select * from lives where id = ?').get(live.id));
   if (body.viewers === undefined || Object.keys(body).length > 1) liveEvent(live.id, { type: 'updated', live: fresh });
@@ -1425,12 +1442,28 @@ route('POST', '/api/lives/([\\w-]+)/end', async ({ user, params }) => {
 });
 
 const liveCommentRuns = new Map();
+const liveSlow = new Map(); // live|user → time of the last comment (slow mode)
 route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const live = getLive(params[0]);
   if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
   if ((parse(live.muted) ?? []).includes(user.id)) fail(403, 'muted', 'The host has turned off comments for you in this live.');
   const kind = body.kind === 'question' ? 'question' : body.kind === 'join' ? 'join' : 'comment';
+  const isHost = live.seller_id === user.id;
+  const onCamera = db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, user.id);
+  if (kind !== 'join' && !isHost && !onCamera) {
+    if (live.chat_mode === 'off') fail(403, 'chat_off', 'The host has turned comments off.');
+    if (live.chat_mode === 'followers' && !db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, live.seller_id)) {
+      fail(403, 'followers_only', 'Only followers can comment. Follow the shop to join the chat.');
+    }
+    if (live.slow_seconds > 0) {
+      const key = `${live.id}|${user.id}`;
+      const last = liveSlow.get(key) ?? 0;
+      const wait = Math.ceil((last + live.slow_seconds * 1000 - Date.now()) / 1000);
+      if (wait > 0) fail(429, 'slow_mode', `Slow mode: wait ${wait} s before your next comment.`);
+      liveSlow.set(key, Date.now());
+    }
+  }
   const text = kind === 'join' ? 'joined' : String(body.text ?? '').trim().slice(0, 2500);
   if (!text) fail(400, 'empty_comment', 'Write a comment first.');
   const window = Date.now() - 10_000;
@@ -1696,6 +1729,253 @@ route('POST', '/api/admin/signing-key/password', ({ user }) => {
   const info = signingInfo();
   if (!info) fail(404, 'not_found', 'There is no app signing key on this server yet.');
   return { password: info.storePassword, alias: info.keyAlias };
+});
+
+// ---------------------------------------------------------------------------
+// Following shops
+// ---------------------------------------------------------------------------
+
+const followerCount = (sellerId) => db.prepare('select count(*) as n from follows where seller_id = ?').get(sellerId).n;
+
+route('GET', '/api/follow/([\\w-]+)', ({ user, params }) => ({
+  followers: followerCount(params[0]),
+  following: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, params[0])),
+}));
+
+route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const seller = db.prepare("select id, display_name, shop from users where id = ? and role = 'seller'").get(params[0]);
+  if (!seller) fail(404, 'not_found', 'Shop not found.');
+  if (seller.id === user.id) fail(400, 'own_shop', 'This is your own shop.');
+  const following = transaction(() => {
+    if (db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, seller.id)) {
+      db.prepare('delete from follows where follower_id = ? and seller_id = ?').run(user.id, seller.id);
+      return false;
+    }
+    db.prepare('insert into follows (follower_id, seller_id, created_at) values (?, ?, ?)').run(user.id, seller.id, now());
+    return true;
+  });
+  if (following && !user.is_guest) notify(seller.id, { type: 'account', title: `${personNameOf(user)} followed your shop`, body: `You now have ${followerCount(seller.id)} followers.`, link: '/dashboard/earnings', email: false });
+  return { following, followers: followerCount(seller.id) };
+});
+
+route('GET', '/api/me/following', ({ user }) => (user ? db.prepare('select seller_id from follows where follower_id = ?').all(user.id).map((r) => r.seller_id) : []));
+
+// ---------------------------------------------------------------------------
+// Saligue Ads (ads.mjs): sellers promote items; shown as "Sponsored"; paid per 1,000 views.
+// ---------------------------------------------------------------------------
+
+function adPaid(campaignId) {
+  const c = db.prepare('select * from ad_campaigns where id = ?').get(campaignId);
+  if (!c) return;
+  notify(c.seller_id, { type: 'sale', title: 'Ad payment received', body: `Your ad (${money(c.budget)}) is being reviewed and will start soon.`, link: '/dashboard/ads' });
+  for (const { id } of db.prepare('select id from users where admin = 1 or official = 1').all()) {
+    notify(id, { type: 'product', title: 'Ad waiting for review', body: `${money(c.budget)} · ${c.days} days`, link: '/admin', email: false });
+  }
+}
+
+route('GET', '/api/ads/settings', () => {
+  const a = adSettings();
+  const pay = paymentSettings();
+  return { cpm: a.cpm, minBudget: a.minBudget, maxDays: a.maxDays, onlinePayment: paymentsEnabled(), currency: pay.currency, rate: pay.rate, momoNumber: a.momoNumber, momoName: a.momoName };
+});
+
+route('GET', '/api/ads/campaigns', ({ user }) => {
+  if (!user) return [];
+  expireCampaigns();
+  return db.prepare('select * from ad_campaigns where seller_id = ? order by created_at desc').all(user.id).map(campaignOut);
+});
+
+route('POST', '/api/ads/campaigns', ({ user, body }) => {
+  if (!user || user.is_guest || user.role !== 'seller') fail(403, 'not_a_seller', 'Only shops can advertise.');
+  const a = adSettings();
+  const product = db.prepare("select * from products where id = ? and seller_id = ? and status = 'active' and hidden = 0").get(String(body.productId ?? ''), user.id);
+  if (!product) fail(400, 'invalid_product', 'Choose one of your items on sale.');
+  const budget = Math.round(Number(body.budget) * 100) / 100;
+  const days = Math.floor(Number(body.days));
+  if (!(budget >= a.minBudget && budget <= 100_000)) fail(400, 'invalid_budget', `The budget must be at least ${money(a.minBudget)}.`);
+  if (!(days >= 1 && days <= a.maxDays)) fail(400, 'invalid_days', `Choose 1 to ${a.maxDays} days.`);
+  const placements = (Array.isArray(body.placements) ? body.placements : ['feed', 'explore']).filter((x) => ['feed', 'explore'].includes(x));
+  if (!placements.length) fail(400, 'invalid_placements', 'Choose where the ad appears.');
+  const id = randomUUID();
+  db.prepare('insert into ad_campaigns (id, seller_id, product_id, headline, budget, cpm, days, placements, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, product.id, String(body.headline ?? '').trim().slice(0, 80), budget, a.cpm, days, json(placements), now());
+  return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(id));
+});
+
+// Pay for a campaign: online when switched on, otherwise by Mobile Money to Saligue with a reference.
+route('POST', '/api/ads/campaigns/([\\w-]+)/pay', async ({ req, user, params, body }) => {
+  const c = db.prepare('select * from ad_campaigns where id = ? and seller_id = ?').get(params[0], user?.id ?? '');
+  if (!c) fail(404, 'not_found', 'Ad not found.');
+  if (c.status !== 'pending_payment') fail(400, 'paid', 'This ad is already paid.');
+  const reference = `AD-${c.id.slice(0, 6).toUpperCase()}`;
+  if (!paymentsEnabled()) {
+    const a = adSettings();
+    return { manual: true, reference, amount: c.budget, momoNumber: a.momoNumber, momoName: a.momoName };
+  }
+  const email = String(user.email || body.email || '').trim().toLowerCase();
+  if (!EMAIL.test(email)) fail(400, 'email_required', 'Enter your email address for the receipt.');
+  const { currency } = paymentSettings();
+  const amount = toCharge(c.budget);
+  const txRef = `SAL-AD-${randomBytes(8).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, campaign_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', amount, currency, c.id, now());
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({ txRef, amount, currency, redirectUrl: `${base}/payment`, customer: { email, name: shopNameOf(user), phone: parse(user.shop)?.phone }, title: 'Saligue Ads', logo: `${configured}/icons/icon-192.png` });
+  return { link, reference };
+});
+
+route('POST', '/api/ads/campaigns/([\\w-]+)/(pause|resume)', ({ user, params }) => {
+  const c = db.prepare('select * from ad_campaigns where id = ? and seller_id = ?').get(params[0], user?.id ?? '');
+  if (!c) fail(404, 'not_found', 'Ad not found.');
+  if (params[1] === 'pause' && c.status === 'active') db.prepare("update ad_campaigns set status = 'paused' where id = ?").run(c.id);
+  if (params[1] === 'resume' && c.status === 'paused') db.prepare("update ad_campaigns set status = 'active' where id = ?").run(c.id);
+  return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(c.id));
+});
+
+route('GET', '/api/ads/campaigns/([\\w-]+)/stats', ({ user, params }) => {
+  const c = db.prepare('select * from ad_campaigns where id = ? and seller_id = ?').get(params[0], user?.id ?? '');
+  if (!c) fail(404, 'not_found', 'Ad not found.');
+  return { campaign: campaignOut(c), days: db.prepare('select day, impressions, clicks, spent from ad_stats where campaign_id = ? order by day').all(c.id) };
+});
+
+// Ads to show, and their views/clicks (views are billed).
+route('GET', '/api/ads', ({ user, url }) => {
+  const placement = url.searchParams.get('placement') === 'explore' ? 'explore' : 'feed';
+  const count = Math.min(5, Math.max(1, Number(url.searchParams.get('count')) || 2));
+  return pickAds(user?.id ?? null, count, placement);
+});
+route('POST', '/api/ads/events', ({ user, body }) => ({ recorded: recordAdEvents(user?.id ?? null, Array.isArray(body.events) ? body.events : []) }));
+
+// ---------------------------------------------------------------------------
+// Creator monetization (ads.mjs): strict eligibility, application, monthly earnings paid by Mobile Money.
+// ---------------------------------------------------------------------------
+
+const period = (offset = 0) => {
+  const d = new Date();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + offset);
+  return d.toISOString().slice(0, 7);
+};
+
+route('GET', '/api/creator', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const creator = db.prepare('select * from creators where user_id = ?').get(user.id);
+  const month = earnings(period());
+  const mine = month.rows.find((r) => r.userId === user.id) ?? null;
+  return {
+    status: creator?.status ?? null,
+    note: creator?.note ?? null,
+    momo: creator ? { number: creator.momo_number, name: creator.momo_name } : null,
+    requirements: REQUIREMENTS,
+    ...eligibility(user.id),
+    followers: followerCount(user.id),
+    thisMonth: { period: period(), pool: month.pool, mine },
+    share: adSettings().creatorShare,
+    payouts: db.prepare('select * from payouts where user_id = ? order by period desc').all(user.id)
+      .map((p) => ({ id: p.id, period: p.period, amount: p.amount, status: p.status, paidAt: p.paid_at, breakdown: parse(p.breakdown) })),
+  };
+});
+
+route('POST', '/api/creator/apply', ({ user, body }) => {
+  if (!user || user.is_guest || user.role !== 'seller') fail(403, 'not_a_seller', 'Only shops can join the program.');
+  const momoNumber = String(body.momoNumber ?? '').replace(/[^\d+]/g, '');
+  const momoName = String(body.momoName ?? '').trim().slice(0, 80);
+  if (momoNumber.length < 9 || !momoName) fail(400, 'invalid_momo', 'Enter the Mobile Money number and the name on it, for your payouts.');
+  const existing = db.prepare('select status from creators where user_id = ?').get(user.id);
+  if (existing?.status === 'approved') {
+    db.prepare('update creators set momo_number = ?, momo_name = ? where user_id = ?').run(momoNumber, momoName, user.id);
+    return { status: 'approved' };
+  }
+  if (existing?.status === 'suspended') fail(403, 'suspended', 'Your monetization is suspended. Contact Saligue support.');
+  if (!eligibility(user.id).eligible) fail(403, 'not_eligible', 'You don’t meet all the requirements yet.');
+  db.prepare("insert into creators (user_id, status, momo_number, momo_name, applied_at) values (?, 'applied', ?, ?, ?) on conflict(user_id) do update set status = 'applied', momo_number = excluded.momo_number, momo_name = excluded.momo_name, applied_at = excluded.applied_at, note = null")
+    .run(user.id, momoNumber, momoName, now());
+  for (const { id } of db.prepare('select id from users where admin = 1').all()) notify(id, { type: 'account', title: 'New monetization application', body: shopNameOf(user), link: '/admin', email: false });
+  return { status: 'applied' };
+});
+
+// ---------------------------------------------------------------------------
+// Admin: ad review, creator applications, payouts, ad prices.
+// ---------------------------------------------------------------------------
+
+route('GET', '/api/admin/ads', ({ user }) => {
+  requireAdmin(user);
+  return db.prepare("select c.*, u.display_name, u.shop from ad_campaigns c join users u on u.id = c.seller_id order by case c.status when 'in_review' then 0 when 'pending_payment' then 1 when 'active' then 2 else 3 end, c.created_at desc limit 100").all()
+    .map((c) => ({ ...campaignOut(c), shop: shopNameOf(c), reference: `AD-${c.id.slice(0, 6).toUpperCase()}` }));
+});
+
+route('POST', '/api/admin/ads/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user);
+  const c = db.prepare('select * from ad_campaigns where id = ?').get(params[0]);
+  if (!c) fail(404, 'not_found', 'Ad not found.');
+  const note = String(body.note ?? '').trim().slice(0, 300) || null;
+  if (body.decision === 'confirm_payment' && c.status === 'pending_payment') {
+    db.prepare("update ad_campaigns set status = 'in_review', payment_ref = 'manual' where id = ?").run(c.id);
+    adPaid(c.id);
+  } else if (body.decision === 'approve' && c.status === 'in_review') {
+    startCampaign(c.id);
+    notify(c.seller_id, { type: 'product', title: 'Your ad is live', body: `It runs for ${c.days} days or until ${money(c.budget)} is used.`, link: '/dashboard/ads' });
+  } else if (body.decision === 'reject' && ['in_review', 'pending_payment', 'active', 'paused'].includes(c.status)) {
+    db.prepare("update ad_campaigns set status = 'rejected', review_note = ? where id = ?").run(note ?? 'Does not follow the Ads Policy.', c.id);
+    const refund = c.payment_ref ? Math.max(0, c.budget - c.spent) : 0;
+    notify(c.seller_id, { type: 'product', title: 'Your ad was not approved', body: `${note ?? 'It does not follow the Saligue Ads Policy.'}${refund ? ` ${money(refund)} will be refunded.` : ''}`, link: '/dashboard/ads' });
+  } else fail(400, 'invalid', 'This action is not possible for this ad now.');
+  return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(c.id));
+});
+
+route('GET', '/api/admin/creators', ({ user }) => {
+  requireAdmin(user);
+  return db.prepare("select c.*, u.display_name, u.email, u.shop from creators c join users u on u.id = c.user_id order by case c.status when 'applied' then 0 else 1 end, c.applied_at desc").all()
+    .map((c) => ({ userId: c.user_id, shop: shopNameOf(c), email: c.email, status: c.status, momoNumber: c.momo_number, momoName: c.momo_name, appliedAt: c.applied_at, followers: followerCount(c.user_id), ...eligibility(c.user_id) }));
+});
+
+route('POST', '/api/admin/creators/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user);
+  const decision = { approve: 'approved', reject: 'rejected', suspend: 'suspended' }[body.decision];
+  if (!decision) fail(400, 'invalid', 'Choose approve, reject or suspend.');
+  const note = String(body.note ?? '').trim().slice(0, 300) || null;
+  const done = db.prepare('update creators set status = ?, note = ?, decided_at = ? where user_id = ?').run(decision, note, now(), params[0]);
+  if (!done.changes) fail(404, 'not_found', 'Application not found.');
+  const titles = { approved: 'You are now a monetized creator', rejected: 'Your monetization application was not approved', suspended: 'Your monetization is suspended' };
+  notify(params[0], { type: 'account', title: titles[decision], body: note ?? (decision === 'approved' ? 'You now earn from your views, sales and new followers every month.' : 'See the Monetization Policy for details.'), link: '/dashboard/earnings' });
+  return { ok: true };
+});
+
+route('GET', '/api/admin/payouts', ({ user, url }) => {
+  requireAdmin(user);
+  const p = /^\d{4}-\d{2}$/.test(url.searchParams.get('period') ?? '') ? url.searchParams.get('period') : period(-1);
+  const rows = db.prepare('select p.*, c.momo_number, c.momo_name, u.display_name, u.shop from payouts p left join creators c on c.user_id = p.user_id join users u on u.id = p.user_id where p.period = ? order by p.amount desc').all(p);
+  return {
+    period: p,
+    adIncome: Math.round(adIncome(p) * 100) / 100,
+    estimate: p === period() ? earnings(p) : null,
+    payouts: rows.map((r) => ({ id: r.id, shop: shopNameOf(r), amount: r.amount, status: r.status, momoNumber: r.momo_number, momoName: r.momo_name, paidAt: r.paid_at, reference: r.reference })),
+  };
+});
+
+route('POST', '/api/admin/payouts/close', ({ user, body }) => {
+  requireAdmin(user);
+  const p = String(body.period ?? period(-1));
+  if (!/^\d{4}-\d{2}$/.test(p) || p >= period()) fail(400, 'invalid', 'Only a finished month can be closed.');
+  return { created: closeMonth(p) };
+});
+
+route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
+  requireAdmin(user);
+  const payout = db.prepare('select * from payouts where id = ?').get(params[0]);
+  if (!payout) fail(404, 'not_found', 'Payout not found.');
+  db.prepare("update payouts set status = 'paid', paid_at = ?, reference = ? where id = ?").run(now(), String(body.reference ?? '').slice(0, 80) || null, payout.id);
+  notify(payout.user_id, { type: 'sale', title: `Payout sent: ${money(payout.amount)}`, body: `Your Saligue earnings for ${payout.period} were sent by Mobile Money.`, link: '/dashboard/earnings' });
+  return { ok: true };
+});
+
+route('PUT', '/api/admin/platform/ads', ({ user, body }) => {
+  requireAdmin(user);
+  const cpm = Number(body.cpm), minBudget = Number(body.minBudget), share = Number(body.creatorShare);
+  if (!(cpm >= 0.1 && cpm <= 100) || !(minBudget >= 1) || !(share >= 0 && share <= 0.9)) fail(400, 'invalid', 'Check the numbers.');
+  saveConfig('ads', { cpm, minBudget, creatorShare: share, momoNumber: String(body.momoNumber ?? '').trim() || null, momoName: String(body.momoName ?? '').trim() || 'INDECIANA' });
+  return { ok: true };
 });
 
 // Notifications of the signed-in account

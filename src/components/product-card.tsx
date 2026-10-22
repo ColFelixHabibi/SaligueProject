@@ -1,7 +1,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import { trackAd } from '@/lib/ads';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Heart, Star, Wand2 } from 'lucide-react';
 import { toggleLike, useLiked } from '@/hooks/use-likes';
@@ -22,15 +23,25 @@ interface ProductCardProps {
   className?: string;
   // "shop": a clean tile for browsing many items (Explore); "social" (default): with likes, comments and sharing.
   variant?: 'social' | 'shop';
+  // Shown as an ad (Saligue Ads campaign id).
+  sponsoredBy?: string;
 }
 
 /** Calm shop tile: big photo, heart and try-on on the photo, then just name, price, rating and shop. */
-function ShopTile({ product, className }: { product: Product; className?: string }) {
+function ShopTile({ product, className, sponsoredBy }: { product: Product; className?: string; sponsoredBy?: string }) {
   const href = productHref(product);
+  const tile = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = tile.current;
+    if (!element || !sponsoredBy) return;
+    const observer = new IntersectionObserver(([entry]) => entry.intersectionRatio >= 0.5 && trackAd(sponsoredBy, 'impression'), { threshold: [0.5] });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [sponsoredBy]);
   const liked = useLiked(product.id);
   const shopName = product.official ? 'INDECIANA' : product.shop?.name ?? product.seller;
   return (
-    <div className={cn('group flex flex-col', className)}>
+    <div ref={tile} onClickCapture={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className={cn('group flex flex-col', className)}>
       <div className="relative overflow-hidden rounded-2xl bg-muted">
         <Link href={href} className="block aspect-[4/5]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -66,7 +77,7 @@ function ShopTile({ product, className }: { product: Product; className?: string
           {(product.ratingCount ?? 0) > 0 && (
             <span className="flex items-center gap-0.5 font-semibold text-foreground"><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />{product.rating?.toFixed(1)}</span>
           )}
-          <span className="truncate">{shopName}</span>
+          <span className="truncate">{sponsoredBy ? <><b className="font-semibold text-foreground">Sponsored</b> · {shopName}</> : shopName}</span>
         </p>
       </Link>
     </div>
@@ -74,8 +85,8 @@ function ShopTile({ product, className }: { product: Product; className?: string
 }
 
 /** Product tile for grids: photo, social actions, comments that open below the photo, and the essentials. */
-export default function ProductCard({ product, className, variant = 'social' }: ProductCardProps) {
-  if (variant === 'shop') return <ShopTile product={product} className={className} />;
+export default function ProductCard({ product, className, variant = 'social', sponsoredBy }: ProductCardProps) {
+  if (variant === 'shop') return <ShopTile product={product} className={className} sponsoredBy={sponsoredBy} />;
   return <SocialCard product={product} className={className} />;
 }
 

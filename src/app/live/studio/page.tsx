@@ -4,7 +4,7 @@ import { openCamera, setZoom, zoomRange } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Check, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct } from '@/components/live/live-parts';
+import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, useVideoShape } from '@/components/live/live-parts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -37,8 +37,15 @@ function Setup() {
   const [camTry, setCamTry] = useState(0);
   const [zoom, setZoomState] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const previewBackdrop = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
+  const previewWide = useVideoShape(video);
+
+  // The blurred fill behind a wide camera picture shows the same camera.
+  useEffect(() => {
+    if (previewWide && previewBackdrop.current && video.current) previewBackdrop.current.srcObject = video.current.srcObject;
+  }, [previewWide]);
 
   // Camera preview, so the seller sees how they look before going live.
   useEffect(() => {
@@ -55,6 +62,7 @@ function Setup() {
           video.current.srcObject = s;
           video.current.play().catch(() => {});
         }
+
       })
       .catch((e) => !cancelled && setCamError(e?.message ?? 'The camera could not start.'));
     return () => {
@@ -84,7 +92,8 @@ function Setup() {
   return (
     <div className="mx-auto grid max-w-5xl gap-6 p-4 md:grid-cols-[minmax(0,360px)_1fr] md:p-8">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl">
-        <video ref={video} autoPlay playsInline muted className={cn('h-full w-full object-cover', facing === 'user' && 'scale-x-[-1]')} />
+        {previewWide && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
+        <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', previewWide ? 'object-contain' : 'object-cover', facing === 'user' && 'scale-x-[-1]')} />
         {camError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white/90">
             <VideoOff className="h-10 w-10" />
@@ -167,9 +176,10 @@ function Studio({ id }: { id: string }) {
   const { authUid } = useAuth();
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, retry } = useLiveRoom(id, live?.status === 'live', true);
+  const { tiles, viewers, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
+  const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
   const elapsed = useElapsed(live?.startedAt);
-  const [panel, setPanel] = useState<'products' | 'guests' | null>(null);
+  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [say, setSay] = useState('');
@@ -239,6 +249,46 @@ function Studio({ id }: { id: string }) {
         {requests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold">{requests.length}</span>}
       </button>
       <button type="button" onClick={share} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Share"><Share2 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => { setLiveZoom(zoomRange(videoTrack())); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
+    </div>
+  );
+
+  const settingsPanel = (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Who can comment</p>
+        <div className="grid grid-cols-3 gap-2">
+          {([['everyone', 'Everyone'], ['followers', 'Followers'], ['off', 'Off']] as const).map(([v, label]) => (
+            <Button key={v} type="button" variant={live.chatMode === v ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { chatMode: v }))}>{label}</Button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Slow mode</p>
+        <div className="grid grid-cols-4 gap-2">
+          {[0, 10, 30, 60].map((sec) => (
+            <Button key={sec} type="button" variant={live.slowSeconds === sec ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { slowSeconds: sec }))}>{sec ? `${sec}s` : 'Off'}</Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">How long each viewer waits between comments.</p>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Zoom</p>
+        {liveZoom ? (
+          <div className="flex items-center gap-3">
+            <span className="w-10 text-sm font-semibold">{liveZoom.value.toFixed(1)}×</span>
+            <input type="range" aria-label="Zoom" className="w-full accent-primary" min={liveZoom.min} max={liveZoom.max} step={liveZoom.step || 0.1} value={liveZoom.value}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setLiveZoom({ ...liveZoom, value: v });
+                const track = videoTrack();
+                if (track) void setZoom(track, v);
+              }} />
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">This camera doesn’t allow zoom from the browser. Move the phone closer or further instead.</p>
+        )}
+      </div>
     </div>
   );
 
@@ -288,13 +338,14 @@ function Studio({ id }: { id: string }) {
         </div>
         <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} />
         <GuestsPanel id={id} requests={requests} onCamera={onCamera} />
+        <div className="rounded-2xl border bg-card p-5"><h2 className="mb-4 font-bold">Live settings</h2>{settingsPanel}</div>
       </aside>
 
       <Sheet open={!!panel} onOpenChange={(v) => !v && setPanel(null)}>
-        <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto rounded-t-3xl md:hidden">
-          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : 'Guests'}</SheetTitle></SheetHeader>
+        <SheetContent side="bottom" className={cn('max-h-[75vh] overflow-y-auto rounded-t-3xl', panel !== 'settings' && 'md:hidden')}>
+          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : 'Guests'}</SheetTitle></SheetHeader>
           <div className="mt-4">
-            {panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
+            {panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
           </div>
         </SheetContent>
       </Sheet>

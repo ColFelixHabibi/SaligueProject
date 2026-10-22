@@ -1,6 +1,7 @@
 
 'use client';
 
+import { FollowButton } from '@/components/follow-button';
 import { noteInterest } from '@/lib/taste';
 import Link from 'next/link';
 import { useEffect } from 'react';
@@ -199,7 +200,8 @@ export default function ProductView({ id }: { id: string | null }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-3 text-xl">
                   <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-12 w-12" />
-                  <span>{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">Seller on Saligue</span></span>
+                  <span className="min-w-0 flex-1">{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">Seller on Saligue</span></span>
+                  <FollowButton sellerId={product.sellerId} showCount />
                 </CardTitle>
               </CardHeader>
               <CardContent>

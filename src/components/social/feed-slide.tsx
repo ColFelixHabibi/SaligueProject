@@ -1,6 +1,8 @@
 
 'use client';
 
+import { FollowButton } from '@/components/follow-button';
+import { trackAd } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -85,7 +87,7 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
-export function FeedSlide({ product, reason }: { product: Product; reason?: string | null }) {
+export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; reason?: string | null; sponsoredBy?: string }) {
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { soundOn, unlocked, toggle } = useSoundStore();
@@ -93,6 +95,14 @@ export function FeedSlide({ product, reason }: { product: Product; reason?: stri
   const slideRef = useRef<HTMLElement>(null);
   useSlideSound(product, slideRef);
   useWatchTime(product, slideRef);
+  // A sponsored slide counts as seen once it fills most of the screen.
+  useEffect(() => {
+    const element = slideRef.current;
+    if (!element || !sponsoredBy) return;
+    const observer = new IntersectionObserver(([entry]) => entry.intersectionRatio >= 0.6 && trackAd(sponsoredBy, 'impression'), { threshold: [0.6] });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [sponsoredBy]);
   const image = product.image;
 
   const add = async () => {
@@ -138,12 +148,14 @@ export function FeedSlide({ product, reason }: { product: Product; reason?: stri
               </span>
             )}
             {reason && <p className="mb-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">✨ {reason}</p>}
-            <Link href={productHref(product)} className="block text-xl font-bold leading-tight hover:underline">{product.name}</Link>
+            {sponsoredBy && <p className="mb-1 inline-flex items-center rounded bg-foreground/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-background">Sponsored</p>}
+            <Link href={productHref(product)} onClick={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className="block text-xl font-bold leading-tight hover:underline">{product.name}</Link>
             <p className="mt-1 text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
             {product.shop && (
-              <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 shrink-0" /> {product.shop.name} · {product.shop.city}
-              </p>
+              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name} · {product.shop.city}</span>
+                {!product.official && <FollowButton sellerId={product.sellerId} className="h-7 px-3 text-xs" />}
+              </div>
             )}
             {product.sound && (
               <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
