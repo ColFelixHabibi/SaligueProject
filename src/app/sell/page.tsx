@@ -1,6 +1,7 @@
 
 'use client';
 
+import { VideoField, uploadItemVideo } from '@/components/video-field';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -60,6 +61,9 @@ export default function SellPage() {
     const { toast } = useToast();
     const { addProduct } = useProductStore();
     const [photo, setPhoto] = useState<PreparedItemPhoto | null>(null);
+    const [photoType, setPhotoType] = useState<'item' | 'worn'>('item');
+    const [video, setVideo] = useState<File | null>(null);
+    const [uploading, setUploading] = useState<number | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
     const [type, setType] = useState('');
@@ -126,6 +130,8 @@ export default function SellPage() {
     const resetForm = () => {
         setFormValues(initialFormValues);
         setPhoto(null);
+        setVideo(null);
+        setPhotoType('item');
         setCategory('');
         setSound(null);
     }
@@ -172,6 +178,7 @@ export default function SellPage() {
                 price: parseFloat(formValues.price),
                 image: photo.image,
                 cutout: photo.cutout,
+                photoType,
                 embedding: photo.embedding,
                 category,
                 type,
@@ -192,6 +199,16 @@ export default function SellPage() {
             if (clip && sound) newProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
             const productId = await addProduct(newProduct);
             if (clip && sound && user) await saveProductSound(productId, sound.name, clip);
+            if (video) {
+                setUploading(0);
+                try {
+                    await uploadItemVideo(productId, video, setUploading);
+                } catch (error) {
+                    toast({ variant: 'destructive', title: 'Item listed, video not added', description: `${friendlyError(error)} Add it again from Edit.` });
+                } finally {
+                    setUploading(null);
+                }
+            }
 
             toast({
                 title: 'Product Listed!',
@@ -257,7 +274,9 @@ export default function SellPage() {
             {step === 'list' && (
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} onSuggestion={applySuggestion} />
+              <ItemPhotoField photo={photo} photoType={photoType} onPhotoTypeChange={setPhotoType} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} onSuggestion={applySuggestion} />
+
+              <VideoField file={video} onChange={setVideo} uploading={uploading} />
 
               <CategoryField value={category} onChange={(c) => { setCategory(c); setAiHint(null); }} type={type} onTypeChange={(t) => { setType(t); setAiHint(null); }} hint={aiHint} />
 

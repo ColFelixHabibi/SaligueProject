@@ -1,6 +1,9 @@
 
 'use client';
 
+import { api } from '@/lib/api';
+import { friendlyError } from '@/lib/errors';
+import { VideoField, uploadItemVideo } from '@/components/video-field';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,6 +30,9 @@ export default function EditProductView({ id }: { id: string | null }) {
     const { products, updateProduct } = useProductStore();
 
     const [photo, setPhoto] = useState<Partial<PreparedItemPhoto> | null>(null);
+    const [photoType, setPhotoType] = useState<'item' | 'worn'>('item');
+    const [video, setVideo] = useState<File | null>(null);
+    const [uploading, setUploading] = useState<number | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
     const [type, setType] = useState('');
@@ -70,6 +76,7 @@ export default function EditProductView({ id }: { id: string | null }) {
             setPhoto({ image: product.image, cutout: product.cutout, embedding: product.embedding });
             setCategory(product.category);
             setType(product.type ?? '');
+            setPhotoType(product.photoType ?? 'item');
         }
     }, [product, loadedProductId]);
 
@@ -108,6 +115,7 @@ export default function EditProductView({ id }: { id: string | null }) {
                 price: parseFloat(formValues.price),
                 image: photo.image,
                 cutout: photo.cutout,
+                photoType,
                 embedding: photo.embedding,
                 category: category || product.category,
                 type: type || product.type,
@@ -132,6 +140,17 @@ export default function EditProductView({ id }: { id: string | null }) {
                 updatedProduct.sound = product.sound;
             }
             await updateProduct(product.id, updatedProduct);
+            if (video) {
+                setUploading(0);
+                try {
+                    await uploadItemVideo(product.id, video, setUploading);
+                    setVideo(null);
+                } catch (error) {
+                    toast({ variant: 'destructive', title: 'Video not added', description: friendlyError(error) });
+                } finally {
+                    setUploading(null);
+                }
+            }
 
             toast({
                 title: 'Product Updated!',
@@ -161,7 +180,10 @@ export default function EditProductView({ id }: { id: string | null }) {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               
-              <ItemPhotoField photo={photo} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
+              <ItemPhotoField photo={photo} photoType={photoType} onPhotoTypeChange={setPhotoType} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
+
+              <VideoField file={video} onChange={setVideo} uploading={uploading} existing={product?.video ?? null}
+                onRemoveExisting={() => product && api(`/products/${product.id}/video`, { method: 'DELETE' }).then(() => toast({ title: 'Video removed' })).catch((e) => toast({ variant: 'destructive', title: 'Not removed', description: friendlyError(e) }))} />
 
               <CategoryField value={category} onChange={setCategory} type={type} onTypeChange={setType} />
 

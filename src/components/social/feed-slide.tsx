@@ -103,7 +103,23 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
     observer.observe(element);
     return () => observer.disconnect();
   }, [sponsoredBy]);
-  const image = product.image;
+  const image = product.videoPoster ?? product.image;
+  // The item's video plays while its slide fills the screen (silent unless sound is on), like TikTok.
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const element = slideRef.current;
+    const v = videoRef.current;
+    if (!element || !v) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.intersectionRatio >= 0.6) v.play().catch(() => {});
+      else v.pause();
+    }, { threshold: [0, 0.6] });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [product.video]);
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = !(soundOn && unlocked);
+  }, [soundOn, unlocked]);
 
   const add = async () => {
     try {
@@ -120,10 +136,15 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
         {/* Blurred copy fills the screen; the item itself is shown whole. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={image} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl" />
-        <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image} alt={product.name} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
-        </Link>
+        {product.video ? (
+          <video ref={videoRef} src={product.video} poster={product.videoPoster} muted loop playsInline preload="metadata"
+            className="absolute inset-0 h-full w-full object-contain pb-24" aria-label={product.name} />
+        ) : (
+          <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image} alt={product.name} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
+          </Link>
+        )}
 
         {/* Sound on/off for the whole feed, on every item, so it can be turned on before reaching items with a sound. */}
         <button

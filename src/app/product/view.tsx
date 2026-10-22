@@ -4,13 +4,13 @@
 import { FollowButton } from '@/components/follow-button';
 import { noteInterest } from '@/lib/taste';
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
+import { Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
 import ProductCard from '@/components/product-card';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
@@ -34,6 +34,7 @@ export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
   const { products, isInitialized } = useProductStore();
   const { addToCart } = useCart();
+  const [showVideo, setShowVideo] = useState(true);
   const { toast } = useToast();
   
   const allProducts = [...products];
@@ -125,14 +126,27 @@ export default function ProductView({ id }: { id: string | null }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
         <div>
           <Card className="overflow-hidden">
-            <Image
-              src={product.image}
-              alt={product.name}
-              width={600}
-              height={800}
-              className="aspect-[3/4] w-full bg-muted object-contain p-4"
-              data-ai-hint={aiHint}
-            />
+            {product.video && showVideo ? (
+              <video src={product.video} poster={product.videoPoster} controls autoPlay muted playsInline loop className="aspect-[3/4] w-full bg-black object-contain" />
+            ) : (
+              <Image
+                src={product.image}
+                alt={product.name}
+                width={600}
+                height={800}
+                className="aspect-[3/4] w-full bg-muted object-contain"
+                data-ai-hint={aiHint}
+              />
+            )}
+            {product.video && (
+              <div className="flex gap-2 border-t p-2">
+                <button type="button" onClick={() => setShowVideo(true)} className={`flex h-14 w-14 items-center justify-center rounded-lg border-2 bg-black text-white ${showVideo ? 'border-primary' : 'border-transparent'}`} aria-label="Video"><Play className="h-6 w-6" /></button>
+                <button type="button" onClick={() => setShowVideo(false)} className={`h-14 w-14 overflow-hidden rounded-lg border-2 bg-muted ${!showVideo ? 'border-primary' : 'border-transparent'}`} aria-label="Photo">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={product.image} alt="" className="h-full w-full object-cover" />
+                </button>
+              </div>
+            )}
           </Card>
         </div>
         <div className="space-y-6">

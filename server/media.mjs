@@ -9,7 +9,7 @@ export const MEDIA_DIR = join(DATA_DIR, 'media');
 mkdirSync(MEDIA_DIR, { recursive: true });
 
 const EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/gif': 'gif' };
-const TYPES = Object.fromEntries(Object.entries(EXTENSIONS).map(([type, ext]) => [ext, type]));
+const TYPES = { ...Object.fromEntries(Object.entries(EXTENSIONS).map(([type, ext]) => [ext, type])), mp4: 'video/mp4' };
 
 /** Saves a picture sent as a data URL and returns its link (/media/…). Anything else is returned unchanged. */
 export function storeImage(value) {
@@ -33,18 +33,34 @@ export function moveImagesToFiles() {
   return rows.length;
 }
 
-/** Serves /media/<file>: never changes, so browsers and phones keep it. */
-export function serveMedia(res, pathname) {
+/** Serves /media/<file>: never changes, so browsers and phones keep it. Videos support Range (seeking, iPhone). */
+export function serveMedia(res, pathname, req) {
   const name = pathname.slice('/media/'.length);
   const ext = name.split('.').pop();
   const file = join(MEDIA_DIR, name);
-  if (!/^[a-f0-9]{32}\.[a-z]+$/.test(name) || !TYPES[ext] || !existsSync(file)) {
+  if (!/^[a-f0-9]{32}\.[a-z0-9]+$/.test(name) || !TYPES[ext] || !existsSync(file)) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     return res.end('Not found');
   }
+  const size = statSync(file).size;
+  const range = ext === 'mp4' && /^bytes=(\d*)-(\d*)$/.exec(req?.headers.range ?? '');
+  if (range) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+      return res.end();
+    }
+    res.writeHead(206, {
+      'Content-Type': TYPES[ext], 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=31536000, immutable', 'Access-Control-Allow-Origin': '*',
+    });
+    return createReadStream(file, { start, end }).pipe(res);
+  }
   res.writeHead(200, {
     'Content-Type': TYPES[ext],
-    'Content-Length': statSync(file).size,
+    'Content-Length': size,
+    ...(ext === 'mp4' ? { 'Accept-Ranges': 'bytes' } : {}),
     'Cache-Control': 'public, max-age=31536000, immutable',
     // Pictures are drawn on canvases in the Fitting Room, also from a website hosted elsewhere.
     'Access-Control-Allow-Origin': '*',

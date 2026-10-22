@@ -36,6 +36,11 @@ export type Product = {
   likeCount?: number;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
   sound?: { name: string; duration: number };
+  // Short video (up to 1 min 30 s) and its cover picture; whether the photo shows the item alone or worn.
+  video?: string;
+  videoPoster?: string;
+  videoDuration?: number;
+  photoType?: 'item' | 'worn';
   // How many are left; null or undefined when the seller doesn't track stock.
   stock?: number | null;
   // Average star rating (0 when not rated yet) and number of reviews.

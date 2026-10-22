@@ -9,6 +9,7 @@ import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor,
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, checkOwnAi, falKey, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
+import { processVideo, receiveUpload } from './video.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
@@ -197,6 +198,11 @@ function productOut(r) {
     sound: parse(r.sound) ?? undefined,
     // null: the seller doesn't track stock.
     stock: r.stock ?? null,
+    // Short video (up to 1 min 30 s) with its cover picture, and whether the photo shows someone wearing the item.
+    video: r.video ?? undefined,
+    videoPoster: r.video_poster ?? undefined,
+    videoDuration: r.video_duration ?? undefined,
+    photoType: r.photo_type === 'worn' ? 'worn' : 'item',
     rating: r.rating_count ? Math.round(r.rating_avg * 10) / 10 : 0,
     ratingCount: r.rating_count ?? 0,
     createdAt: r.created_at,
@@ -221,6 +227,7 @@ function productFields(body) {
     if (!['active', 'archived', 'draft'].includes(body.status)) fail(400, 'invalid_status', 'Invalid status.');
     fields.status = body.status;
   }
+  if (body.photoType !== undefined) fields.photo_type = body.photoType === 'worn' ? 'worn' : 'item';
   if (body.stock !== undefined) {
     const stock = body.stock === null || body.stock === '' ? null : Math.floor(Number(body.stock));
     if (stock !== null && !(stock >= 0 && stock <= 100_000)) fail(400, 'invalid_stock', 'Enter how many you have in stock (0 or more).');
@@ -523,12 +530,12 @@ route('POST', '/api/products', async ({ user, body }) => {
   if (checked) fields.embedding = json(checked);
   const id = randomUUID();
   db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, type, seller, seller_id, seller_email, status,
-      description, size, color, brand, condition, contact, shop, official, sound, stock, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      description, size, color, brand, condition, contact, shop, official, sound, stock, photo_type, created_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, fields.name, fields.price, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
     fields.seller || user.display_name || 'Seller', user.id, user.email, fields.status ?? 'active', fields.description ?? null, fields.size ?? null,
     fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null,
-    fields.stock ?? null, now()
+    fields.stock ?? null, fields.photo_type ?? 'item', now()
   );
   broadcast('products');
   return { id };
@@ -693,6 +700,14 @@ route('DELETE', '/api/comments/([\\w-]+)', ({ user, params }) => {
   if (comment.user_id !== user.id && comment.seller_id !== user.id) fail(403, 'forbidden', 'You can only delete your own comments.');
   db.prepare('delete from comments where id = ?').run(params[0]);
   broadcast('comments', { productId: comment.product_id });
+  return { ok: true };
+});
+
+route('DELETE', '/api/products/([\\w-]+)/video', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  ownProduct(user, params[0]);
+  db.prepare('update products set video = null, video_poster = null, video_duration = null where id = ?').run(params[0]);
+  broadcast('products');
   return { ok: true };
 });
 
@@ -2143,7 +2158,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname);
+  if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname, req);
   // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
   if (url.pathname === '/download/saligue.apk') {
     const apk = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.apk');
@@ -2158,6 +2173,27 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     return serveStatic(req, res, url.pathname);
+  }
+
+  // Item video upload: the raw video streams to a file (too big for JSON), then ffmpeg prepares it (video.mjs).
+  const videoUpload = req.method === 'PUT' && /^\/api\/products\/([\w-]+)\/video$/.exec(url.pathname);
+  if (videoUpload) {
+    try {
+      const user = userOf(req);
+      if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+      const product = ownProduct(user, videoUpload[1]);
+      if (!/^video\//.test(String(req.headers['content-type'] || ''))) fail(400, 'invalid_video', 'Choose a video file.');
+      const file = await receiveUpload(req);
+      const { video, poster, duration } = await processVideo(file);
+      db.prepare('update products set video = ?, video_poster = ?, video_duration = ? where id = ?').run(video, poster, duration, product.id);
+      broadcast('products');
+      return send(res, 200, { video, poster, duration });
+    } catch (error) {
+      if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
+      if (error.status) return send(res, error.status, { error: { code: 'invalid_video', message: error.message } });
+      console.error('Video upload failed:', error);
+      return send(res, 500, { error: { code: 'server_error', message: 'The video could not be prepared. Try another one.' } });
+    }
   }
 
   try {

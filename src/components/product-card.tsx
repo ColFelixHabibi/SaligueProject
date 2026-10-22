@@ -4,7 +4,7 @@
 import { trackAd } from '@/lib/ads';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Heart, Star, Wand2 } from 'lucide-react';
+import { BadgeCheck, Heart, Play, Star, Wand2 } from 'lucide-react';
 import { toggleLike, useLiked } from '@/hooks/use-likes';
 import { Card } from '@/components/ui/card';
 import { ActionRail } from '@/components/social/action-rail';
@@ -45,7 +45,8 @@ function ShopTile({ product, className, sponsoredBy }: { product: Product; class
       <div className="relative overflow-hidden rounded-2xl bg-muted">
         <Link href={href} className="block aspect-[4/5]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={product.image} alt={product.name} loading="lazy" className="h-full w-full object-contain p-4 transition-transform duration-500 group-hover:scale-105" />
+          <img src={product.videoPoster ?? product.image} alt={product.name} loading="lazy" className={cn('h-full w-full transition-transform duration-500 group-hover:scale-105', product.photoType === 'worn' || product.videoPoster ? 'object-cover' : 'object-contain p-4')} />
+          {product.video && <span className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white"><Play className="h-3.5 w-3.5 fill-current" /></span>}
         </Link>
         <button
           type="button"

@@ -13,21 +13,22 @@ import { prepareItemPhoto, type PreparedItemPhoto } from '@/lib/image';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const checkerboard =
-  'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
 
 export type FashionSuggestion = { category: string; type: string | null; from: number };
 
 interface ItemPhotoFieldProps {
   photo: Partial<PreparedItemPhoto> | null;
+  // The item alone, or someone wearing it.
+  photoType?: 'item' | 'worn';
+  onPhotoTypeChange?: (type: 'item' | 'worn') => void;
   onPhotoChange: (photo: PreparedItemPhoto) => void;
   onBusyChange?: (busy: boolean) => void;
   // What the AI thinks the item is, learned from similar items in the shop.
   onSuggestion?: (suggestion: FashionSuggestion) => void;
 }
 
-/** Upload for an item photo. Removes the background and computes the AI fingerprint on the device. */
-export function ItemPhotoField({ photo, onPhotoChange, onBusyChange, onSuggestion }: ItemPhotoFieldProps) {
+/** Upload for an item photo, kept as taken (the item alone, or someone wearing it). */
+export function ItemPhotoField({ photo, photoType = 'item', onPhotoTypeChange, onPhotoChange, onBusyChange, onSuggestion }: ItemPhotoFieldProps) {
   const { toast } = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -42,7 +43,7 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange, onSuggestio
       // Saligue is fashion-only: the server's AI looks at the photo before the seller fills in the rest.
       setBusy('Checking it is a fashion item…');
       const check = await api<{ fashion: boolean; looksLike: string | null; suggestion: FashionSuggestion | null }>('/ai/fashion-check', {
-        body: { image: prepared.cutout || prepared.image },
+        body: { image: prepared.image },
       }).catch(() => ({ fashion: true, looksLike: null, suggestion: null }));
       if (!check.fashion) {
         toast({
@@ -63,16 +64,15 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange, onSuggestio
     }
   };
 
-  const preview = photo?.cutout || photo?.image;
+  const preview = photo?.image;
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="image-upload" className="text-lg font-medium">Product Image</Label>
+      <Label htmlFor="image-upload" className="text-lg font-medium">Photo *</Label>
       <label
         htmlFor="image-upload"
         className={cn(
-          'relative flex h-80 w-full cursor-pointer items-center justify-center rounded-lg border-2 border-dashed text-muted-foreground transition-colors hover:border-primary',
-          photo?.cutout ? checkerboard : 'bg-muted/20'
+          'relative flex h-80 w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed bg-muted/20 text-muted-foreground transition-colors hover:border-primary'
         )}
       >
         {busy ? (
@@ -82,19 +82,25 @@ export function ItemPhotoField({ photo, onPhotoChange, onBusyChange, onSuggestio
           </div>
         ) : preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Preview" className="absolute inset-0 h-full w-full object-contain p-2" />
+          <img src={preview} alt="Preview" className="absolute inset-0 h-full w-full object-contain" />
         ) : (
           <div className="flex flex-col items-center text-center">
             <Upload className="mb-2 h-12 w-12" />
-            <span>Click to upload a photo of the item</span>
-            <span className="text-sm">AI removes the background so buyers can wear it in their outfit</span>
-            <span className="mt-1 text-xs">Fashion only: clothes, shoes, bags and accessories</span>
+            <span>Add a photo</span>
+            <span className="text-sm">The item, or someone wearing it</span>
           </div>
         )}
       </label>
       <input id="image-upload" type="file" className="sr-only" accept="image/*" onChange={handleFile} disabled={!!busy} />
-      {photo?.cutout && !busy && (
-        <p className="text-sm text-muted-foreground">Background removed. Buyers will see this item on themselves.</p>
+      {onPhotoTypeChange && (
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="What the photo shows">
+          {([['item', 'Item only'], ['worn', 'Worn by someone']] as const).map(([value, label]) => (
+            <button key={value} type="button" role="radio" aria-checked={photoType === value} onClick={() => onPhotoTypeChange(value)}
+              className={cn('h-11 rounded-full border text-sm font-semibold', photoType === value ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}>
+              {label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

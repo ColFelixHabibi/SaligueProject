@@ -129,7 +129,8 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     setDressing(true);
     // Only shoes, hats, glasses, bags and accessories are placed on the device. Clothes are never painted onto
     // the photo: only the realistic AI draws them, so they look worn instead of pasted on top.
-    const placeable = outfit.filter((p) => !REALISTIC_CATEGORIES.includes(outfitSlot(p)));
+    // Photos of someone wearing the item can't be cut out cleanly, so those items aren't placed on the device.
+    const placeable = outfit.filter((p) => !REALISTIC_CATEGORIES.includes(outfitSlot(p)) && p.photoType !== 'worn');
     if (!placeable.length) {
       setLookUrl(null);
       setMissing([]);
