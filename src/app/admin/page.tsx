@@ -1,5 +1,7 @@
 'use client';
 
+import { TipsAdmin } from '@/components/admin/tips-admin';
+
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
@@ -304,6 +306,7 @@ export default function PlatformPage() {
 
       <h2 className="pt-4 text-xl font-extrabold">Monetization</h2>
       <AppealsAdmin />
+      <TipsAdmin />
       <MonetizationAdmin />
 
       <Card>

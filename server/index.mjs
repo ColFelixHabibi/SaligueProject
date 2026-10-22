@@ -1210,6 +1210,16 @@ route('GET', '/api/payments/config', () => {
 });
 
 function markPaid(payment, providerRef) {
+  // A tip: paid → the receiver is told and it counts toward their next payout.
+  if (payment.tip_id) {
+    const changed = transaction(() => {
+      if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
+      db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+      return db.prepare("update tips set status = 'paid', paid_at = ? where id = ? and status = 'pending_payment'").run(now(), payment.tip_id).changes > 0;
+    });
+    if (changed) tipPaid(payment.tip_id);
+    return;
+  }
   // An ad campaign: paid → INDECIANA reviews it against the Ads Policy.
   if (payment.campaign_id) {
     const changed = transaction(() => {
@@ -1996,6 +2006,119 @@ route('POST', '/api/lessons/([\\w-]+)/report', ({ user, params, body }) => {
     notify(l.user_id, { type: 'account', title: `Your lesson "${l.title}" is hidden after reports`, body: 'Community is for fashion lessons only. Saligue will review it.', link: '/learn', email: false });
   }
   return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// Tips: viewers support teachers and shops directly (online, or Mobile Money with a reference that an
+// admin confirms). The receiver gets 90%; payouts go to their Mobile Money.
+// ---------------------------------------------------------------------------
+
+const TIP_AMOUNTS = [1, 2, 5, 10, 20];
+const TIP_SHARE = 0.9;
+
+function tipPaid(tipId) {
+  const tip = db.prepare('select * from tips where id = ?').get(tipId);
+  if (!tip) return;
+  const from = db.prepare('select display_name, email, is_guest from users where id = ?').get(tip.from_user);
+  notify(tip.to_user, { type: 'account', title: `${personNameOf(from)} sent you a tip of ${money(tip.amount)}`, body: tip.message || 'Thank you for teaching and sharing!', link: '/tips' });
+}
+
+route('GET', '/api/tips/settings', () => {
+  const a = adSettings();
+  return { amounts: TIP_AMOUNTS, share: TIP_SHARE, onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName };
+});
+
+route('POST', '/api/tips', async ({ req, user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to send a tip.');
+  const to = db.prepare('select * from users where id = ?').get(String(body.toUserId ?? ''));
+  const teaches = to && db.prepare('select 1 from lessons where user_id = ? and video is not null').get(to.id);
+  if (!to || (to.role !== 'seller' && !teaches)) fail(404, 'not_found', 'You can tip shops and teachers.');
+  if (to.id === user.id) fail(400, 'own', 'You can’t tip yourself.');
+  if (blockedBetween(user.id, to.id)) fail(403, 'blocked', 'You can’t tip this account.');
+  const amount = Number(body.amount);
+  if (!TIP_AMOUNTS.includes(amount)) fail(400, 'invalid_amount', 'Choose an amount.');
+  const lessonId = body.lessonId && db.prepare('select id from lessons where id = ? and user_id = ?').get(String(body.lessonId), to.id)?.id;
+  const id = randomUUID();
+  const reference = `TIP-${id.slice(0, 6).toUpperCase()}`;
+  db.prepare('insert into tips (id, from_user, to_user, lesson_id, amount, share, message, reference, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, to.id, lessonId ?? null, amount, Math.round(amount * TIP_SHARE * 100) / 100, String(body.message ?? '').trim().slice(0, 200), reference, now());
+  if (!paymentsEnabled()) {
+    const a = adSettings();
+    return { manual: true, id, reference, amount, momoNumber: a.momoNumber, momoName: a.momoName };
+  }
+  const email = String(user.email || '').trim().toLowerCase();
+  const { currency } = paymentSettings();
+  const charge = toCharge(amount);
+  const txRef = `SAL-TIP-${randomBytes(8).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, tip_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', charge, currency, id, now());
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({ txRef, amount: charge, currency, redirectUrl: `${base}/payment`, customer: { email, name: personNameOf(user) }, title: 'Saligue tip', logo: `${configured}/icons/icon-192.png` });
+  return { link, id, reference };
+});
+
+// The receiver's tips: totals, what is waiting to be paid out, and where to send it.
+route('GET', '/api/me/tips', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const rows = db.prepare("select t.*, u.display_name, u.email, u.is_guest from tips t join users u on u.id = t.from_user where t.to_user = ? and t.status = 'paid' order by t.paid_at desc limit 200").all(user.id);
+  const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare("select momo_number, momo_name from creators where user_id = ?").get(user.id);
+  return {
+    share: TIP_SHARE,
+    total: Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100,
+    waiting: Math.round(rows.filter((r) => !r.payout_id).reduce((s, r) => s + r.share, 0) * 100) / 100,
+    momo: account ? { number: account.momo_number, name: account.momo_name } : null,
+    tips: rows.map((r) => ({ id: r.id, from: personNameOf(r), amount: r.share, message: r.message, lessonId: r.lesson_id, paidAt: r.paid_at, paidOut: !!r.payout_id })),
+  };
+});
+
+route('PUT', '/api/me/tips/account', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const number = String(body.momoNumber ?? '').trim().slice(0, 30);
+  const name = String(body.momoName ?? '').trim().slice(0, 80);
+  if (number.replace(/\D/g, '').length < 9 || name.length < 2) fail(400, 'invalid', 'Enter your Mobile Money number and the name on it.');
+  db.prepare('insert into tip_accounts (user_id, momo_number, momo_name) values (?, ?, ?) on conflict(user_id) do update set momo_number = excluded.momo_number, momo_name = excluded.momo_name').run(user.id, number, name);
+  return { ok: true };
+});
+
+// Admin: confirm Mobile Money tips by reference, and pay receivers.
+route('GET', '/api/admin/tips', ({ user }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  const waiting = db.prepare("select t.*, f.display_name as from_name, r.display_name as to_name, r.shop as to_shop, r.role as to_role from tips t join users f on f.id = t.from_user join users r on r.id = t.to_user where t.status = 'pending_payment' and t.created_at > ? order by t.created_at desc").all(new Date(Date.now() - 14 * 86_400_000).toISOString());
+  const due = db.prepare("select t.to_user, sum(t.share) as amount, count(*) as n, u.display_name, u.shop, u.role from tips t join users u on u.id = t.to_user where t.status = 'paid' and t.payout_id is null group by t.to_user").all();
+  return {
+    waiting: waiting.map((t) => ({ id: t.id, reference: t.reference, amount: t.amount, from: t.from_name, to: t.to_role === 'seller' ? shopNameOf({ shop: t.to_shop, display_name: t.to_name }) : t.to_name, createdAt: t.created_at })),
+    due: due.map((d) => {
+      const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(d.to_user) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(d.to_user);
+      return { userId: d.to_user, name: d.role === 'seller' ? shopNameOf(d) : d.display_name, amount: Math.round(d.amount * 100) / 100, tips: d.n, momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null };
+    }),
+  };
+});
+
+route('POST', '/api/admin/tips/([\\w-]+)', ({ user, params, body }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  const tip = db.prepare("select * from tips where id = ? and status = 'pending_payment'").get(params[0]);
+  if (!tip) fail(404, 'not_found', 'Tip not found.');
+  if (body.decision === 'cancel') db.prepare("update tips set status = 'cancelled' where id = ?").run(tip.id);
+  else {
+    db.prepare("update tips set status = 'paid', paid_at = ? where id = ?").run(now(), tip.id);
+    tipPaid(tip.id);
+  }
+  return { ok: true };
+});
+
+route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  const rows = db.prepare("select id, share from tips where to_user = ? and status = 'paid' and payout_id is null").all(params[0]);
+  if (!rows.length) fail(400, 'nothing', 'Nothing to pay.');
+  if (!db.prepare('select 1 from tip_accounts where user_id = ?').get(params[0]) && !db.prepare('select 1 from creators where user_id = ?').get(params[0])) fail(400, 'no_momo', 'This person has not added a Mobile Money number yet (My tips).');
+  const id = randomUUID();
+  const amount = Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100;
+  transaction(() => {
+    db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, paid_at, created_at) values (?, ?, ?, ?, ?, 'paid', ?, ?)").run(id, params[0], `tips-${now()}`, amount, json({ tips: rows.length }), now(), now());
+    for (const r of rows) db.prepare('update tips set payout_id = ? where id = ?').run(id, r.id);
+  });
+  notify(params[0], { type: 'account', title: `Your tips were paid: ${money(amount)}`, body: 'Sent to your Mobile Money.', link: '/tips' });
+  return { ok: true, amount };
 });
 
 // ---------------------------------------------------------------------------

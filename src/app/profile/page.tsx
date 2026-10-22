@@ -1,9 +1,11 @@
 'use client';
 
+import { TipButton } from '@/components/tip-button';
+
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Ban, BadgeCheck, Clock, MoreHorizontal, GraduationCap, Grid3x3, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
+import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -174,6 +176,7 @@ function ProfileView({ id }: { id: string }) {
             target="_blank" rel="noopener noreferrer" className={round} aria-label="Map" title={[profile.shop.street, profile.shop.city].join(', ')}><MapPin className="h-5 w-5" /></a>
         )}
         {profile.email && !profile.mine && <a href={`mailto:${profile.email}`} className={cn(round, 'hidden sm:flex')} aria-label="Email" title={profile.email}><Mail className="h-5 w-5" /></a>}
+        {!profile.mine && <TipButton toUserId={profile.id} toName={profile.name} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
         <button type="button" onClick={share} className={round} aria-label="Share profile" title="Share"><Share2 className="h-5 w-5" /></button>
         {!profile.mine && (
           <DropdownMenu>

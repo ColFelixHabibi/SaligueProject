@@ -21,6 +21,15 @@ export default function MonetizationPolicyPage() {
           ],
         },
         {
+          heading: 'Tips (open to everyone)',
+          paragraphs: [
+            'Anyone with an account can receive tips: shops and Community teachers, with no minimum number of clients or views.',
+            'Supporters choose $1, $2, $5, $10 or $20. You receive 90%; Saligue keeps 10% to run the service.',
+            'Add your Mobile Money number in Me → My tips. Saligue sends what you are owed to it, and you see every tip and payout there.',
+            'Asking for tips in exchange for fake reviews, follows or views is not allowed and leads to removal from Saligue.',
+          ],
+        },
+        {
           heading: 'How much you earn',
           paragraphs: [
             'Each month, 50% of Saligue’s advertising income is shared among all monetized shops.',

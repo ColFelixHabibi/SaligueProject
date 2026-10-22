@@ -269,6 +269,29 @@ db.exec(`
     user_id text not null references users(id) on delete cascade,
     primary key (lesson_id, user_id)
   );
+  -- Tips: anyone supports a teacher or shop directly. Saligue keeps a small fee; the rest is paid by Mobile Money.
+  create table if not exists tips (
+    id text primary key,
+    from_user text not null references users(id) on delete cascade,
+    to_user text not null references users(id) on delete cascade,
+    lesson_id text,
+    amount real not null,               -- dollars, what the supporter pays
+    share real not null,                -- dollars the receiver gets
+    message text not null default '',
+    status text not null default 'pending_payment' check (status in ('pending_payment', 'paid', 'cancelled')),
+    reference text not null,
+    payout_id text,
+    created_at text not null,
+    paid_at text
+  );
+  create index if not exists tips_to on tips(to_user, status);
+  -- Where a person who isn't a monetized shop receives tips.
+  create table if not exists tip_accounts (
+    user_id text primary key references users(id) on delete cascade,
+    momo_number text not null,
+    momo_name text not null
+  );
+
   -- Blocking: the two people no longer see each other's comments, can't message, follow or comment on each other.
   create table if not exists blocks (
     blocker_id text not null references users(id) on delete cascade,
@@ -399,7 +422,7 @@ for (const [table, column, type] of [
   ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
-  ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
+  ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);

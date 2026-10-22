@@ -1,7 +1,9 @@
 'use client';
 
+import { TipButton } from '@/components/tip-button';
+
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Flag, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Clock, Coins, Flag, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { LessonComments } from '@/components/community/lesson-comments';
 import { ExpandableText } from '@/components/expandable-text';
@@ -117,6 +119,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           <span className={round}><MessageCircle className="h-5 w-5 text-foreground" /></span>
           {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
         </button>
+        {!lesson.mine && <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         {lesson.mine || user?.uid === lesson.authorId ? (
           <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={() => confirm('Delete this lesson?') && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
