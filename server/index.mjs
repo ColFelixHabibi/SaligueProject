@@ -1998,7 +1998,6 @@ route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
     following: db.prepare('select count(*) as n from follows where follower_id = ?').get(u.id).n,
     items: db.prepare("select count(*) as n from products where seller_id = ? and status = 'active' and hidden = 0").get(u.id).n,
     lessons: teaches,
-    sold: db.prepare("select coalesce(sum(json_array_length(items)), 0) as n from orders where seller_id = ? and status = 'delivered'").get(u.id).n,
     rating: rating.n ? Math.round(rating.avg * 10) / 10 : null,
     ratingCount: rating.n,
     liveId: live?.id ?? null,

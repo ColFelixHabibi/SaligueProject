@@ -35,7 +35,6 @@ type Profile = Person & {
   following: number;
   items: number;
   lessons: number;
-  sold: number;
   rating: number | null;
   ratingCount: number;
   liveId: string | null;
@@ -99,7 +98,7 @@ function ProfileView({ id }: { id: string }) {
     { label: 'Items', value: profile.items, onClick: () => setTab('items') },
     { label: 'Clients', value: profile.clients, onClick: () => openList('clients') },
     { label: 'Following', value: profile.following, onClick: () => openList('following') },
-    ...(profile.isShop ? [{ label: 'Sold', value: profile.sold }] : [{ label: 'Lessons', value: profile.lessons, onClick: () => setTab('lessons') }]),
+    ...(profile.lessons > 0 || !profile.isShop ? [{ label: 'Lessons', value: profile.lessons, onClick: () => setTab('lessons') }] : []),
   ];
   const round = 'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-background transition hover:bg-muted';
   const tabs = [
@@ -120,7 +119,7 @@ function ProfileView({ id }: { id: string }) {
         ) : (
           <ProfileAvatar id={profile.id} name={profile.name} src={profile.avatar} size="lg" />
         )}
-        <div className="grid flex-1 grid-cols-4 gap-1 text-center">
+        <div className={cn('grid flex-1 gap-1 text-center', stats.length === 4 ? 'grid-cols-4' : 'grid-cols-3')}>
           {stats.map((s) => (
             <button key={s.label} type="button" onClick={s.onClick} disabled={!s.onClick} className="rounded-xl py-1 transition hover:bg-muted disabled:hover:bg-transparent">
               <p className="text-lg font-extrabold leading-tight">{compact(s.value)}</p>
