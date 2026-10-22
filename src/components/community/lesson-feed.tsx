@@ -6,7 +6,7 @@ import { useBlockedIds } from '@/lib/blocks';
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { GraduationCap, LayoutGrid, Plus } from 'lucide-react';
+import { GraduationCap, LayoutGrid, Plus, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LessonSlide } from '@/components/community/lesson-slide';
@@ -15,11 +15,11 @@ import { LESSON_TOPICS, useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 
 /** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
-export function LessonFeed({ startAt, following, className, breakReminder = true }: { startAt?: string | null; following?: boolean; className?: string; breakReminder?: boolean }) {
+export function LessonFeed({ startAt, following, challenge, className, breakReminder = true }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean }) {
   const [topic, setTopic] = useState<string | null>(null);
   const tr = useT();
   const blocked = useBlockedIds();
-  const all = useLessons({ topic, following });
+  const all = useLessons({ topic, following, challenge });
   const lessons = all && all.filter((l) => !blocked.has(l.authorId));
   // Opened from a shared link: go to that lesson.
   useEffect(() => {
@@ -30,6 +30,11 @@ export function LessonFeed({ startAt, following, className, breakReminder = true
   return (
     <div className={cn('relative h-full', className)}>
       <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1 overflow-x-auto bg-gradient-to-b from-black/70 to-transparent p-2 pb-6 text-white [scrollbar-width:none]">
+        {!challenge && (
+          <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
+            <Trophy className="h-5 w-5" /> {tr('Challenges')}
+          </Link>
+        )}
         <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-white text-foreground' : 'bg-black/30')} aria-pressed={!topic}>
           <LayoutGrid className="h-5 w-5" /> {tr('All')}
         </button>
@@ -38,7 +43,7 @@ export function LessonFeed({ startAt, following, className, breakReminder = true
             <t.icon className="h-5 w-5" /> {tr(t.label)}
           </button>
         ))}
-        <Link href="/learn/new" className={cn(chip, 'ml-auto bg-primary text-primary-foreground')} aria-label="Teach a lesson">
+        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'ml-auto bg-primary text-primary-foreground')} aria-label="Teach a lesson">
           <Plus className="h-5 w-5" /> {tr('Teach')}
         </Link>
       </div>

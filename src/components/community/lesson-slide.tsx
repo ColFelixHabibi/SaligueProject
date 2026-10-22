@@ -5,7 +5,7 @@ import { useT } from '@/lib/i18n';
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Coins, Flag, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { LessonComments } from '@/components/community/lesson-comments';
 import { ExpandableText } from '@/components/expandable-text';
@@ -29,6 +29,8 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const { soundOn, unlocked, toggle } = useSoundStore();
   const slide = useRef<HTMLElement>(null);
   const video = useRef<HTMLVideoElement>(null);
+  // A duet: the lesson it answers plays beside it, in step, without sound.
+  const original = useRef<HTMLVideoElement>(null);
   const [visible, setVisible] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
@@ -94,12 +96,21 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           muted
           playsInline
           preload={saver ? 'none' : 'metadata'}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
+          onPlay={() => { setPlaying(true); if (original.current) { original.current.currentTime = video.current?.currentTime ?? 0; original.current.play().catch(() => {}); } }}
+          onPause={() => { setPlaying(false); original.current?.pause(); }}
           onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
-          className="absolute inset-0 h-full w-full object-contain"
+          className={cn('absolute inset-y-0 h-full object-contain', lesson.duetOf ? 'right-0 w-1/2 object-cover' : 'inset-x-0 w-full')}
           aria-label={lesson.title}
         />
+      )}
+      {lesson.duetOf && (
+        <>
+          <video ref={original} src={lesson.duetOf.video} poster={lesson.duetOf.poster ?? undefined} muted loop playsInline preload={saver ? 'none' : 'metadata'}
+            className="absolute inset-y-0 left-0 h-full w-1/2 border-r-2 border-black object-cover" aria-label={lesson.duetOf.title} />
+          <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="absolute left-2 top-28 z-10 flex max-w-[45%] items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[11px] font-semibold">
+            <Columns2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.duetOf.authorName}</span>
+          </Link>
+        </>
       )}
       {!playing && (
         <button type="button" onClick={() => video.current?.play().catch(() => {})} className="absolute left-1/2 top-1/2 z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 backdrop-blur" aria-label="Play">
@@ -123,6 +134,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
         </button>
         {!lesson.mine && <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
+        {!lesson.mine && !lesson.duetOf && (
+          <Link href={`/learn/new?duet=${lesson.id}`} className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Duet: answer with your video" title="Duet">
+            <span className={round}><Columns2 className="h-5 w-5 text-foreground" /></span>
+            {(lesson.duetCount ?? 0) > 0 && lesson.duetCount}
+          </Link>
+        )}
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         {lesson.mine || user?.uid === lesson.authorId ? (
           <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={() => confirm('Delete this lesson?') && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
@@ -135,6 +152,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
           <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
           {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
+          {lesson.rank != null && lesson.rank <= 3 && <span className="inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-black">{['🥇', '🥈', '🥉'][lesson.rank - 1]} #{lesson.rank}</span>}
+          {lesson.challenge && (
+            <Link href={`/challenge?id=${lesson.challenge.id}`} className="inline-flex max-w-[60%] items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-black">
+              <Trophy className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.challenge.title}</span>
+            </Link>
+          )}
           {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
         </div>
         <h2 className="line-clamp-2 text-xl font-bold leading-tight">{lesson.title}</h2>

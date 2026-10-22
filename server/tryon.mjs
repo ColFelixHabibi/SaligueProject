@@ -239,10 +239,21 @@ export async function tryOn(person, garment, category, description = '', variant
   toBlob(garment);
   const key = cacheKey(person, garment, category, variant);
   const cached = fromCache(key);
-  if (cached) return cached;
-  const image = await makeLook(person, garment, category, description, variant);
-  toCache(key, image);
-  return image;
+  if (cached) {
+    console.log(`Try-on ${category}: reused a look already made`);
+    return cached;
+  }
+  // One line per try-on (never the photos), so failures can be explained later: journalctl -u saligue | grep Try-on
+  const started = Date.now();
+  try {
+    const image = await makeLook(person, garment, category, description, variant);
+    toCache(key, image);
+    console.log(`Try-on ${category}: done in ${Math.round((Date.now() - started) / 1000)} s`);
+    return image;
+  } catch (error) {
+    console.log(`Try-on ${category}: failed after ${Math.round((Date.now() - started) / 1000)} s: ${String(error?.message ?? error).slice(0, 160)}`);
+    throw error;
+  }
 }
 
 async function makeLook(person, garment, category, description, variant) {

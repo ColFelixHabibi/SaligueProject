@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { GraduationCap, Loader2 } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Columns2, GraduationCap, Loader2, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,11 +12,25 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { VideoField, uploadVideo } from '@/components/video-field';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { LESSON_LANGUAGES, LESSON_MAX_SECONDS, LESSON_TOPICS, createLesson, deleteLesson } from '@/lib/lessons';
+import { LESSON_LANGUAGES, LESSON_MAX_SECONDS, LESSON_TOPICS, createLesson, deleteLesson, getChallenge, getLesson, timeLeft, type Challenge, type Lesson } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 
 /** Teach a fashion lesson: a video up to 4 min 30 s, a title and a fashion topic. Anyone with an account. */
 export default function NewLessonPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewLesson />
+    </Suspense>
+  );
+}
+
+function NewLesson() {
+  // ?challenge=… joins a challenge; ?duet=… answers a lesson side by side.
+  const params = useSearchParams();
+  const challengeId = params.get('challenge');
+  const duetId = params.get('duet');
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [duetOf, setDuetOf] = useState<Lesson | null>(null);
   const router = useRouter();
   const { toast } = useToast();
   const { user, isAuthLoading } = useAuth();
@@ -26,6 +40,10 @@ export default function NewLessonPage() {
   const [topic, setTopic] = useState('');
   const [language, setLanguage] = useState('rw');
   const [uploading, setUploading] = useState<number | null>(null);
+  useEffect(() => {
+    if (challengeId) getChallenge(challengeId).then((c) => { setChallenge(c); setTopic((t) => t || c.topic); }).catch(() => {});
+    if (duetId) getLesson(duetId).then((l) => { setDuetOf(l); setTopic((t) => t || l.topic); setTitle((t) => t || `Duet: ${l.title}`.slice(0, 100)); }).catch(() => {});
+  }, [challengeId, duetId]);
 
   if (!isAuthLoading && !user) {
     return (
@@ -45,7 +63,7 @@ export default function NewLessonPage() {
     setUploading(0);
     let created: string | null = null;
     try {
-      const lesson = await createLesson({ title: title.trim(), description: description.trim(), topic, language });
+      const lesson = await createLesson({ title: title.trim(), description: description.trim(), topic, language, challengeId: challenge?.id, duetOf: duetOf?.id });
       created = lesson.id;
       await uploadVideo(`/lessons/${lesson.id}/video`, video, setUploading);
       toast({ title: 'Lesson posted', description: 'Thank you for teaching!' });
@@ -64,6 +82,20 @@ export default function NewLessonPage() {
         <GraduationCap className="h-8 w-8 text-primary" />
         <h1 className="text-2xl font-extrabold">Teach a lesson</h1>
       </div>
+      {challenge && (
+        <div className="flex items-center gap-3 rounded-xl bg-amber-100 p-3 text-sm text-amber-950">
+          <Trophy className="h-6 w-6 shrink-0" />
+          <span className="min-w-0 flex-1"><b>{challenge.title}</b> · {timeLeft(challenge.endsAt)}{challenge.description && <span className="block text-xs">{challenge.description}</span>}</span>
+        </div>
+      )}
+      {duetOf && (
+        <div className="flex items-center gap-3 rounded-xl border p-3 text-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {duetOf.poster && <img src={duetOf.poster} alt="" className="h-16 w-12 rounded-md object-cover" />}
+          <span className="min-w-0 flex-1"><span className="flex items-center gap-1 font-semibold"><Columns2 className="h-4 w-4 text-primary" /> Duet with {duetOf.authorName}</span><span className="line-clamp-1 text-muted-foreground">{duetOf.title}</span>
+            <span className="block text-xs text-muted-foreground">Your video plays beside theirs. Film yourself trying it, doing it your way, or answering.</span></span>
+        </div>
+      )}
 
       <VideoField file={video} onChange={setVideo} uploading={uploading} maxSeconds={LESSON_MAX_SECONDS} label="Video *" optional={false} />
 

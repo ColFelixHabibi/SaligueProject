@@ -312,6 +312,17 @@ db.exec(`
     decided_at text
   );
 
+  -- Fashion challenges set by Saligue: people join by posting a lesson video before the deadline.
+  create table if not exists challenges (
+    id text primary key,
+    title text not null,
+    description text not null default '',
+    topic text not null,
+    created_by text not null references users(id) on delete cascade,
+    ends_at text not null,
+    created_at text not null
+  );
+
   -- Comments and questions under a lesson; replies (parent_id) make Q&A threads with the teacher.
   create table if not exists lesson_comments (
     id text primary key,
@@ -419,7 +430,7 @@ db.exec(`
 
 // Columns added after the first release.
 for (const [table, column, type] of [
-  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],

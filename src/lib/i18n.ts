@@ -63,6 +63,7 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'My profile': ['Umwirondoro wanjye', 'Mon profil'],
   // Learn
   Teach: ['Igisha', 'Enseigner'],
+  Challenges: ['Amarushanwa', 'Défis'],
   'Teach a lesson': ['Igisha isomo', 'Donner une leçon'],
   All: ['Byose', 'Tout'],
   Styling: ['Kwambara neza', 'Style'],

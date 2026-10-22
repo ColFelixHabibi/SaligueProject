@@ -1873,6 +1873,13 @@ function lessonOut(l, viewer) {
     likeCount: l.like_count,
     viewCount: l.view_count,
     commentCount: db.prepare('select count(*) as n from lesson_comments where lesson_id = ?').get(l.id).n,
+    // A duet plays next to the lesson it answers.
+    duetOf: l.duet_of ? (() => {
+      const o = db.prepare('select l.id, l.title, l.video, l.poster, l.hidden, u.display_name, u.email, u.is_guest, u.role, u.shop from lessons l join users u on u.id = l.user_id where l.id = ?').get(l.duet_of);
+      return o && !o.hidden && o.video ? { id: o.id, title: o.title, video: o.video, poster: o.poster, authorName: o.role === 'seller' ? shopNameOf(o) : personNameOf(o) } : null;
+    })() : null,
+    duetCount: db.prepare('select count(*) as n from lessons where duet_of = ? and video is not null and hidden = 0').get(l.id).n,
+    challenge: l.challenge_id ? db.prepare('select id, title from challenges where id = ?').get(l.challenge_id) ?? null : null,
     liked: !!(viewer && db.prepare('select 1 from lesson_likes where lesson_id = ? and user_id = ?').get(l.id, viewer.id)),
     mine: viewer?.id === l.user_id,
     hidden: viewer?.id === l.user_id ? !!l.hidden : undefined,
@@ -1889,6 +1896,12 @@ route('GET', '/api/lessons', ({ user, url }) => {
   const where = ["video is not null", 'hidden = 0'];
   const args = [];
   if (topic && LESSON_TOPICS.includes(topic)) where.push('topic = ?'), args.push(topic);
+  const challenge = url.searchParams.get('challenge');
+  if (challenge) {
+    where.push('challenge_id = ?');
+    args.push(challenge);
+    return db.prepare(`select * from lessons where ${where.join(' and ')} order by like_count desc, created_at asc limit 200`).all(...args).map((l, i) => ({ ...lessonOut(l, user), rank: i + 1 }));
+  }
   if (author) where.push('user_id = ?'), args.push(author);
   // Teachers see their own hidden lessons (to appeal).
   if (author && author === user?.id) where.splice(where.indexOf('hidden = 0'), 1);
@@ -1926,9 +1939,23 @@ route('POST', '/api/lessons', ({ user, body }) => {
   if (!LESSON_TOPICS.includes(body.topic)) fail(400, 'invalid', 'Choose a fashion topic.');
   const recent = db.prepare("select count(*) as n from lessons where user_id = ? and created_at > ?").get(user.id, new Date(Date.now() - 86_400_000).toISOString()).n;
   if (recent >= 10) fail(429, 'too_many', 'Up to 10 lessons a day.');
+  let challengeId = null, duetOf = null;
+  if (body.challengeId) {
+    const c = db.prepare('select id, ends_at from challenges where id = ?').get(String(body.challengeId));
+    if (!c) fail(404, 'not_found', 'This challenge does not exist.');
+    if (c.ends_at < now()) fail(400, 'ended', 'This challenge has ended.');
+    challengeId = c.id;
+  }
+  if (body.duetOf) {
+    const o = db.prepare('select id, user_id, title, hidden, video from lessons where id = ?').get(String(body.duetOf));
+    if (!o || o.hidden || !o.video) fail(404, 'not_found', 'The lesson for this duet is not available.');
+    if (blockedBetween(user.id, o.user_id)) fail(403, 'blocked', 'You can’t make a duet with this lesson.');
+    duetOf = o;
+  }
   const id = randomUUID();
-  db.prepare('insert into lessons (id, user_id, title, description, topic, language, created_at) values (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 2000), body.topic, LESSON_LANGUAGES.includes(body.language) ? body.language : 'en', now());
+  db.prepare('insert into lessons (id, user_id, title, description, topic, language, challenge_id, duet_of, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 2000), body.topic, LESSON_LANGUAGES.includes(body.language) ? body.language : 'en', challengeId, duetOf?.id ?? null, now());
+  if (duetOf && duetOf.user_id !== user.id) notify(duetOf.user_id, { type: 'message', title: `${personNameOf(user)} made a duet with "${duetOf.title}"`, body: title, link: `/learn?lesson=${id}`, email: false });
   return lessonOut(db.prepare('select * from lessons where id = ?').get(id), user);
 });
 
@@ -1956,6 +1983,42 @@ route('POST', '/api/lessons/([\\w-]+)/like', ({ user, params }) => {
     return true;
   });
   return { liked, likeCount: db.prepare('select like_count from lessons where id = ?').get(l.id).like_count };
+});
+
+// Challenges: Saligue (admins, INDECIANA) sets a fashion theme and a deadline; anyone joins with a lesson video.
+const challengeOut = (c) => {
+  const entries = db.prepare('select count(*) as n, count(distinct user_id) as people from lessons where challenge_id = ? and video is not null and hidden = 0').get(c.id);
+  const top = db.prepare('select poster from lessons where challenge_id = ? and video is not null and hidden = 0 order by like_count desc limit 3').all(c.id).map((r) => r.poster);
+  return { id: c.id, title: c.title, description: c.description, topic: c.topic, endsAt: c.ends_at, open: c.ends_at > now(), entries: entries.n, people: entries.people, posters: top, createdAt: c.created_at };
+};
+
+route('GET', '/api/challenges', () =>
+  db.prepare('select * from challenges where ends_at > ? order by ends_at desc limit 30').all(new Date(Date.now() - 30 * 86_400_000).toISOString()).map(challengeOut));
+
+route('GET', '/api/challenges/([\\w-]+)', ({ params }) => {
+  const c = db.prepare('select * from challenges where id = ?').get(params[0]);
+  if (!c) fail(404, 'not_found', 'This challenge does not exist.');
+  return challengeOut(c);
+});
+
+route('POST', '/api/challenges', ({ user, body }) => {
+  if (!user?.admin && !user?.official) fail(403, 'forbidden', 'Only Saligue can start challenges.');
+  const title = String(body.title ?? '').trim().slice(0, 80);
+  if (title.length < 3) fail(400, 'invalid', 'Give the challenge a title.');
+  if (!LESSON_TOPICS.includes(body.topic)) fail(400, 'invalid', 'Choose a fashion topic.');
+  const days = Math.min(60, Math.max(1, Math.floor(Number(body.days) || 7)));
+  const id = randomUUID();
+  db.prepare('insert into challenges (id, title, description, topic, created_by, ends_at, created_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, title, String(body.description ?? '').trim().slice(0, 600), body.topic, user.id, new Date(Date.now() + days * 86_400_000).toISOString(), now());
+  broadcast('lessons');
+  return challengeOut(db.prepare('select * from challenges where id = ?').get(id));
+});
+
+route('DELETE', '/api/challenges/([\\w-]+)', ({ user, params }) => {
+  if (!user?.admin && !user?.official) fail(403, 'forbidden', 'Only Saligue can remove challenges.');
+  db.prepare('update lessons set challenge_id = null where challenge_id = ?').run(params[0]);
+  db.prepare('delete from challenges where id = ?').run(params[0]);
+  return { ok: true };
 });
 
 // Comments and questions on a lesson. Questions the teacher replied to show as answered.

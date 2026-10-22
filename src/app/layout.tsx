@@ -1,4 +1,5 @@
 
+import { PageTranslator } from '@/components/page-translator';
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
@@ -58,6 +59,7 @@ export default function RootLayout({
             <Footer />
           </div>
           <Toaster />
+          <PageTranslator />
           <PwaRegister />
           <CookieBanner />
         </AuthProvider>
