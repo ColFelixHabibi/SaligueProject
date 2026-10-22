@@ -10,6 +10,13 @@ import { getToken } from '@/lib/api';
 
 export const MAX_VIDEO_SECONDS = 90;
 
+/** 270 → "4 min 30 s". */
+export const formatLength = (seconds: number) => {
+  const m = Math.floor(Math.round(seconds) / 60);
+  const s = Math.round(seconds) % 60;
+  return m ? `${m} min${s ? ` ${s} s` : ''}` : `${s} s`;
+};
+
 /**
  * Reads a video's length on the device, so a too-long video is refused before uploading.
  * null when this browser can't read the format (e.g. iPhone HEVC .mov on Android Chrome): the server checks it then.
@@ -32,10 +39,14 @@ function videoLength(file: File): Promise<number | null> {
 }
 
 /** Uploads a video to an item, with progress (the server converts it so it plays everywhere). */
-export function uploadItemVideo(productId: string, file: File, onProgress: (percent: number) => void): Promise<{ video: string; poster: string; duration: number }> {
+export const uploadItemVideo = (productId: string, file: File, onProgress: (percent: number) => void) =>
+  uploadVideo<{ video: string; poster: string; duration: number }>(`/products/${productId}/video`, file, onProgress);
+
+/** Sends a video file to an /api path with progress; the server checks and converts it. */
+export function uploadVideo<T>(path: string, file: File, onProgress: (percent: number) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/products/${productId}/video`);
+    xhr.open('PUT', `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api${path}`);
     const token = getToken();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
@@ -51,8 +62,12 @@ export function uploadItemVideo(productId: string, file: File, onProgress: (perc
 }
 
 /** Choose a short video (up to 1 min 30 s). The file is kept here until the item is saved. */
-export function VideoField({ file, onChange, existing, onRemoveExisting, uploading }: {
+export function VideoField({ file, onChange, existing, onRemoveExisting, uploading, maxSeconds = MAX_VIDEO_SECONDS, label = 'Video', optional = true }: {
   file: File | null;
+  // Longest video accepted (items 1 min 30 s, lessons 4 min 30 s).
+  maxSeconds?: number;
+  label?: string;
+  optional?: boolean;
   onChange: (file: File | null) => void;
   // A video the item already has (edit page).
   existing?: string | null;
@@ -74,8 +89,8 @@ export function VideoField({ file, onChange, existing, onRemoveExisting, uploadi
       return;
     }
     const length = await videoLength(picked);
-    if (length !== null && length > MAX_VIDEO_SECONDS + 0.5) {
-      toast({ variant: 'destructive', title: 'Video too long', description: `It is ${Math.round(length)} s. Up to 1 min 30 s (90 s).` });
+    if (length !== null && length > maxSeconds + 0.5) {
+      toast({ variant: 'destructive', title: 'Video too long', description: `It is ${formatLength(length)}. Up to ${formatLength(maxSeconds)}.` });
       return;
     }
     setSeconds(length);
@@ -84,7 +99,7 @@ export function VideoField({ file, onChange, existing, onRemoveExisting, uploadi
 
   return (
     <div className="space-y-2">
-      <Label className="text-lg font-medium">Video <span className="text-sm font-normal text-muted-foreground">(optional, up to 1 min 30 s)</span></Label>
+      <Label className="text-lg font-medium">{label} <span className="text-sm font-normal text-muted-foreground">({optional ? 'optional, ' : ''}up to {formatLength(maxSeconds)})</span></Label>
       {preview ? (
         <div className="relative overflow-hidden rounded-lg border bg-black">
           <video src={preview} controls playsInline className="max-h-80 w-full" />

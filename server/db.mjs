@@ -247,6 +247,36 @@ db.exec(`
     primary key (live_id, user_id)
   );
 
+  -- Community lessons: anyone with an account teaches fashion in a short video (up to 4 min 30 s).
+  create table if not exists lessons (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    title text not null,
+    description text not null default '',
+    topic text not null,
+    language text not null default 'en',
+    video text,                          -- set once the upload is converted (video.mjs)
+    poster text,
+    duration integer,
+    like_count integer not null default 0,
+    view_count integer not null default 0,
+    hidden integer not null default 0,   -- after reports, until reviewed
+    created_at text not null
+  );
+  create index if not exists lessons_new on lessons(created_at);
+  create table if not exists lesson_likes (
+    lesson_id text not null references lessons(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    primary key (lesson_id, user_id)
+  );
+  create table if not exists lesson_reports (
+    lesson_id text not null references lessons(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    reason text not null,
+    created_at text not null,
+    primary key (lesson_id, user_id)
+  );
+
   -- What shoppers do with items (opened, watched, tried on, skipped…), for the For You feed (recommend.mjs).
   -- Recorded only when the shopper allowed personalisation in the cookie banner.
   create table if not exists interactions (

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Gauge, Sparkles } from 'lucide-react';
+import { setDataSaver, useDataSaver } from '@/lib/data-saver';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -14,6 +15,7 @@ const KEY = 'saligue-cookie-choice';
 /** Turn For You learning on or off, and clear what it learned. */
 export function PersonalisationCard() {
   const { toast } = useToast();
+  const saver = useDataSaver();
   const [on, setOn] = useState(false);
   useEffect(() => {
     try {
@@ -36,7 +38,7 @@ export function PersonalisationCard() {
     try {
       await api('/interactions', { method: 'DELETE' });
       localStorage.removeItem('saligue-taste-v1');
-      toast({ title: 'For You history cleared', description: 'Your feed starts fresh. Likes and saves stay.' });
+      toast({ title: 'Recommendations reset', description: 'Your feed starts fresh. Likes and saves stay.' });
     } catch {
       toast({ variant: 'destructive', title: 'Could not clear', description: 'Try again in a moment.' });
     }
@@ -52,7 +54,11 @@ export function PersonalisationCard() {
           <Label htmlFor="personalise" className="font-medium">Personalise my feed</Label>
           <Switch id="personalise" checked={on} onCheckedChange={change} />
         </div>
-        <Button variant="outline" onClick={clear}>Clear my For You history</Button>
+        <Button variant="outline" onClick={clear}>Reset my recommendations</Button>
+        <div className="flex items-center justify-between gap-4 border-t pt-4">
+          <Label htmlFor="data-saver" className="flex items-center gap-2 font-medium"><Gauge className="h-4 w-4 text-primary" /> Data saver <span className="font-normal text-muted-foreground">· videos play when you tap</span></Label>
+          <Switch id="data-saver" checked={saver} onCheckedChange={setDataSaver} />
+        </div>
       </CardContent>
     </Card>
   );

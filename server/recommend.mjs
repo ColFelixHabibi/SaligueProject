@@ -8,7 +8,8 @@
 import { db, parse } from './db.mjs';
 
 const HALF_LIFE_DAYS = 21;
-export const INTERACTION_WEIGHTS = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, share: 2, skip: -0.5 };
+// less: the shopper tapped "Show less like this".
+export const INTERACTION_WEIGHTS = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, share: 2, skip: -0.5, less: -4 };
 const RETRAIN_MS = 5 * 60_000;
 
 const decay = (iso) => Math.pow(0.5, (Date.now() - Date.parse(iso)) / (HALF_LIFE_DAYS * 86_400_000));
@@ -141,7 +142,8 @@ export function feedFor(userId, products) {
   for (const [id, w] of positive) category.set(byId.get(id).category, (category.get(byId.get(id).category) ?? 0) + w);
 
   const scored = products
-    .filter((p) => p.status === 'active' && !p.hidden && !bought.has(p.id))
+    // "Show less like this" removes the item itself; its look counts as a dislike below.
+    .filter((p) => p.status === 'active' && !p.hidden && !bought.has(p.id) && (mine.get(p.id) ?? 0) > -3)
     .map((p) => {
       const emb = parse(p.embedding);
       const look = centroid && emb?.length === dims ? cosine(centroid, emb) : 0;
@@ -175,12 +177,21 @@ export function feedFor(userId, products) {
     const i = recent.length === 2 && recent[0] === recent[1] ? Math.max(0, pool.findIndex((x) => x.p.category !== recent[0])) : 0;
     varied.push(pool.splice(i, 1)[0]);
   }
+  // Fair chance for new shops: every fifth slot goes to a shop that started in the last 30 days,
+  // so a new seller is seen without already having followers.
+  const firstItem = new Map();
+  for (const p of products) if (!firstItem.has(p.seller_id) || p.created_at < firstItem.get(p.seller_id)) firstItem.set(p.seller_id, p.created_at);
+  const newShop = (x) => !x.p.official && Date.now() - Date.parse(firstItem.get(x.p.seller_id)) < 30 * 86_400_000;
   const official = varied.filter((x) => x.p.official);
-  const others = varied.filter((x) => !x.p.official);
+  const fresh = varied.filter(newShop);
+  const others = varied.filter((x) => !x.p.official && !newShop(x));
   const feed = [];
-  while (official.length || others.length) {
-    if (official.length && (feed.length % 4 === 1 || !others.length)) feed.push(official.shift());
-    else feed.push(others.shift());
+  while (official.length || others.length || fresh.length) {
+    if (official.length && (feed.length % 4 === 1 || (!others.length && !fresh.length))) feed.push(official.shift());
+    else if (fresh.length && (feed.length % 5 === 3 || !others.length)) {
+      const x = fresh.shift();
+      feed.push({ ...x, reason: x.reason ?? 'New shop on Saligue' });
+    } else feed.push(others.shift());
   }
   return { items: feed.map((x) => ({ id: x.p.id, reason: x.reason })), personal: confidence, shoppers: m.shoppers };
 }

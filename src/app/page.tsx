@@ -4,7 +4,9 @@
 import { mixSponsored, useSponsored } from '@/lib/ads';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { PlusCircle, Radio } from 'lucide-react';
+import { MapPin, PlusCircle, Radio, Users } from 'lucide-react';
+import { LessonFeed } from '@/components/community/lesson-feed';
+import { cn } from '@/lib/utils';
 import { useLives } from '@/lib/lives';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
@@ -81,13 +83,61 @@ export default function ForYouPage() {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const sponsored = useSponsored('feed', 3);
 
+  // The viewer chooses what to watch: For You (picked for them), Following (only shops and teachers they
+  // follow, newest first), Local (shops in a city they choose) or Learn (Community fashion lessons).
+  const [mode, setMode] = useState<'foryou' | 'following' | 'local' | 'learn'>('foryou');
+  const [followingIds, setFollowingIds] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (mode === 'following') api<string[]>('/me/following').then((ids) => setFollowingIds(new Set(ids))).catch(() => setFollowingIds(new Set()));
+  }, [mode]);
+  const [city, setCity] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setCity(localStorage.getItem('saligue-city'));
+    } catch {
+      // Storage blocked.
+    }
+  }, []);
+  const chooseCity = (c: string | null) => {
+    setCity(c);
+    try {
+      if (c) localStorage.setItem('saligue-city', c);
+      else localStorage.removeItem('saligue-city');
+    } catch {
+      // Storage blocked.
+    }
+  };
+  const cities = useMemo(() => [...new Set(products.filter((p) => p.status === 'active' && p.shop?.city).map((p) => p.shop!.city.trim()))].sort(), [products]);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const shown = useMemo(() => {
+    const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id));
+    if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) : [];
+    if (mode === 'local') return city ? active.filter((p) => p.shop?.city?.trim().toLowerCase() === city.toLowerCase()) : [];
+    return active;
+  }, [feed, byId, hidden, mode, followingIds, city]);
+  const tabs = [
+    { value: 'following', label: 'Following' },
+    { value: 'local', label: 'Local' },
+    { value: 'foryou', label: 'For You' },
+    { value: 'learn', label: 'Learn' },
+  ] as const;
+
   return (
     <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
-      <div className="pointer-events-none sticky top-0 z-40 flex h-0 justify-start px-3">
+      {/* What to watch: chosen by the viewer, not only by the algorithm. */}
+      <div className="pointer-events-none sticky top-0 z-50 flex h-0 items-start justify-center">
+        <nav className="pointer-events-auto mt-2 flex items-center gap-0.5 rounded-full bg-background/95 p-1 text-[13px] font-semibold shadow-md backdrop-blur">
+          {tabs.map((t) => (
+            <button key={t.value} type="button" onClick={() => setMode(t.value)} aria-pressed={mode === t.value}
+              className={cn('rounded-full px-2.5 py-1', mode === t.value ? 'bg-primary text-primary-foreground' : 'text-foreground/70')}>{t.label}</button>
+          ))}
+        </nav>
+      </div>
+      <div className={cn('pointer-events-none sticky top-0 z-40 flex h-0 justify-start px-3', mode !== 'foryou' && 'hidden')}>
         {/* Who is live: the seller's photo in a pink ring with a LIVE tag, like stories. */}
         {lives.length > 0 && (
-          <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} aria-label={`${lives.length} live now`} className="pointer-events-auto relative mt-3 flex flex-col items-center">
+          <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} aria-label={`${lives.length} live now`} className="pointer-events-auto relative mt-14 flex flex-col items-center">
             <span className="rounded-full bg-gradient-to-tr from-primary to-[#e30613] p-[3px] shadow-lg">
               <SellerAvatar src={lives[0].sellerAvatar} name={lives[0].sellerName} className="h-12 w-12 ring-2 ring-background" />
             </span>
@@ -97,13 +147,37 @@ export default function ForYouPage() {
           </Link>
         )}
       </div>
-      {!isInitialized ? (
+      {mode === 'learn' ? (
+        <LessonFeed className="h-full pt-0 [&>div:first-child]:top-12" />
+      ) : !isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <p className="text-2xl font-bold">Couldn’t load the feed</p>
           <p className="text-muted-foreground">Check your connection and try again.</p>
           <Button onClick={retryProducts}>Retry</Button>
+        </div>
+      ) : mode === 'following' && followingIds && shown.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <Users className="h-14 w-14 text-primary" />
+          <p className="text-xl font-bold">Follow shops to see them here</p>
+          <p className="text-muted-foreground">Only shops you follow, newest first. No algorithm.</p>
+          <Button onClick={() => setMode('foryou')}>Find shops in For You</Button>
+        </div>
+      ) : mode === 'local' && !city ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 pt-20 text-center">
+          <MapPin className="h-14 w-14 text-primary" />
+          <p className="text-xl font-bold">Shops near you</p>
+          <p className="text-muted-foreground">Choose your city. It stays on this phone only.</p>
+          <div className="flex max-w-sm flex-wrap justify-center gap-2">
+            {cities.map((c) => <Button key={c} variant="outline" className="rounded-full" onClick={() => chooseCity(c)}>{c}</Button>)}
+          </div>
+        </div>
+      ) : mode === 'local' && shown.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <MapPin className="h-14 w-14 text-primary" />
+          <p className="text-xl font-bold">Nothing in {city} yet</p>
+          <Button variant="outline" onClick={() => chooseCity(null)}>Choose another city</Button>
         </div>
       ) : feed.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
@@ -116,11 +190,15 @@ export default function ForYouPage() {
       ) : (
         // Live data (like counts) from the store, order from the ranking.
         mixSponsored(
-          feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active'),
-          sponsored.map((a) => ({ item: byId.get(a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
+          shown,
+          // Ads only in For You: Following and Local show exactly what the viewer chose.
+          (mode === 'foryou' ? sponsored : []).map((a) => ({ item: byId.get(a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
           3,
           7
-        ).map((p) => <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy} />)
+        ).map((p) => (
+          <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : mode === 'following' ? 'From a shop you follow' : mode === 'local' ? `A shop in ${city}` : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy}
+            onHide={() => setHidden((h) => new Set(h).add(p.id))} />
+        ))
       )}
     </div>
   );

@@ -6,9 +6,9 @@
 // Nothing is recorded when the shopper chose "Essential only" in the cookie banner.
 import { api, getToken } from './api';
 
-export type Signal = 'view' | 'dwell' | 'wear' | 'cart' | 'message' | 'skip' | 'share';
+export type Signal = 'view' | 'dwell' | 'wear' | 'cart' | 'message' | 'skip' | 'share' | 'less';
 
-const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, skip: -0.4, share: 2 };
+const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, skip: -0.4, share: 2, less: -4 };
 const KEY = 'saligue-taste-v1';
 // Interest fades: a signal from three weeks ago counts about a third.
 const HALF_LIFE_DAYS = 14;

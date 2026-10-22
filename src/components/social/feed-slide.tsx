@@ -6,7 +6,9 @@ import { trackAd } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, MapPin, Music2, ShoppingCart, Volume2, VolumeX } from 'lucide-react';
+import { BadgeCheck, EyeOff, HelpCircle, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useDataSaver } from '@/lib/data-saver';
 import { Button } from '@/components/ui/button';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
@@ -88,7 +90,7 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
-export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; reason?: string | null; sponsoredBy?: string }) {
+export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: Product; reason?: string | null; sponsoredBy?: string; onHide?: () => void }) {
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { soundOn, unlocked, toggle } = useSoundStore();
@@ -107,17 +109,26 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
   const image = product.videoPoster ?? product.image;
   // The item's video plays while its slide fills the screen (silent unless sound is on), like TikTok.
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Data saver: videos wait for a tap instead of playing by themselves.
+  const saver = useDataSaver();
+  const [playing, setPlaying] = useState(false);
   useEffect(() => {
     const element = slideRef.current;
     const v = videoRef.current;
     if (!element || !v) return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.intersectionRatio >= 0.6) v.play().catch(() => {});
+      if (entry.intersectionRatio >= 0.6) !saver && v.play().catch(() => {});
       else v.pause();
     }, { threshold: [0, 0.6] });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [product.video]);
+  }, [product.video, saver]);
+  // "Show less like this": For You learns it, and the item leaves the feed now.
+  const showLess = () => {
+    noteInterest(product.id, 'less');
+    onHide?.();
+    toast({ title: 'You’ll see less like this' });
+  };
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = !(soundOn && unlocked);
   }, [soundOn, unlocked]);
@@ -138,7 +149,8 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={image} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl" />
         {product.video ? (
-          <video ref={videoRef} src={product.video} poster={product.videoPoster} muted loop playsInline preload="metadata"
+          <video ref={videoRef} src={product.video} poster={product.videoPoster} muted loop playsInline preload={saver ? 'none' : 'metadata'} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+            onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
             className="absolute inset-0 h-full w-full object-contain pb-24" aria-label={product.name} />
         ) : (
           <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
@@ -147,11 +159,33 @@ export function FeedSlide({ product, reason, sponsoredBy }: { product: Product; 
           </Link>
         )}
 
+        {product.video && !playing && saver && (
+          <button type="button" onClick={() => videoRef.current?.play().catch(() => {})} className="absolute left-1/2 top-[40%] z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur" aria-label="Play video">
+            <Play className="h-8 w-8 fill-white" />
+          </button>
+        )}
+        {/* Why this item, and "show less": the viewer can see and steer the algorithm. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="absolute right-3 top-[6.5rem] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-background/90 shadow backdrop-blur" aria-label="More options">
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel className="flex items-start gap-2 font-normal">
+              <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span><b className="block text-sm">Why am I seeing this?</b><span className="text-xs text-muted-foreground">{sponsoredBy ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> Show less like this</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Sound on/off for the whole feed, on every item, so it can be turned on before reaching items with a sound. */}
         <button
           type="button"
           onClick={toggle}
-          className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-2 text-xs font-semibold shadow backdrop-blur"
+          className="absolute right-3 top-14 z-10 flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-2 text-xs font-semibold shadow backdrop-blur"
           aria-label={soundOn ? 'Turn sound off' : 'Turn sound on'}
         >
           {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}

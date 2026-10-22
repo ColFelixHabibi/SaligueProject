@@ -66,16 +66,16 @@ async function duration(file) {
  * Turns an uploaded file into the item's video. Returns { video, poster, duration } as /media/ links.
  * Refuses files that aren't videos or are longer than 1 min 30 s.
  */
-export async function processVideo(upload) {
+export async function processVideo(upload, maxSeconds = MAX_VIDEO_SECONDS) {
   const tmpOut = `${upload}.mp4`;
   const tmpPoster = `${upload}.jpg`;
   try {
     const seconds = await duration(upload);
     if (seconds === null) throw Object.assign(new Error('This file is not a video we can read.'), { status: 400 });
-    if (seconds > MAX_VIDEO_SECONDS + 1) throw Object.assign(new Error('The video is longer than 1 min 30 s. Cut it and try again.'), { status: 400 });
+    if (seconds > maxSeconds + 1) throw Object.assign(new Error(`The video is longer than ${Math.floor(maxSeconds / 60)} min ${maxSeconds % 60 ? `${maxSeconds % 60} s` : ''}. Cut it and try again.`.replace(' .', '.')), { status: 400 });
     // 720p at most, portrait or landscape; H.264 + AAC; starts playing before it's fully downloaded.
     await run('ffmpeg', [
-      '-y', '-i', upload, '-t', String(MAX_VIDEO_SECONDS),
+      '-y', '-i', upload, '-t', String(maxSeconds),
       '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-pix_fmt', 'yuv420p', '-profile:v', 'main',
       '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', tmpOut,
@@ -94,7 +94,7 @@ export async function processVideo(upload) {
       }
       return `/media/${name}`;
     };
-    return { video: keep(tmpOut, 'mp4'), poster: keep(tmpPoster, 'jpg'), duration: Math.round(Math.min(seconds, MAX_VIDEO_SECONDS)) };
+    return { video: keep(tmpOut, 'mp4'), poster: keep(tmpPoster, 'jpg'), duration: Math.round(Math.min(seconds, maxSeconds)) };
   } finally {
     for (const f of [upload, tmpOut, tmpPoster]) {
       try { if (existsSync(f)) unlinkSync(f); } catch { /* ignore */ }

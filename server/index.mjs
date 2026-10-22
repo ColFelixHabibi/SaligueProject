@@ -1808,6 +1808,143 @@ route('POST', '/api/admin/signing-key/password', ({ user }) => {
 });
 
 // ---------------------------------------------------------------------------
+// Community: fashion lessons by anyone with an account (styling, sewing, care…), up to 4 min 30 s.
+// Saligue stays about fashion: every lesson has a fashion topic, and reported lessons are hidden for review.
+// ---------------------------------------------------------------------------
+
+const LESSON_MAX_SECONDS = 270;
+const LESSON_TOPICS = ['styling', 'sewing', 'care', 'shoes_accessories', 'traditional', 'business'];
+const LESSON_LANGUAGES = ['rw', 'sw', 'en', 'fr'];
+
+function lessonOut(l, viewer) {
+  const author = db.prepare('select id, display_name, email, is_guest, shop, avatar, role, official from users where id = ?').get(l.user_id);
+  return {
+    id: l.id,
+    authorId: l.user_id,
+    authorName: author?.role === 'seller' ? shopNameOf(author) : personNameOf(author),
+    authorAvatar: author?.avatar ?? null,
+    authorIsShop: author?.role === 'seller',
+    official: !!author?.official,
+    title: l.title,
+    description: l.description,
+    topic: l.topic,
+    language: l.language,
+    video: l.video,
+    poster: l.poster,
+    duration: l.duration,
+    likeCount: l.like_count,
+    viewCount: l.view_count,
+    liked: !!(viewer && db.prepare('select 1 from lesson_likes where lesson_id = ? and user_id = ?').get(l.id, viewer.id)),
+    mine: viewer?.id === l.user_id,
+    createdAt: l.created_at,
+  };
+}
+
+// Newest first, with an even chance for new teachers: a lesson from someone with few views comes up every
+// few lessons, so a first video gets seen (no "cold start" wall).
+route('GET', '/api/lessons', ({ user, url }) => {
+  const topic = url.searchParams.get('topic');
+  const author = url.searchParams.get('author');
+  const following = url.searchParams.get('following') === '1';
+  const where = ["video is not null", 'hidden = 0'];
+  const args = [];
+  if (topic && LESSON_TOPICS.includes(topic)) where.push('topic = ?'), args.push(topic);
+  if (author) where.push('user_id = ?'), args.push(author);
+  if (following) {
+    if (!user) return [];
+    where.push('user_id in (select seller_id from follows where follower_id = ?)'), args.push(user.id);
+  }
+  const rows = db.prepare(`select * from lessons where ${where.join(' and ')} order by created_at desc limit 200`).all(...args);
+  if (author || following) return rows.map((l) => lessonOut(l, user));
+  const views = new Map(db.prepare('select user_id, sum(view_count) as v from lessons group by user_id').all().map((r) => [r.user_id, r.v]));
+  const score = (l) => {
+    const ageDays = (Date.now() - Date.parse(l.created_at)) / 86_400_000;
+    return Math.log1p(l.like_count * 3 + l.view_count) / 4 + Math.exp(-ageDays / 10);
+  };
+  const established = rows.filter((l) => (views.get(l.user_id) ?? 0) >= 500).sort((a, b) => score(b) - score(a));
+  const newVoices = rows.filter((l) => (views.get(l.user_id) ?? 0) < 500).sort((a, b) => score(b) - score(a));
+  const out = [];
+  while (established.length || newVoices.length) {
+    if (newVoices.length && (out.length % 3 === 0 || !established.length)) out.push({ ...lessonOut(newVoices.shift(), user), newVoice: true });
+    else out.push(lessonOut(established.shift(), user));
+  }
+  return out;
+});
+
+route('GET', '/api/lessons/([\\w-]+)', ({ user, params }) => {
+  const l = db.prepare('select * from lessons where id = ?').get(params[0]);
+  if (!l || (l.hidden && l.user_id !== user?.id)) fail(404, 'not_found', 'This lesson is not available.');
+  return lessonOut(l, user);
+});
+
+route('POST', '/api/lessons', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to teach on Saligue.');
+  const title = String(body.title ?? '').trim().slice(0, 100);
+  if (title.length < 3) fail(400, 'invalid', 'Give your lesson a title.');
+  if (!LESSON_TOPICS.includes(body.topic)) fail(400, 'invalid', 'Choose a fashion topic.');
+  const recent = db.prepare("select count(*) as n from lessons where user_id = ? and created_at > ?").get(user.id, new Date(Date.now() - 86_400_000).toISOString()).n;
+  if (recent >= 10) fail(429, 'too_many', 'Up to 10 lessons a day.');
+  const id = randomUUID();
+  db.prepare('insert into lessons (id, user_id, title, description, topic, language, created_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 2000), body.topic, LESSON_LANGUAGES.includes(body.language) ? body.language : 'en', now());
+  return lessonOut(db.prepare('select * from lessons where id = ?').get(id), user);
+});
+
+route('DELETE', '/api/lessons/([\\w-]+)', ({ user, params }) => {
+  const l = db.prepare('select * from lessons where id = ?').get(params[0]);
+  if (!l) return { ok: true };
+  if (l.user_id !== user?.id && !user?.admin) fail(403, 'forbidden', 'Only the teacher can remove this lesson.');
+  db.prepare('delete from lessons where id = ?').run(l.id);
+  broadcast('lessons');
+  return { ok: true };
+});
+
+route('POST', '/api/lessons/([\\w-]+)/like', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const l = db.prepare('select id from lessons where id = ?').get(params[0]);
+  if (!l) fail(404, 'not_found', 'This lesson is not available.');
+  const liked = transaction(() => {
+    if (db.prepare('select 1 from lesson_likes where lesson_id = ? and user_id = ?').get(l.id, user.id)) {
+      db.prepare('delete from lesson_likes where lesson_id = ? and user_id = ?').run(l.id, user.id);
+      db.prepare('update lessons set like_count = max(0, like_count - 1) where id = ?').run(l.id);
+      return false;
+    }
+    db.prepare('insert into lesson_likes (lesson_id, user_id) values (?, ?)').run(l.id, user.id);
+    db.prepare('update lessons set like_count = like_count + 1 where id = ?').run(l.id);
+    return true;
+  });
+  return { liked, likeCount: db.prepare('select like_count from lessons where id = ?').get(l.id).like_count };
+});
+
+// A view counts once per person per lesson per day.
+const lessonViews = new Map();
+route('POST', '/api/lessons/([\\w-]+)/view', ({ user, params }) => {
+  const key = `${params[0]}|${user?.id ?? 'anon'}|${new Date().toISOString().slice(0, 10)}`;
+  if (user && !lessonViews.has(key)) {
+    lessonViews.set(key, 1);
+    if (lessonViews.size > 50_000) lessonViews.clear();
+    db.prepare('update lessons set view_count = view_count + 1 where id = ?').run(params[0]);
+  }
+  return { ok: true };
+});
+
+route('POST', '/api/lessons/([\\w-]+)/report', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const l = db.prepare('select * from lessons where id = ?').get(params[0]);
+  if (!l) fail(404, 'not_found', 'This lesson is not available.');
+  if (l.user_id === user.id) fail(400, 'own', 'You cannot report your own lesson.');
+  const reason = REPORT_REASONS[body.reason] ? body.reason : 'other';
+  db.prepare('insert or ignore into lesson_reports (lesson_id, user_id, reason, created_at) values (?, ?, ?, ?)').run(l.id, user.id, reason, now());
+  const count = db.prepare('select count(*) as n from lesson_reports where lesson_id = ?').get(l.id).n;
+  if (count >= HIDE_AFTER_REPORTS && !l.hidden) {
+    db.prepare('update lessons set hidden = 1 where id = ?').run(l.id);
+    broadcast('lessons');
+    notify(l.user_id, { type: 'account', title: `Your lesson "${l.title}" is hidden after reports`, body: 'Community is for fashion lessons only. Saligue will review it.', link: '/learn', email: false });
+  }
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
 // Following shops
 // ---------------------------------------------------------------------------
 
@@ -1820,7 +1957,8 @@ route('GET', '/api/follow/([\\w-]+)', ({ user, params }) => ({
 
 route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
-  const seller = db.prepare("select id, display_name, shop from users where id = ? and role = 'seller'").get(params[0]);
+  // Shops, and anyone who teaches in Community.
+  const seller = db.prepare("select id, display_name, shop from users where id = ? and (role = 'seller' or exists (select 1 from lessons where user_id = users.id))").get(params[0]);
   if (!seller) fail(404, 'not_found', 'Shop not found.');
   if (seller.id === user.id) fail(400, 'own_shop', 'This is your own shop.');
   const following = transaction(() => {
@@ -2234,6 +2372,28 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     return serveStatic(req, res, url.pathname);
+  }
+
+  // Lesson video (Community): up to 4 min 30 s, same conversion as item videos.
+  const lessonUpload = req.method === 'PUT' && /^\/api\/lessons\/([\w-]+)\/video$/.exec(url.pathname);
+  if (lessonUpload) {
+    try {
+      const user = userOf(req);
+      if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+      const lesson = db.prepare('select * from lessons where id = ?').get(lessonUpload[1]);
+      if (!lesson || lesson.user_id !== user.id) fail(404, 'not_found', 'Lesson not found.');
+      if (!/^video\//.test(String(req.headers['content-type'] || ''))) fail(400, 'invalid_video', 'Choose a video file.');
+      const file = await receiveUpload(req);
+      const { video, poster, duration } = await processVideo(file, LESSON_MAX_SECONDS);
+      db.prepare('update lessons set video = ?, poster = ?, duration = ? where id = ?').run(video, poster, duration, lesson.id);
+      broadcast('lessons');
+      return send(res, 200, lessonOut(db.prepare('select * from lessons where id = ?').get(lesson.id), user));
+    } catch (error) {
+      if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
+      if (error.status) return send(res, error.status, { error: { code: 'invalid_video', message: error.message } });
+      console.error('Lesson upload failed:', error);
+      return send(res, 500, { error: { code: 'server_error', message: 'The video could not be prepared. Try another one.' } });
+    }
   }
 
   // Item video upload: the raw video streams to a file (too big for JSON), then ffmpeg prepares it (video.mjs).
