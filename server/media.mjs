@@ -9,7 +9,7 @@ export const MEDIA_DIR = join(DATA_DIR, 'media');
 mkdirSync(MEDIA_DIR, { recursive: true });
 
 const EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/gif': 'gif' };
-const TYPES = { ...Object.fromEntries(Object.entries(EXTENSIONS).map(([type, ext]) => [ext, type])), mp4: 'video/mp4' };
+const TYPES = { ...Object.fromEntries(Object.entries(EXTENSIONS).map(([type, ext]) => [ext, type])), mp4: 'video/mp4', vtt: 'text/vtt; charset=utf-8' };
 
 /** Saves a picture sent as a data URL and returns its link (/media/…). Anything else is returned unchanged. */
 export function storeImage(value) {

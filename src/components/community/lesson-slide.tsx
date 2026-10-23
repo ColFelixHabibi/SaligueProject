@@ -5,9 +5,12 @@ import { useT } from '@/lib/i18n';
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
-import { Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { LessonComments } from '@/components/community/lesson-comments';
+import { CaptionsEditor } from '@/components/community/captions-editor';
+import { useLang } from '@/lib/i18n';
 import { ExpandableText } from '@/components/expandable-text';
 import Link from 'next/link';
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
@@ -35,6 +38,29 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const [playing, setPlaying] = useState(false);
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [captionsOpen, setCaptionsOpen] = useState(false);
+  // Captions: on unless the viewer turned them off; in the app's language when there is one, else the lesson's.
+  const lang = useLang();
+  const [cc, setCc] = useState(true);
+  useEffect(() => {
+    try { setCc(localStorage.getItem('saligue-cc') !== 'off'); } catch { /* storage blocked */ }
+  }, []);
+  const tracks = lesson.captions ?? [];
+  const chosen = tracks.find((c) => c.lang === lang) ?? tracks.find((c) => c.lang === lesson.language) ?? tracks[0];
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    const apply = () => { for (const t of Array.from(v.textTracks)) t.mode = cc && t.language === chosen?.lang ? 'showing' : 'disabled'; };
+    apply();
+    v.textTracks.addEventListener?.('addtrack', apply);
+    return () => v.textTracks.removeEventListener?.('addtrack', apply);
+  }, [cc, chosen?.lang, chosen?.url]);
+  const toggleCc = () => {
+    setCc((on) => {
+      try { localStorage.setItem('saligue-cc', on ? 'off' : 'on'); } catch { /* storage blocked */ }
+      return !on;
+    });
+  };
   const t = useT();
   const topic = topicOf(lesson.topic);
   const TopicIcon = topic.icon;
@@ -96,12 +122,15 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           muted
           playsInline
           preload={saver ? 'none' : 'metadata'}
+          crossOrigin="anonymous"
           onPlay={() => { setPlaying(true); if (original.current) { original.current.currentTime = video.current?.currentTime ?? 0; original.current.play().catch(() => {}); } }}
           onPause={() => { setPlaying(false); original.current?.pause(); }}
           onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
           className={cn('absolute inset-y-0 h-full object-contain', lesson.duetOf ? 'right-0 w-1/2 object-cover' : 'inset-x-0 w-full')}
           aria-label={lesson.title}
-        />
+        >
+          {tracks.map((c) => <track key={c.url} kind="subtitles" src={c.url} srcLang={c.lang} label={c.translated ? 'English (translated)' : c.lang} default={c === chosen} />)}
+        </video>
       )}
       {lesson.duetOf && (
         <>
@@ -140,6 +169,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
             {(lesson.duetCount ?? 0) > 0 && lesson.duetCount}
           </Link>
         )}
+        {(tracks.length > 0 || lesson.mine) && (
+          <button type="button" className={cn(round, cc && tracks.length > 0 && 'bg-primary text-primary-foreground')} onClick={lesson.mine ? () => setCaptionsOpen(true) : toggleCc}
+            aria-label={lesson.mine ? 'Captions' : cc ? 'Captions off' : 'Captions on'} aria-pressed={cc} title="Captions">
+            <Captions className="h-5 w-5" />
+          </button>
+        )}
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         {lesson.mine || user?.uid === lesson.authorId ? (
           <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={() => confirm('Delete this lesson?') && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
@@ -164,6 +199,13 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}
         <Link href={profileHref(lesson.authorId)} className="mt-2 block w-fit max-w-full truncate text-sm font-semibold hover:underline">@{lesson.authorName}</Link>
       </div>
+      <Sheet open={captionsOpen} onOpenChange={setCaptionsOpen}>
+        <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">
+          <SheetHeader><SheetTitle className="text-left">Captions</SheetTitle></SheetHeader>
+          <div className="mt-3 min-h-0 flex-1"><CaptionsEditor lesson={lesson} onSaved={() => setCaptionsOpen(false)} /></div>
+          {tracks.length > 0 && <Button variant="outline" className="mt-2" onClick={toggleCc}>{cc ? 'Hide captions on my screen' : 'Show captions'}</Button>}
+        </SheetContent>
+      </Sheet>
       <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
         <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">
           <SheetHeader><SheetTitle className="line-clamp-1 text-left">{lesson.title}</SheetTitle></SheetHeader>

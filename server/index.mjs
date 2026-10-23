@@ -10,6 +10,7 @@ import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCha
 import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
 import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
 import { processVideo, receiveUpload } from './video.mjs';
+import { AUTO_LANGUAGES, captionMissing, captionsAvailable, cuesToVtt, enqueueCaptions, storeVtt, textToVtt } from './captions.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
@@ -1879,6 +1880,9 @@ function lessonOut(l, viewer) {
       return o && !o.hidden && o.video ? { id: o.id, title: o.title, video: o.video, poster: o.poster, authorName: o.role === 'seller' ? shopNameOf(o) : personNameOf(o) } : null;
     })() : null,
     duetCount: db.prepare('select count(*) as n from lessons where duet_of = ? and video is not null and hidden = 0').get(l.id).n,
+    // Timed captions (WebVTT): made on Saligue's server for English, French and Kiswahili, or typed by the teacher.
+    captions: parse(l.captions) ?? [],
+    captionsStatus: l.captions_status ?? null,
     challenge: l.challenge_id ? db.prepare('select id, title from challenges where id = ?').get(l.challenge_id) ?? null : null,
     liked: !!(viewer && db.prepare('select 1 from lesson_likes where lesson_id = ? and user_id = ?').get(l.id, viewer.id)),
     mine: viewer?.id === l.user_id,
@@ -2020,6 +2024,21 @@ route('DELETE', '/api/challenges/([\\w-]+)', ({ user, params }) => {
   db.prepare('delete from challenges where id = ?').run(params[0]);
   return { ok: true };
 });
+
+// The teacher corrects the automatic captions (same timings, new words) or types captions (timed evenly).
+route('PUT', '/api/lessons/([\\w-]+)/captions', ({ user, params, body }) => {
+  const l = db.prepare('select * from lessons where id = ?').get(params[0]);
+  if (!l || l.user_id !== user?.id) fail(404, 'not_found', 'Lesson not found.');
+  const lang = ['rw', 'sw', 'en', 'fr'].includes(body.lang) ? body.lang : l.language;
+  const vtt = body.cues ? cuesToVtt(body.cues) : textToVtt(body.text ?? '', l.duration);
+  const others = (parse(l.captions) ?? []).filter((c) => c.lang !== lang);
+  const captions = vtt ? [{ lang, url: storeVtt(vtt), auto: false }, ...others] : others;
+  db.prepare("update lessons set captions = ?, captions_status = 'done' where id = ?").run(json(captions), l.id);
+  broadcast('lessons');
+  return lessonOut(db.prepare('select * from lessons where id = ?').get(l.id), user);
+});
+
+route('GET', '/api/captions/status', () => ({ available: captionsAvailable(), languages: AUTO_LANGUAGES }));
 
 // Comments and questions on a lesson. Questions the teacher replied to show as answered.
 route('GET', '/api/lessons/([\\w-]+)/comments', ({ params }) => {
@@ -2756,8 +2775,9 @@ const server = http.createServer(async (req, res) => {
       if (!/^video\//.test(String(req.headers['content-type'] || ''))) fail(400, 'invalid_video', 'Choose a video file.');
       const file = await receiveUpload(req);
       const { video, poster, duration } = await processVideo(file, LESSON_MAX_SECONDS);
-      db.prepare('update lessons set video = ?, poster = ?, duration = ? where id = ?').run(video, poster, duration, lesson.id);
+      db.prepare("update lessons set video = ?, poster = ?, duration = ?, captions = null, captions_status = null where id = ?").run(video, poster, duration, lesson.id);
       broadcast('lessons');
+      enqueueCaptions(lesson.id);
       return send(res, 200, lessonOut(db.prepare('select * from lessons where id = ?').get(lesson.id), user));
     } catch (error) {
       if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
@@ -2858,4 +2878,6 @@ setInterval(dropOldSessions, 86_400_000).unref();
 
 server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);
+  // Captions for lessons that don't have them yet (a minute after start, so starting stays quick).
+  setTimeout(captionMissing, 60_000).unref();
 });

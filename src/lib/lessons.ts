@@ -53,6 +53,9 @@ export type Lesson = {
   challenge?: { id: string; title: string } | null;
   // Place in a challenge (by likes), when listed for one.
   rank?: number;
+  // Timed captions (WebVTT) per language; auto = made by Saligue's server, translated = English from the speech.
+  captions?: { lang: string; url: string; auto: boolean; translated?: boolean }[];
+  captionsStatus?: 'pending' | 'done' | 'none' | 'failed' | null;
   createdAt: string;
 };
 
@@ -60,6 +63,7 @@ export type Challenge = { id: string; title: string; description: string; topic:
 
 const withMedia = (l: Lesson): Lesson => ({
   ...l,
+  captions: (l.captions ?? []).map((c) => ({ ...c, url: mediaUrl(c.url) ?? c.url })),
   duetOf: l.duetOf ? { ...l.duetOf, video: mediaUrl(l.duetOf.video) ?? l.duetOf.video, poster: mediaUrl(l.duetOf.poster ?? undefined) ?? null } : null,
   video: mediaUrl(l.video ?? undefined) ?? null,
   poster: mediaUrl(l.poster ?? undefined) ?? null,
@@ -89,6 +93,16 @@ export function useLessons(filter: { topic?: string | null; author?: string; fol
 }
 
 export const createLesson = (body: { title: string; description: string; topic: string; language: string; challengeId?: string | null; duetOf?: string | null }) => api<Lesson>('/lessons', { body });
+export type Cue = { start: string; end: string; text: string };
+/** The cues of a WebVTT file (for the teacher's caption editor). */
+export async function loadCues(url: string): Promise<Cue[]> {
+  const text = await (await fetch(url)).text();
+  return text.split(/\n\s*\n/).map((block) => {
+    const m = /(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})[^\n]*\n([\s\S]*)/.exec(block.trim());
+    return m ? { start: m[1], end: m[2], text: m[3].trim() } : null;
+  }).filter((c): c is Cue => !!c);
+}
+export const saveCaptions = (id: string, body: { lang: string; cues?: Cue[]; text?: string }) => api<Lesson>(`/lessons/${id}/captions`, { method: 'PUT', body }).then(withMedia);
 export const getLesson = (id: string) => api<Lesson>(`/lessons/${id}`).then(withMedia);
 
 const challengeMedia = (c: Challenge): Challenge => ({ ...c, posters: c.posters.map((p) => mediaUrl(p ?? undefined) ?? null) });
