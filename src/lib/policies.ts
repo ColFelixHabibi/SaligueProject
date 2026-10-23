@@ -8,15 +8,15 @@ export type PolicyKey = 'monetization' | 'ads' | 'terms' | 'privacy' | 'cookies'
 export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   monetization: {
         title: "Monetization Policy",
-        updated: "22 October 2026",
+        updated: "23 October 2026",
         intro: "Saligue shares its advertising income with the shops that make Saligue worth visiting. Like the creator programs of the biggest platforms, it is open only to established shops and comes with clear rules.",
         sections: [
           {
             heading: 'Who can join',
             paragraphs: [
-              'A seller account with a profile photo and full shop address, at least 30 days old.',
-              'At least 1,000 clients (people who follow your shop).',
-              'At least 50,000 views of your items in the last 90 days.',
+              'A seller account with a profile photo and full shop address, active for at least 4 months (120 days).',
+              'At least 10,000 clients (people who follow your shop).',
+              'At least 5,000,000 views of your items in the last 90 days.',
               'No items removed for breaking Saligue’s rules in the last 90 days.',
               'When you meet every requirement, apply in Seller Center → Earnings. INDECIANA reviews each application and may refuse shops that seem to have bought clients or views.',
             ],
@@ -35,7 +35,10 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: [
               'Each month, 50% of Saligue’s advertising income is shared among all monetized shops.',
               'Your share depends on points you earn that month: 1 point per item view, 50 points per item sold and delivered, and 5 points per new client. Your earnings = the creators’ pool × your points ÷ all creators’ points.',
-              'Seller Center shows an estimate during the month. The final amount is calculated after the month ends.',
+              'Example: in March Saligue earns $10,000 from ads, so the creators’ pool is $5,000. Shop A has 400,000 views, 300 items sold and 2,000 new clients: 400,000 + 15,000 + 10,000 = 425,000 points. All monetized shops together have 1,700,000 points. Shop A receives $5,000 × 425,000 ÷ 1,700,000 = $1,250.',
+              'Why two shops receive different amounts: each is paid for its own share of the month’s points. A shop that sells more, is viewed more or gains more clients earns more points, so a bigger part of the same pool. The pool itself changes each month with Saligue’s ad income.',
+              'Only real activity counts: one view per shopper per item per day, and only orders that were delivered (not cancelled or returned).',
+              'Seller Center → Earnings shows your points, everyone’s points and your estimate during the month. The final amount is calculated after the month ends.',
             ],
           },
           {

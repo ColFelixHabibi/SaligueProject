@@ -23,7 +23,7 @@ export function adSettings() {
   };
 }
 
-export const REQUIREMENTS = { followers: 1000, views90: 50000, accountDays: 30 };
+export const REQUIREMENTS = { followers: 10000, views90: 5000000, accountDays: 120 };
 /** Monetization requirements, as set by admins (Admin → Policies & rules), else the defaults above. */
 export function requirements() {
   const saved = parse(db.prepare("select value from app_config where key = 'monetization'").get()?.value) ?? {};

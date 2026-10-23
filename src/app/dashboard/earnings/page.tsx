@@ -22,7 +22,7 @@ type Creator = {
   checks: { key: string; label: string; value: number; target: number; met: boolean }[];
   eligible: boolean;
   followers: number;
-  thisMonth: { period: string; pool: number; mine: { views: number; sales: number; followers: number; points: number; amount: number } | null };
+  thisMonth: { period: string; pool: number; totalPoints?: number; creators?: number; mine: { views: number; sales: number; followers: number; points: number; amount: number } | null };
   share: number;
   payouts: { id: string; period: string; amount: number; status: 'pending' | 'paid'; paidAt: string | null }[];
 };
@@ -85,6 +85,20 @@ export default function EarningsPage() {
             {[['Views', data.thisMonth.mine.views], ['Items sold', data.thisMonth.mine.sales], ['New clients', data.thisMonth.mine.followers]].map(([k, v]) => (
               <div key={k as string} className="rounded-xl bg-muted p-3"><p className="text-xl font-bold">{(v as number).toLocaleString()}</p><p className="text-xs text-muted-foreground">{k as string}</p></div>
             ))}
+            {/* How the amount is calculated, with this shop's own numbers. */}
+            <div className="col-span-3 space-y-1 rounded-xl border p-3 text-left text-sm">
+              <p className="font-semibold">How your estimate is calculated</p>
+              <p className="text-muted-foreground">
+                Points: {data.thisMonth.mine.views.toLocaleString()} views × 1 + {data.thisMonth.mine.sales.toLocaleString()} sold × 50 + {data.thisMonth.mine.followers.toLocaleString()} new clients × 5 = <b className="text-foreground">{data.thisMonth.mine.points.toLocaleString()} points</b>
+              </p>
+              <p className="text-muted-foreground">
+                Your share: {data.thisMonth.mine.points.toLocaleString()} ÷ {(data.thisMonth.totalPoints ?? 0).toLocaleString()} points of all {data.thisMonth.creators ?? ''} monetized shops
+                = <b className="text-foreground">{data.thisMonth.totalPoints ? ((data.thisMonth.mine.points / data.thisMonth.totalPoints) * 100).toFixed(2) : '0'}%</b>
+              </p>
+              <p className="text-muted-foreground">
+                Creators’ pool this month: {formatPrice(data.thisMonth.pool)} ({Math.round(data.share * 100)}% of ad income) × your share = <b className="text-foreground">{formatPrice(data.thisMonth.mine.amount)}</b>
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

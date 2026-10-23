@@ -2678,7 +2678,8 @@ route('GET', '/api/creator', ({ user }) => {
     requirements: requirements(),
     ...eligibility(user.id),
     followers: followerCount(user.id),
-    thisMonth: { period: period(), pool: month.pool, mine },
+    // With all creators' points, so the Earnings page can show how the amount is calculated.
+    thisMonth: { period: period(), pool: month.pool, totalPoints: month.totalPoints, creators: month.rows.length, mine },
     share: adSettings().creatorShare,
     payouts: db.prepare('select * from payouts where user_id = ? order by period desc').all(user.id)
       .map((p) => ({ id: p.id, period: p.period, amount: p.amount, status: p.status, paidAt: p.paid_at, breakdown: parse(p.breakdown) })),
