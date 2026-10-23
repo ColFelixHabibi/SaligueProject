@@ -14,7 +14,7 @@ export default function DownloadPage() {
       <div className="space-y-2 text-center">
         <Smartphone className="mx-auto h-12 w-12 text-primary" />
         <h1 className="text-3xl font-extrabold tracking-tight">Saligue for Android</h1>
-        <p className="text-muted-foreground">Version 1.2 · about 33 MB · Android 7 or newer</p>
+        <p className="text-muted-foreground">Version 1.3 · about 33 MB · Android 7 or newer</p>
       </div>
       <Button size="lg" className="h-14 w-full text-lg" asChild>
         <a href={APK} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>
