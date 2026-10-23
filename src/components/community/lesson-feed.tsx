@@ -1,5 +1,7 @@
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useT } from '@/lib/i18n';
 
 import { useBlockedIds } from '@/lib/blocks';
@@ -18,6 +20,7 @@ import { cn } from '@/lib/utils';
 export function LessonFeed({ startAt, following, challenge, className, breakReminder = true }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean }) {
   const [topic, setTopic] = useState<string | null>(null);
   const tr = useT();
+  const on = useFeatures();
   const blocked = useBlockedIds();
   const all = useLessons({ topic, following, challenge });
   const lessons = all && all.filter((l) => !blocked.has(l.authorId));
@@ -30,7 +33,7 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
   return (
     <div className={cn('relative h-full', className)}>
       <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1 overflow-x-auto bg-gradient-to-b from-black/70 to-transparent p-2 pb-6 text-white [scrollbar-width:none]">
-        {!challenge && (
+        {!challenge && on('challenges') && (
           <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
             <Trophy className="h-5 w-5" /> {tr('Challenges')}
           </Link>

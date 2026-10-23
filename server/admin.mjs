@@ -1,7 +1,8 @@
 // Small admin tool for the Saligue database.
 //   node server/admin.mjs official <email>      mark an account as INDECIANA (official)
 //   node server/admin.mjs unofficial <email>    remove the official mark
-//   node server/admin.mjs admin <email>         let an account open Platform settings (email, payments, try-on)
+//   node server/admin.mjs admin <email>         make an account a main admin (type 1: everything, manages sub-admins)
+//   node server/admin.mjs password <email> <new password>   set an account's password (signs it out everywhere)
 //   node server/admin.mjs users                 list accounts
 //   node server/admin.mjs support               list support requests
 //   node server/admin.mjs google <client id>    switch on Google sign-in (OAuth web client ID)
@@ -16,6 +17,7 @@
 //   node server/admin.mjs testmail <email>      send a test email (shows whether the mail account works)
 //   node server/admin.mjs aiserver <url> <key>   use Saligue's own AI server (ai-server/install.sh) first; "off" to stop
 //   node server/admin.mjs tryon <fal key>        unlimited realistic try-on with FASHN on fal.ai (pay per image); "off" to stop
+import { randomBytes, scryptSync } from 'node:crypto';
 import { db } from './db.mjs';
 import { learn } from './learn.mjs';
 import { sendEmail } from './mail.mjs';
@@ -32,8 +34,24 @@ if (command === 'official' || command === 'unofficial') {
   db.prepare('update users set official = ? where id = ?').run(flag, user.id);
   db.prepare('update products set official = ? where seller_id = ?').run(flag, user.id);
   console.log(`${email} is ${flag ? 'now' : 'no longer'} INDECIANA's official account.`);
+} else if (command === 'password') {
+  const password = process.argv[4] ?? '';
+  if (password.length < 8) {
+    console.error('Usage: node server/admin.mjs password <email> <new password (8+ characters)>');
+    process.exit(1);
+  }
+  const salt = randomBytes(16);
+  const hash = `scrypt$${salt.toString('hex')}$${scryptSync(password, salt, 64).toString('hex')}`;
+  const user = db.prepare('select id from users where lower(email) = ?').get(String(email ?? '').toLowerCase());
+  if (!user) {
+    console.error(`No account with the email ${email}.`);
+    process.exit(1);
+  }
+  db.prepare('update users set password_hash = ? where id = ?').run(hash, user.id);
+  db.prepare('delete from sessions where user_id = ?').run(user.id);
+  console.log(`Password changed for ${email}. Log in again with the new password.`);
 } else if (command === 'admin') {
-  const done = db.prepare('update users set admin = 1 where email = ?').run(String(email ?? '').toLowerCase());
+  const done = db.prepare('update users set admin = 1, admin_level = 1 where email = ?').run(String(email ?? '').toLowerCase());
   console.log(done.changes ? `${email} can now open Platform settings (Me → Platform settings).` : `No account with the email ${email}.`);
   if (!done.changes) process.exit(1);
 } else if (command === 'users') {

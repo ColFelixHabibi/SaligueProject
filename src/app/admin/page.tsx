@@ -5,6 +5,8 @@ import { TipsAdmin } from '@/components/admin/tips-admin';
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
+import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin } from '@/components/admin/control-admin';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, CircleDashed, Copy, Cpu, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
@@ -47,8 +49,8 @@ function Steps({ items }: { items: React.ReactNode[] }) {
   );
 }
 
-/** Platform settings for Saligue admins: connect email, online payments and unlimited try-on. */
-export default function PlatformPage() {
+/** Platform settings (admins with the Platform right): connect email, online payments and the AI. */
+function PlatformSettings() {
   const { toast } = useToast();
   const { user, isAuthLoading } = useAuth();
   const admin = useUserRoleStore((s) => s.admin);
@@ -110,22 +112,11 @@ export default function PlatformPage() {
     }
   };
 
-  if (isAuthLoading) return <Skeleton className="mx-auto mt-10 h-96 max-w-3xl" />;
-  if (!admin) {
-    return (
-      <div className="mx-auto max-w-md p-10 text-center text-muted-foreground">
-        <SlidersHorizontal className="mx-auto mb-3 h-10 w-10" />
-        Platform settings are for Saligue admins. <Link href="/me" className="text-primary underline">Back</Link>
-      </div>
-    );
-  }
-  if (!data) return <Skeleton className="mx-auto mt-10 h-96 max-w-3xl" />;
+  if (isAuthLoading || !data) return <Skeleton className="h-96" />;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+    <div className="space-y-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin</p>
-        <h1 className="text-3xl font-extrabold tracking-tight">Platform settings</h1>
         <p className="text-muted-foreground">Connect the services Saligue needs. Keys are kept on your server and never shown again.</p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[['Accounts', data.stats.users], ['Sellers', data.stats.sellers], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
@@ -332,11 +323,6 @@ export default function PlatformPage() {
         </Card>
       )}
 
-      <h2 className="pt-4 text-xl font-extrabold">Monetization</h2>
-      <AppealsAdmin />
-      <TipsAdmin />
-      <MonetizationAdmin />
-
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -350,6 +336,51 @@ export default function PlatformPage() {
           <Button variant="outline" asChild><a href="/download/saligue.apk">Download the Android app</a></Button>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+type AdminInfo = { level: number; perms: string[]; allPerms: Record<string, string>; features: Record<string, string> };
+
+/** The admin dashboard: each tab needs a right; the main admin (type 1) has them all and manages sub-admins. */
+export default function AdminPage() {
+  const { isAuthLoading } = useAuth();
+  const admin = useUserRoleStore((s) => s.admin);
+  const [me, setMe] = useState<AdminInfo | null>(null);
+  useEffect(() => {
+    if (admin) api<AdminInfo>('/admin/me').then(setMe).catch(() => setMe(null));
+  }, [admin]);
+  if (isAuthLoading || (admin && !me)) return <Skeleton className="mx-auto mt-10 h-96 max-w-3xl" />;
+  if (!admin || !me) {
+    return (
+      <div className="mx-auto max-w-md p-10 text-center text-muted-foreground">
+        <SlidersHorizontal className="mx-auto mb-3 h-10 w-10" />
+        This page is for Saligue admins. <Link href="/me" className="text-primary underline">Back</Link>
+      </div>
+    );
+  }
+  const has = (perm: string) => me.perms.includes(perm);
+  const tabs = [
+    { value: 'features', label: 'Features', show: has('features'), body: <FeaturesAdmin features={me.features} /> },
+    { value: 'rules', label: 'Rules & policies', show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
+    { value: 'moderation', label: 'Moderation', show: has('moderation'), body: <AppealsAdmin /> },
+    { value: 'money', label: 'Money & ads', show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'accounts', label: 'Accounts', show: has('users'), body: <AccountsAdmin /> },
+    { value: 'admins', label: 'Admins', show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
+    { value: 'platform', label: 'Platform', show: has('platform'), body: <PlatformSettings /> },
+  ].filter((t) => t.show);
+  return (
+    <div className="mx-auto max-w-4xl space-y-5 px-4 py-8">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin · {me.level === 1 ? 'Main admin' : 'Sub-admin'}</p>
+        <h1 className="text-3xl font-extrabold tracking-tight">Admin dashboard</h1>
+      </div>
+      <Tabs defaultValue={tabs[0]?.value}>
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+          {tabs.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
+        </TabsList>
+        {tabs.map((t) => <TabsContent key={t.value} value={t.value} className="mt-5">{t.body}</TabsContent>)}
+      </Tabs>
     </div>
   );
 }

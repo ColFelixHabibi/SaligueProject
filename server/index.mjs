@@ -15,7 +15,7 @@ import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck 
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
-import { adIncome, adSettings, campaignOut, closeMonth, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, REQUIREMENTS, startCampaign } from './ads.mjs';
+import { adIncome, adSettings, campaignOut, closeMonth, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, requirements, startCampaign } from './ads.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -73,7 +73,8 @@ function tokenOf(req) {
 function userOf(req, token = tokenOf(req)) {
   if (!token) return null;
   const since = new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString();
-  return db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ?').get(token, since) ?? null;
+  // Suspended accounts (Admin → Accounts) can't use the app until an admin lifts it.
+  return db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ? and u.suspended = 0').get(token, since) ?? null;
 }
 
 function isHttps(req) {
@@ -96,6 +97,9 @@ function publicUser(u) {
     official: !!u.official,
     // Runs the platform (Platform settings: email, payments, try-on). Set with `node server/admin.mjs admin <email>`.
     admin: !!u.admin,
+    // 1 = main admin (everything, manages admins); 2 = sub-admin with the rights in adminPerms.
+    adminLevel: u.admin_level ?? 0,
+    adminPerms: u.admin_level === 1 ? Object.keys(ADMIN_PERMS) : parse(u.admin_perms) ?? [],
     shop: parse(u.shop),
     // Profile photo (/media/… link); sellers need one before listing, it is shown with their shop.
     avatar: u.avatar ?? null,
@@ -398,6 +402,7 @@ route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
   if (tooManyAttempts(email)) fail(429, 'too_many_attempts', 'Too many tries. Wait 15 minutes or reset your password.');
   const account = db.prepare('select * from users where email = ?').get(email);
+  if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}. Contact Saligue support.`);
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
     noteFailedAttempt(email);
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
@@ -526,6 +531,7 @@ async function requireFashion(fields, current = {}, productId = null) {
 }
 
 route('POST', '/api/products', async ({ user, body }) => {
+  needFeature('selling');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
   if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only seller accounts can list items. Switch to selling in your account settings.');
   if (!parse(user.shop)?.name) fail(403, 'shop_required', 'Add your shop name and full address before listing.');
@@ -638,14 +644,14 @@ route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
 
 // Review of reported items, by INDECIANA's official account. Each decision also teaches the AI (learn.mjs).
 route('GET', '/api/admin/reports', ({ user }) => {
-  if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can review reports.');
+  if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review reports.');
   return db.prepare(`select p.*, count(r.user_id) as report_count, group_concat(distinct r.reason) as reasons, max(r.created_at) as last_report
     from reports r join products p on p.id = r.product_id group by p.id order by p.hidden desc, report_count desc, last_report desc`).all()
     .map((r) => ({ ...productOut(r), reportCount: r.report_count, reasons: (r.reasons ?? '').split(','), lastReport: r.last_report }));
 });
 
 route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
-  if (!user?.official) fail(403, 'forbidden', 'Only INDECIANA can review reports.');
+  if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review reports.');
   const product = db.prepare('select * from products where id = ?').get(params[0]);
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
   const embedding = parse(product.embedding);
@@ -678,6 +684,7 @@ route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
     .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, text: r.text, createdAt: r.created_at })));
 
 route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
+  needFeature('comments');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const text = String(body.text ?? '').trim().slice(0, 500);
   if (!text) fail(400, 'empty_comment', 'Write a comment first.');
@@ -975,6 +982,7 @@ route('GET', '/api/conversations', ({ user }) => {
 
 // Starts (or continues) a conversation from an item, an order, or a shop, and sends the first message.
 route('POST', '/api/conversations', ({ user, body }) => {
+  needFeature('messages');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   let buyerId = user.id;
   let sellerId = null;
@@ -1015,6 +1023,7 @@ route('GET', '/api/conversations/([\\w-]+)', ({ user, params }) => {
 });
 
 route('POST', '/api/conversations/([\\w-]+)/messages', ({ user, params, body }) => {
+  needFeature('messages');
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   const c = ownConversation(user, params[0]);
   const id = addMessage(user, c, { text: body.text, productId: body.productId ? String(body.productId) : null, orderId: body.orderId ? String(body.orderId) : null });
@@ -1051,6 +1060,7 @@ route('GET', '/api/products/([\\w-]+)/reviews', ({ user, params }) => {
 });
 
 route('POST', '/api/products/([\\w-]+)/reviews', ({ user, params, body }) => {
+  needFeature('reviews');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to write a review.');
   const product = db.prepare('select id, name, seller_id from products where id = ?').get(params[0]);
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
@@ -1410,11 +1420,12 @@ const sellerProductIds = (userId, ids) =>
   (Array.isArray(ids) ? ids.map(String) : []).filter((id) => db.prepare('select 1 from products where id = ? and seller_id = ?').get(id, userId)).slice(0, 30);
 
 route('GET', '/api/lives', () => ({
-  enabled: liveSettings().enabled,
+  enabled: liveSettings().enabled && featureOn('live'),
   lives: db.prepare("select * from lives where status = 'live' order by started_at desc limit 50").all().map(liveOut),
 }));
 
 route('POST', '/api/lives', ({ user, body }) => {
+  needFeature('live');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to go live.');
   if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only sellers can go live. Switch to selling first.');
   if (!liveSettings().enabled) fail(503, 'live_off', 'Live is not switched on yet.');
@@ -1448,6 +1459,7 @@ route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
 
 // A pass into the video room: hosts and accepted guests can use their camera; everyone else watches.
 route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
+  needFeature('live');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const live = getLive(params[0]);
   if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
@@ -1674,8 +1686,47 @@ route('DELETE', '/api/interactions', ({ user }) => {
 // Secrets are stored on the server and never sent back, only whether they are set.
 // ---------------------------------------------------------------------------
 
-const requireAdmin = (user) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Only Saligue admins can change platform settings.');
+// ---------------------------------------------------------------------------
+// Feature switches (Admin → Features): the main parts of Saligue can be turned off without a new version.
+// The server refuses switched-off features; the app hides their buttons (GET /api/features).
+// ---------------------------------------------------------------------------
+const FEATURES = {
+  live: 'Live shopping',
+  tryon: 'Realistic try-on (AI)',
+  lessons: 'Community lessons (Learn)',
+  challenges: 'Challenges',
+  duets: 'Duets',
+  captions: 'Automatic captions',
+  tips: 'Tips',
+  ads: 'Saligue Ads (sponsored items)',
+  monetization: 'Creator monetization (applications)',
+  selling: 'New item listings',
+  messages: 'Messages between buyers and shops',
+  comments: 'Comments',
+  reviews: 'Reviews',
+};
+const features = () => ({ ...Object.fromEntries(Object.keys(FEATURES).map((k) => [k, true])), ...(parse(db.prepare("select value from app_config where key = 'features'").get()?.value) ?? {}) });
+const featureOn = (name) => features()[name] !== false;
+const needFeature = (name) => {
+  if (!featureOn(name)) fail(503, 'feature_off', `${FEATURES[name] ?? 'This feature'} is switched off for now.`);
+};
+route('GET', '/api/features', () => features());
+
+// What a sub-admin (type 2) may be allowed to do. The main admin (type 1) can do everything and manages admins.
+const ADMIN_PERMS = {
+  moderation: 'Reports, appeals, removing lessons and comments',
+  ads: 'Review ads and confirm ad payments',
+  money: 'Creators, monthly payouts and tips',
+  users: 'Find accounts, suspend and restore them',
+  content: 'Challenges',
+  features: 'Switch app features on and off',
+  policies: 'Edit policies, monetization and ad rules',
+  platform: 'Email, payments, AI keys and the app signing key',
+};
+const can = (user, perm) => !!user?.admin && (user.admin_level === 1 || (user.admin_level === 2 && (parse(user.admin_perms) ?? []).includes(perm)));
+const logAdmin = (user, action, detail = '') => db.prepare('insert into admin_log (user_id, action, detail, created_at) values (?, ?, ?, ?)').run(user.id, action, String(detail).slice(0, 300), now());
+const requireAdmin = (user, perm = 'platform') => {
+  if (!can(user, perm)) fail(403, 'forbidden', user?.admin ? 'Your admin account does not have this right. Ask the main admin.' : 'Only Saligue admins can do this.');
 };
 const saveConfig = (key, value) =>
   value === null
@@ -1684,7 +1735,7 @@ const saveConfig = (key, value) =>
 const masked = (secret) => (secret ? `••••${String(secret).slice(-4)}` : null);
 
 route('GET', '/api/admin/platform', async ({ user }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   const own = ownAi();
   const ownStatus = own ? await checkOwnAi(own.url, own.key) : null;
   const pay = paymentSettings();
@@ -1713,7 +1764,7 @@ route('GET', '/api/admin/platform', async ({ user }) => {
 });
 
 route('PUT', '/api/admin/platform/mail', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   if (body.off) {
     saveConfig('mail', null);
     return { ok: true };
@@ -1737,7 +1788,7 @@ route('PUT', '/api/admin/platform/mail', async ({ user, body }) => {
 });
 
 route('POST', '/api/admin/platform/test-email', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   const to = String(body.to ?? user.email ?? '').trim();
   if (!EMAIL.test(to)) fail(400, 'invalid_email', 'Enter an email address to send the test to.');
   try {
@@ -1749,7 +1800,7 @@ route('POST', '/api/admin/platform/test-email', async ({ user, body }) => {
 });
 
 route('PUT', '/api/admin/platform/payments', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   if (body.off) {
     saveConfig('payments', null);
     return { ok: true };
@@ -1770,7 +1821,7 @@ route('PUT', '/api/admin/platform/payments', async ({ user, body }) => {
 });
 
 route('PUT', '/api/admin/platform/aiserver', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   if (body.off) {
     saveConfig('aiserver', null);
     return { ok: true };
@@ -1787,7 +1838,7 @@ route('PUT', '/api/admin/platform/aiserver', async ({ user, body }) => {
 
 // Hugging Face token for the free try-on models: checked with Hugging Face before it is saved.
 route('PUT', '/api/admin/platform/hftoken', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   if (body.off) {
     saveConfig('hftoken', null);
     clearResting();
@@ -1803,7 +1854,7 @@ route('PUT', '/api/admin/platform/hftoken', async ({ user, body }) => {
 });
 
 route('PUT', '/api/admin/platform/tryon', async ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   if (body.off) {
     saveConfig('tryon', null);
     return { ok: true };
@@ -1824,13 +1875,13 @@ function signingInfo() {
 }
 
 route('GET', '/api/admin/signing-key', ({ user }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   const info = signingInfo();
   return info ? { available: true, alias: info.keyAlias } : { available: false };
 });
 
 route('GET', '/api/admin/signing-key/file', ({ user, res }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   const info = signingInfo();
   if (!info) fail(404, 'not_found', 'There is no app signing key on this server yet.');
   const data = readFileSync(info.storeFile);
@@ -1840,7 +1891,7 @@ route('GET', '/api/admin/signing-key/file', ({ user, res }) => {
 });
 
 route('POST', '/api/admin/signing-key/password', ({ user }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'platform');
   const info = signingInfo();
   if (!info) fail(404, 'not_found', 'There is no app signing key on this server yet.');
   return { password: info.storePassword, alias: info.keyAlias };
@@ -1937,6 +1988,7 @@ route('GET', '/api/lessons/([\\w-]+)', ({ user, params }) => {
 });
 
 route('POST', '/api/lessons', ({ user, body }) => {
+  needFeature('lessons');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to teach on Saligue.');
   const title = String(body.title ?? '').trim().slice(0, 100);
   if (title.length < 3) fail(400, 'invalid', 'Give your lesson a title.');
@@ -1945,12 +1997,14 @@ route('POST', '/api/lessons', ({ user, body }) => {
   if (recent >= 10) fail(429, 'too_many', 'Up to 10 lessons a day.');
   let challengeId = null, duetOf = null;
   if (body.challengeId) {
+    needFeature('challenges');
     const c = db.prepare('select id, ends_at from challenges where id = ?').get(String(body.challengeId));
     if (!c) fail(404, 'not_found', 'This challenge does not exist.');
     if (c.ends_at < now()) fail(400, 'ended', 'This challenge has ended.');
     challengeId = c.id;
   }
   if (body.duetOf) {
+    needFeature('duets');
     const o = db.prepare('select id, user_id, title, hidden, video from lessons where id = ?').get(String(body.duetOf));
     if (!o || o.hidden || !o.video) fail(404, 'not_found', 'The lesson for this duet is not available.');
     if (blockedBetween(user.id, o.user_id)) fail(403, 'blocked', 'You can’t make a duet with this lesson.');
@@ -1966,7 +2020,7 @@ route('POST', '/api/lessons', ({ user, body }) => {
 route('DELETE', '/api/lessons/([\\w-]+)', ({ user, params }) => {
   const l = db.prepare('select * from lessons where id = ?').get(params[0]);
   if (!l) return { ok: true };
-  if (l.user_id !== user?.id && !user?.admin) fail(403, 'forbidden', 'Only the teacher can remove this lesson.');
+  if (l.user_id !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the teacher can remove this lesson.');
   db.prepare('delete from lessons where id = ?').run(l.id);
   broadcast('lessons');
   return { ok: true };
@@ -2006,7 +2060,8 @@ route('GET', '/api/challenges/([\\w-]+)', ({ params }) => {
 });
 
 route('POST', '/api/challenges', ({ user, body }) => {
-  if (!user?.admin && !user?.official) fail(403, 'forbidden', 'Only Saligue can start challenges.');
+  needFeature('challenges');
+  if (!can(user, 'content') && !user?.official) fail(403, 'forbidden', 'Only Saligue can start challenges.');
   const title = String(body.title ?? '').trim().slice(0, 80);
   if (title.length < 3) fail(400, 'invalid', 'Give the challenge a title.');
   if (!LESSON_TOPICS.includes(body.topic)) fail(400, 'invalid', 'Choose a fashion topic.');
@@ -2019,7 +2074,7 @@ route('POST', '/api/challenges', ({ user, body }) => {
 });
 
 route('DELETE', '/api/challenges/([\\w-]+)', ({ user, params }) => {
-  if (!user?.admin && !user?.official) fail(403, 'forbidden', 'Only Saligue can remove challenges.');
+  if (!can(user, 'content') && !user?.official) fail(403, 'forbidden', 'Only Saligue can remove challenges.');
   db.prepare('update lessons set challenge_id = null where challenge_id = ?').run(params[0]);
   db.prepare('delete from challenges where id = ?').run(params[0]);
   return { ok: true };
@@ -2051,6 +2106,7 @@ route('GET', '/api/lessons/([\\w-]+)/comments', ({ params }) => {
 });
 
 route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
+  needFeature('comments');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to comment on lessons.');
   const lesson = db.prepare('select id, user_id, title from lessons where id = ?').get(params[0]);
   if (!lesson) fail(404, 'not_found', 'This lesson is not available.');
@@ -2074,7 +2130,7 @@ route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
 route('DELETE', '/api/lesson-comments/([\\w-]+)', ({ user, params }) => {
   const c = db.prepare('select c.*, l.user_id as teacher from lesson_comments c join lessons l on l.id = c.lesson_id where c.id = ?').get(params[0]);
   if (!c) return { ok: true };
-  if (c.user_id !== user?.id && c.teacher !== user?.id && !user?.admin) fail(403, 'forbidden', 'You can only delete your own comments.');
+  if (c.user_id !== user?.id && c.teacher !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'You can only delete your own comments.');
   db.prepare('delete from lesson_comments where id = ? or parent_id = ?').run(c.id, c.id);
   broadcast('lesson_comments', { lessonId: c.lesson_id });
   return { ok: true };
@@ -2113,8 +2169,11 @@ route('POST', '/api/lessons/([\\w-]+)/report', ({ user, params, body }) => {
 // admin confirms). The receiver gets 90%; payouts go to their Mobile Money.
 // ---------------------------------------------------------------------------
 
-const TIP_AMOUNTS = [1, 2, 5, 10, 20];
-const TIP_SHARE = 0.9;
+// Tip amounts and the receiver's share, as set by admins (Admin → Policies & rules).
+function tipRules() {
+  const saved = parse(db.prepare("select value from app_config where key = 'tips'").get()?.value) ?? {};
+  return { share: Number(saved.share ?? 0.9), amounts: Array.isArray(saved.amounts) && saved.amounts.length ? saved.amounts.map(Number) : [1, 2, 5, 10, 20] };
+}
 
 function tipPaid(tipId) {
   const tip = db.prepare('select * from tips where id = ?').get(tipId);
@@ -2125,10 +2184,11 @@ function tipPaid(tipId) {
 
 route('GET', '/api/tips/settings', () => {
   const a = adSettings();
-  return { amounts: TIP_AMOUNTS, share: TIP_SHARE, onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName };
+  return { amounts: tipRules().amounts, share: tipRules().share, onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName };
 });
 
 route('POST', '/api/tips', async ({ req, user, body }) => {
+  needFeature('tips');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to send a tip.');
   const to = db.prepare('select * from users where id = ?').get(String(body.toUserId ?? ''));
   const teaches = to && db.prepare('select 1 from lessons where user_id = ? and video is not null').get(to.id);
@@ -2136,12 +2196,12 @@ route('POST', '/api/tips', async ({ req, user, body }) => {
   if (to.id === user.id) fail(400, 'own', 'You can’t tip yourself.');
   if (blockedBetween(user.id, to.id)) fail(403, 'blocked', 'You can’t tip this account.');
   const amount = Number(body.amount);
-  if (!TIP_AMOUNTS.includes(amount)) fail(400, 'invalid_amount', 'Choose an amount.');
+  if (!tipRules().amounts.includes(amount)) fail(400, 'invalid_amount', 'Choose an amount.');
   const lessonId = body.lessonId && db.prepare('select id from lessons where id = ? and user_id = ?').get(String(body.lessonId), to.id)?.id;
   const id = randomUUID();
   const reference = `TIP-${id.slice(0, 6).toUpperCase()}`;
   db.prepare('insert into tips (id, from_user, to_user, lesson_id, amount, share, message, reference, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, to.id, lessonId ?? null, amount, Math.round(amount * TIP_SHARE * 100) / 100, String(body.message ?? '').trim().slice(0, 200), reference, now());
+    .run(id, user.id, to.id, lessonId ?? null, amount, Math.round(amount * tipRules().share * 100) / 100, String(body.message ?? '').trim().slice(0, 200), reference, now());
   if (!paymentsEnabled()) {
     const a = adSettings();
     return { manual: true, id, reference, amount, momoNumber: a.momoNumber, momoName: a.momoName };
@@ -2163,7 +2223,7 @@ route('GET', '/api/me/tips', ({ user }) => {
   const rows = db.prepare("select t.*, u.display_name, u.email, u.is_guest from tips t join users u on u.id = t.from_user where t.to_user = ? and t.status = 'paid' order by t.paid_at desc limit 200").all(user.id);
   const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare("select momo_number, momo_name from creators where user_id = ?").get(user.id);
   return {
-    share: TIP_SHARE,
+    share: tipRules().share,
     total: Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100,
     waiting: Math.round(rows.filter((r) => !r.payout_id).reduce((s, r) => s + r.share, 0) * 100) / 100,
     momo: account ? { number: account.momo_number, name: account.momo_name } : null,
@@ -2182,7 +2242,7 @@ route('PUT', '/api/me/tips/account', ({ user, body }) => {
 
 // Admin: confirm Mobile Money tips by reference, and pay receivers.
 route('GET', '/api/admin/tips', ({ user }) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  requireAdmin(user, 'money');
   const waiting = db.prepare("select t.*, f.display_name as from_name, r.display_name as to_name, r.shop as to_shop, r.role as to_role from tips t join users f on f.id = t.from_user join users r on r.id = t.to_user where t.status = 'pending_payment' and t.created_at > ? order by t.created_at desc").all(new Date(Date.now() - 14 * 86_400_000).toISOString());
   const due = db.prepare("select t.to_user, sum(t.share) as amount, count(*) as n, u.display_name, u.shop, u.role from tips t join users u on u.id = t.to_user where t.status = 'paid' and t.payout_id is null group by t.to_user").all();
   return {
@@ -2195,7 +2255,7 @@ route('GET', '/api/admin/tips', ({ user }) => {
 });
 
 route('POST', '/api/admin/tips/([\\w-]+)', ({ user, params, body }) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  requireAdmin(user, 'money');
   const tip = db.prepare("select * from tips where id = ? and status = 'pending_payment'").get(params[0]);
   if (!tip) fail(404, 'not_found', 'Tip not found.');
   if (body.decision === 'cancel') db.prepare("update tips set status = 'cancelled' where id = ?").run(tip.id);
@@ -2207,7 +2267,7 @@ route('POST', '/api/admin/tips/([\\w-]+)', ({ user, params, body }) => {
 });
 
 route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  requireAdmin(user, 'money');
   const rows = db.prepare("select id, share from tips where to_user = ? and status = 'paid' and payout_id is null").all(params[0]);
   if (!rows.length) fail(400, 'nothing', 'Nothing to pay.');
   if (!db.prepare('select 1 from tip_accounts where user_id = ?').get(params[0]) && !db.prepare('select 1 from creators where user_id = ?').get(params[0])) fail(400, 'no_momo', 'This person has not added a Mobile Money number yet (My tips).');
@@ -2219,6 +2279,148 @@ route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
   });
   notify(params[0], { type: 'account', title: `Your tips were paid: ${money(amount)}`, body: 'Sent to your Mobile Money.', link: '/tips' });
   return { ok: true, amount };
+});
+
+// ---------------------------------------------------------------------------
+// Admin dashboard: features, policies and rules, accounts, admins and the admin log
+// ---------------------------------------------------------------------------
+
+route('GET', '/api/admin/me', ({ user }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  return { level: user.admin_level, perms: user.admin_level === 1 ? Object.keys(ADMIN_PERMS) : parse(user.admin_perms) ?? [], allPerms: ADMIN_PERMS, features: FEATURES };
+});
+
+route('PUT', '/api/admin/features', ({ user, body }) => {
+  requireAdmin(user, 'features');
+  const next = { ...features() };
+  for (const k of Object.keys(FEATURES)) if (typeof body?.[k] === 'boolean') next[k] = body[k];
+  saveConfig('features', next);
+  logAdmin(user, 'features', Object.entries(body ?? {}).map(([k, v]) => `${k} ${v ? 'on' : 'off'}`).join(', '));
+  broadcast('features');
+  return next;
+});
+
+// Policies: the text of each policy page can be edited (headings and paragraphs); empty = Saligue's default text.
+const POLICIES = ['monetization', 'ads', 'terms', 'privacy', 'cookies'];
+route('GET', '/api/policies/([\\w-]+)', ({ params }) => {
+  if (!POLICIES.includes(params[0])) fail(404, 'not_found', 'Not found.');
+  return parse(db.prepare('select value from app_config where key = ?').get(`policy:${params[0]}`)?.value);
+});
+route('PUT', '/api/admin/policies/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'policies');
+  if (!POLICIES.includes(params[0])) fail(404, 'not_found', 'Not found.');
+  if (body?.reset) {
+    saveConfig(`policy:${params[0]}`, null);
+    logAdmin(user, 'policy reset', params[0]);
+    return null;
+  }
+  const sections = (Array.isArray(body?.sections) ? body.sections : []).slice(0, 40).map((x) => ({
+    heading: String(x?.heading ?? '').trim().slice(0, 150),
+    paragraphs: (Array.isArray(x?.paragraphs) ? x.paragraphs : []).map((t) => String(t).trim().slice(0, 3000)).filter(Boolean).slice(0, 40),
+  })).filter((x) => x.heading || x.paragraphs.length);
+  if (!sections.length) fail(400, 'invalid', 'Write at least one section.');
+  const policy = { intro: String(body.intro ?? '').trim().slice(0, 2000), sections, updated: new Date().toISOString().slice(0, 10) };
+  saveConfig(`policy:${params[0]}`, policy);
+  logAdmin(user, 'policy edited', params[0]);
+  return policy;
+});
+
+// Money rules: monetization requirements, creators' share, ad prices, tips.
+route('GET', '/api/admin/rules', ({ user }) => {
+  requireAdmin(user, 'policies');
+  const a = adSettings();
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts };
+});
+route('PUT', '/api/admin/rules', ({ user, body }) => {
+  requireAdmin(user, 'policies');
+  const n = (v, min, max) => Math.min(max, Math.max(min, Number(v)));
+  if (body.followers !== undefined || body.views90 !== undefined || body.accountDays !== undefined) {
+    const r = requirements();
+    saveConfig('monetization', { followers: Math.round(n(body.followers ?? r.followers, 0, 10_000_000)), views90: Math.round(n(body.views90 ?? r.views90, 0, 1e9)), accountDays: Math.round(n(body.accountDays ?? r.accountDays, 0, 3650)) });
+  }
+  if (body.creatorShare !== undefined || body.cpm !== undefined || body.minBudget !== undefined) {
+    const saved = parse(db.prepare("select value from app_config where key = 'ads'").get()?.value) ?? {};
+    saveConfig('ads', { ...saved, ...(body.creatorShare !== undefined ? { creatorShare: n(body.creatorShare, 0, 0.9) } : {}), ...(body.cpm !== undefined ? { cpm: n(body.cpm, 0.1, 1000) } : {}), ...(body.minBudget !== undefined ? { minBudget: n(body.minBudget, 1, 100000) } : {}) });
+  }
+  if (body.tipShare !== undefined || body.tipAmounts !== undefined) {
+    const t = tipRules();
+    const amounts = Array.isArray(body.tipAmounts) ? [...new Set(body.tipAmounts.map(Number).filter((x) => x >= 0.5 && x <= 1000))].sort((a, b) => a - b).slice(0, 8) : t.amounts;
+    saveConfig('tips', { share: n(body.tipShare ?? t.share, 0.5, 1), amounts: amounts.length ? amounts : t.amounts });
+  }
+  logAdmin(user, 'rules changed', JSON.stringify(body).slice(0, 250));
+  const a = adSettings();
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts };
+});
+
+// Accounts: find people, suspend or restore them.
+route('GET', '/api/admin/users', ({ user, url }) => {
+  requireAdmin(user, 'users');
+  const q = `%${String(url.searchParams.get('q') ?? '').trim().toLowerCase()}%`;
+  return db.prepare("select * from users where is_guest = 0 and (lower(email) like ? or lower(display_name) like ? or lower(coalesce(shop, '')) like ?) order by created_at desc limit 50").all(q, q, q).map((u) => ({
+    id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), email: u.email, role: u.role, official: !!u.official, adminLevel: u.admin_level ?? 0,
+    suspended: !!u.suspended, suspendReason: u.suspend_reason, createdAt: u.created_at,
+    items: db.prepare('select count(*) as n from products where seller_id = ?').get(u.id).n,
+    orders: db.prepare('select count(*) as n from orders where buyer_id = ?').get(u.id).n,
+  }));
+});
+route('POST', '/api/admin/users/([\\w-]+)/suspend', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const target = db.prepare('select * from users where id = ?').get(params[0]);
+  if (!target) fail(404, 'not_found', 'Account not found.');
+  if (target.id === user.id) fail(400, 'self', 'You can’t suspend yourself.');
+  if (target.admin_level === 1 || (target.admin_level === 2 && user.admin_level !== 1)) fail(403, 'forbidden', 'Only the main admin can suspend an admin, and the main admin can’t be suspended.');
+  const suspend = body.suspended !== false;
+  const reason = suspend ? String(body.reason ?? '').trim().slice(0, 200) || null : null;
+  db.prepare('update users set suspended = ?, suspend_reason = ? where id = ?').run(suspend ? 1 : 0, reason, target.id);
+  if (suspend) db.prepare('delete from sessions where user_id = ?').run(target.id);
+  logAdmin(user, suspend ? 'suspended' : 'restored', `${target.email}${reason ? `: ${reason}` : ''}`);
+  return { ok: true };
+});
+
+// Admins: only the main admin (type 1) adds sub-admins (type 2) and chooses their rights.
+const requireMain = (user) => {
+  if (!(user?.admin && user.admin_level === 1)) fail(403, 'forbidden', 'Only the main admin can manage admins.');
+};
+route('GET', '/api/admin/admins', ({ user }) => {
+  requireMain(user);
+  return db.prepare('select id, display_name, email, admin_level, admin_perms, created_at from users where admin = 1 order by admin_level, created_at').all()
+    .map((u) => ({ id: u.id, name: u.display_name, email: u.email, level: u.admin_level, perms: u.admin_level === 1 ? Object.keys(ADMIN_PERMS) : parse(u.admin_perms) ?? [] }));
+});
+const cleanPerms = (perms) => (Array.isArray(perms) ? perms : []).filter((p) => ADMIN_PERMS[p]);
+route('POST', '/api/admin/admins', ({ user, body }) => {
+  requireMain(user);
+  const target = db.prepare('select * from users where lower(email) = ? and is_guest = 0').get(String(body.email ?? '').trim().toLowerCase());
+  if (!target) fail(404, 'not_found', 'No Saligue account with this email. Ask them to create one first.');
+  if (target.admin_level === 1) fail(400, 'main', 'This is a main admin.');
+  const perms = cleanPerms(body.perms);
+  if (!perms.length) fail(400, 'invalid', 'Choose at least one right.');
+  db.prepare("update users set admin = 1, admin_level = 2, admin_perms = ? where id = ?").run(json(perms), target.id);
+  notify(target.id, { type: 'account', title: 'You are now a Saligue admin', body: `Rights: ${perms.map((p) => ADMIN_PERMS[p]).join('; ')}.`, link: '/admin' });
+  logAdmin(user, 'sub-admin added', `${target.email}: ${perms.join(', ')}`);
+  return { ok: true };
+});
+route('PUT', '/api/admin/admins/([\\w-]+)', ({ user, params, body }) => {
+  requireMain(user);
+  const target = db.prepare('select * from users where id = ? and admin_level = 2').get(params[0]);
+  if (!target) fail(404, 'not_found', 'Sub-admin not found.');
+  const perms = cleanPerms(body.perms);
+  if (!perms.length) fail(400, 'invalid', 'Choose at least one right, or remove the admin.');
+  db.prepare('update users set admin_perms = ? where id = ?').run(json(perms), target.id);
+  logAdmin(user, 'sub-admin rights', `${target.email}: ${perms.join(', ')}`);
+  return { ok: true };
+});
+route('DELETE', '/api/admin/admins/([\\w-]+)', ({ user, params }) => {
+  requireMain(user);
+  const target = db.prepare('select * from users where id = ? and admin_level = 2').get(params[0]);
+  if (!target) fail(404, 'not_found', 'Sub-admin not found.');
+  db.prepare("update users set admin = 0, admin_level = 0, admin_perms = '[]' where id = ?").run(target.id);
+  logAdmin(user, 'sub-admin removed', target.email);
+  return { ok: true };
+});
+route('GET', '/api/admin/log', ({ user }) => {
+  requireMain(user);
+  return db.prepare('select l.*, u.display_name, u.email from admin_log l left join users u on u.id = l.user_id order by l.id desc limit 200').all()
+    .map((r) => ({ id: r.id, who: r.display_name || r.email || 'admin', action: r.action, detail: r.detail, at: r.created_at }));
 });
 
 // ---------------------------------------------------------------------------
@@ -2265,7 +2467,7 @@ route('GET', '/api/me/appeals', ({ user }) =>
   user ? db.prepare('select id, kind, target_id as targetId, status, note, created_at as createdAt, decided_at as decidedAt from appeals where user_id = ? order by created_at desc').all(user.id) : []);
 
 route('GET', '/api/admin/appeals', ({ user }) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  requireAdmin(user, 'moderation');
   return db.prepare("select * from appeals where status = 'open' order by created_at").all().map((a) => {
     const target = appealTarget(a.kind, a.target_id);
     const reasons = db.prepare(`select reason, count(*) as n from ${a.kind === 'product' ? 'reports where product_id' : 'lesson_reports where lesson_id'} = ? group by reason`).all(a.target_id);
@@ -2275,7 +2477,7 @@ route('GET', '/api/admin/appeals', ({ user }) => {
 
 // Admin decision: show it again (reports are cleared) or keep it hidden, with a note the owner receives.
 route('POST', '/api/admin/appeals/([\\w-]+)', ({ user, params, body }) => {
-  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  requireAdmin(user, 'moderation');
   const a = db.prepare("select * from appeals where id = ? and status = 'open'").get(params[0]);
   if (!a) fail(404, 'not_found', 'Appeal not found.');
   const restore = body.decision === 'restore';
@@ -2391,6 +2593,7 @@ route('GET', '/api/ads/campaigns', ({ user }) => {
 });
 
 route('POST', '/api/ads/campaigns', ({ user, body }) => {
+  needFeature('ads');
   if (!user || user.is_guest || user.role !== 'seller') fail(403, 'not_a_seller', 'Only shops can advertise.');
   const a = adSettings();
   const product = db.prepare("select * from products where id = ? and seller_id = ? and status = 'active' and hidden = 0").get(String(body.productId ?? ''), user.id);
@@ -2447,6 +2650,7 @@ route('GET', '/api/ads/campaigns/([\\w-]+)/stats', ({ user, params }) => {
 route('GET', '/api/ads', ({ user, url }) => {
   const placement = url.searchParams.get('placement') === 'explore' ? 'explore' : 'feed';
   const count = Math.min(5, Math.max(1, Number(url.searchParams.get('count')) || 2));
+  if (!featureOn('ads')) return [];
   return pickAds(user?.id ?? null, count, placement);
 });
 route('POST', '/api/ads/events', ({ user, body }) => ({ recorded: recordAdEvents(user?.id ?? null, Array.isArray(body.events) ? body.events : []) }));
@@ -2471,7 +2675,7 @@ route('GET', '/api/creator', ({ user }) => {
     status: creator?.status ?? null,
     note: creator?.note ?? null,
     momo: creator ? { number: creator.momo_number, name: creator.momo_name } : null,
-    requirements: REQUIREMENTS,
+    requirements: requirements(),
     ...eligibility(user.id),
     followers: followerCount(user.id),
     thisMonth: { period: period(), pool: month.pool, mine },
@@ -2482,6 +2686,7 @@ route('GET', '/api/creator', ({ user }) => {
 });
 
 route('POST', '/api/creator/apply', ({ user, body }) => {
+  needFeature('monetization');
   if (!user || user.is_guest || user.role !== 'seller') fail(403, 'not_a_seller', 'Only shops can join the program.');
   const momoNumber = String(body.momoNumber ?? '').replace(/[^\d+]/g, '');
   const momoName = String(body.momoName ?? '').trim().slice(0, 80);
@@ -2504,13 +2709,13 @@ route('POST', '/api/creator/apply', ({ user, body }) => {
 // ---------------------------------------------------------------------------
 
 route('GET', '/api/admin/ads', ({ user }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'ads');
   return db.prepare("select c.*, u.display_name, u.shop from ad_campaigns c join users u on u.id = c.seller_id order by case c.status when 'in_review' then 0 when 'pending_payment' then 1 when 'active' then 2 else 3 end, c.created_at desc limit 100").all()
     .map((c) => ({ ...campaignOut(c), shop: shopNameOf(c), reference: `AD-${c.id.slice(0, 6).toUpperCase()}` }));
 });
 
 route('POST', '/api/admin/ads/([\\w-]+)', ({ user, params, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'ads');
   const c = db.prepare('select * from ad_campaigns where id = ?').get(params[0]);
   if (!c) fail(404, 'not_found', 'Ad not found.');
   const note = String(body.note ?? '').trim().slice(0, 300) || null;
@@ -2529,13 +2734,13 @@ route('POST', '/api/admin/ads/([\\w-]+)', ({ user, params, body }) => {
 });
 
 route('GET', '/api/admin/creators', ({ user }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'money');
   return db.prepare("select c.*, u.display_name, u.email, u.shop from creators c join users u on u.id = c.user_id order by case c.status when 'applied' then 0 else 1 end, c.applied_at desc").all()
     .map((c) => ({ userId: c.user_id, shop: shopNameOf(c), email: c.email, status: c.status, momoNumber: c.momo_number, momoName: c.momo_name, appliedAt: c.applied_at, followers: followerCount(c.user_id), ...eligibility(c.user_id) }));
 });
 
 route('POST', '/api/admin/creators/([\\w-]+)', ({ user, params, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'money');
   const decision = { approve: 'approved', reject: 'rejected', suspend: 'suspended' }[body.decision];
   if (!decision) fail(400, 'invalid', 'Choose approve, reject or suspend.');
   const note = String(body.note ?? '').trim().slice(0, 300) || null;
@@ -2547,7 +2752,7 @@ route('POST', '/api/admin/creators/([\\w-]+)', ({ user, params, body }) => {
 });
 
 route('GET', '/api/admin/payouts', ({ user, url }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'money');
   const p = /^\d{4}-\d{2}$/.test(url.searchParams.get('period') ?? '') ? url.searchParams.get('period') : period(-1);
   const rows = db.prepare('select p.*, c.momo_number, c.momo_name, u.display_name, u.shop from payouts p left join creators c on c.user_id = p.user_id join users u on u.id = p.user_id where p.period = ? order by p.amount desc').all(p);
   return {
@@ -2559,14 +2764,14 @@ route('GET', '/api/admin/payouts', ({ user, url }) => {
 });
 
 route('POST', '/api/admin/payouts/close', ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'money');
   const p = String(body.period ?? period(-1));
   if (!/^\d{4}-\d{2}$/.test(p) || p >= period()) fail(400, 'invalid', 'Only a finished month can be closed.');
   return { created: closeMonth(p) };
 });
 
 route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'money');
   const payout = db.prepare('select * from payouts where id = ?').get(params[0]);
   if (!payout) fail(404, 'not_found', 'Payout not found.');
   db.prepare("update payouts set status = 'paid', paid_at = ?, reference = ? where id = ?").run(now(), String(body.reference ?? '').slice(0, 80) || null, payout.id);
@@ -2575,7 +2780,7 @@ route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
 });
 
 route('PUT', '/api/admin/platform/ads', ({ user, body }) => {
-  requireAdmin(user);
+  requireAdmin(user, 'policies');
   const cpm = Number(body.cpm), minBudget = Number(body.minBudget), share = Number(body.creatorShare);
   if (!(cpm >= 0.1 && cpm <= 100) || !(minBudget >= 1) || !(share >= 0 && share <= 0.9)) fail(400, 'invalid', 'Check the numbers.');
   saveConfig('ads', { cpm, minBudget, creatorShare: share, momoNumber: String(body.momoNumber ?? '').trim() || null, momoName: String(body.momoName ?? '').trim() || 'INDECIANA' });
@@ -2615,7 +2820,7 @@ route('GET', '/api/config/([\\w-]+)', ({ params }) => {
   return parse(db.prepare('select value from app_config where key = ?').get(params[0])?.value);
 });
 route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
-  if (!user?.official && !user?.admin) fail(403, 'forbidden', 'Only INDECIANA can change app settings.');
+  if (!user?.official && !can(user, 'features')) fail(403, 'forbidden', 'Only INDECIANA can change app settings.');
   if (!PUBLIC_CONFIG.includes(params[0])) fail(403, 'forbidden', 'Change this in Platform settings.');
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(params[0], json(body));
   return { ok: true };
@@ -2623,8 +2828,9 @@ route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
 
 // Realistic try-on (see tryon.mjs). A few runs per account per hour, since the free AI has a daily limit.
 const tryOnRuns = new Map();
-route('GET', '/api/ai/tryon', () => ({ available: true, unlimited: unlimitedTryOn(), categories: REALISTIC_CATEGORIES }));
+route('GET', '/api/ai/tryon', () => ({ available: featureOn('tryon'), unlimited: unlimitedTryOn(), categories: REALISTIC_CATEGORIES }));
 route('POST', '/api/ai/tryon', async ({ user, body }) => {
+  needFeature('tryon');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   if (!REALISTIC_CATEGORIES.includes(body.category)) fail(400, 'unsupported', 'Realistic try-on works for tops, jackets, trousers and dresses.');
   const hour = Date.now() - 3_600_000;
@@ -2777,7 +2983,7 @@ const server = http.createServer(async (req, res) => {
       const { video, poster, duration } = await processVideo(file, LESSON_MAX_SECONDS);
       db.prepare("update lessons set video = ?, poster = ?, duration = ?, captions = null, captions_status = null where id = ?").run(video, poster, duration, lesson.id);
       broadcast('lessons');
-      enqueueCaptions(lesson.id);
+      if (featureOn('captions')) enqueueCaptions(lesson.id);
       return send(res, 200, lessonOut(db.prepare('select * from lessons where id = ?').get(lesson.id), user));
     } catch (error) {
       if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
@@ -2879,5 +3085,5 @@ setInterval(dropOldSessions, 86_400_000).unref();
 server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);
   // Captions for lessons that don't have them yet (a minute after start, so starting stays quick).
-  setTimeout(captionMissing, 60_000).unref();
+  setTimeout(() => featureOn('captions') && captionMissing(), 60_000).unref();
 });

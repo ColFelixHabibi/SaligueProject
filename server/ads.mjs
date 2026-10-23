@@ -24,6 +24,15 @@ export function adSettings() {
 }
 
 export const REQUIREMENTS = { followers: 1000, views90: 50000, accountDays: 30 };
+/** Monetization requirements, as set by admins (Admin → Policies & rules), else the defaults above. */
+export function requirements() {
+  const saved = parse(db.prepare("select value from app_config where key = 'monetization'").get()?.value) ?? {};
+  return {
+    followers: Number(saved.followers ?? REQUIREMENTS.followers),
+    views90: Number(saved.views90 ?? REQUIREMENTS.views90),
+    accountDays: Number(saved.accountDays ?? REQUIREMENTS.accountDays),
+  };
+}
 const FREQUENCY_CAP = 3; // views of one ad per person per day
 
 const day = () => now().slice(0, 10);
@@ -125,10 +134,11 @@ export function eligibility(userId) {
   const accountDays = Math.floor((Date.now() - Date.parse(user.created_at)) / 86_400_000);
   const strikes = db.prepare("select count(*) as n from notifications where user_id = ? and type = 'product' and title like '%was removed%' and created_at > ?")
     .get(userId, new Date(Date.now() - 90 * 86_400_000).toISOString()).n;
+  const req = requirements();
   const checks = [
-    { key: 'followers', label: 'Clients', value: followers, target: REQUIREMENTS.followers },
-    { key: 'views', label: 'Item views (last 90 days)', value: views90, target: REQUIREMENTS.views90 },
-    { key: 'age', label: 'Days since joining', value: accountDays, target: REQUIREMENTS.accountDays },
+    { key: 'followers', label: 'Clients', value: followers, target: req.followers },
+    { key: 'views', label: 'Item views (last 90 days)', value: views90, target: req.views90 },
+    { key: 'age', label: 'Days since joining', value: accountDays, target: req.accountDays },
     { key: 'profile', label: 'Profile photo and shop address', value: user.avatar && parse(user.shop)?.name ? 1 : 0, target: 1 },
     { key: 'strikes', label: 'No items removed for breaking rules (90 days)', value: strikes ? 0 : 1, target: 1 },
   ].map((c) => ({ ...c, met: c.value >= c.target }));

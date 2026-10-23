@@ -1,9 +1,20 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { api } from '@/lib/api';
+import { DEFAULT_POLICIES, type Policy, type PolicyKey } from '@/lib/policies';
 
 export type LegalSection = { heading: string; paragraphs: string[] };
 
-/** Layout for the Terms of Service and Privacy Policy. */
-export function LegalPage({ title, updated, intro, sections }: { title: string; updated: string; intro: string; sections: LegalSection[] }) {
+/** A policy page: Saligue's default text, or the version an admin edited (Admin → Rules & policies). */
+export function LegalPage({ policy }: { policy: PolicyKey }) {
+  const base = DEFAULT_POLICIES[policy];
+  const [edited, setEdited] = useState<Partial<Policy> | null>(null);
+  useEffect(() => {
+    api<Partial<Policy> | null>(`/policies/${policy}`).then(setEdited).catch(() => {});
+  }, [policy]);
+  const { title, updated, intro, sections } = { ...base, ...(edited ?? {}) };
   return (
     <article className="container mx-auto max-w-3xl px-4 py-10">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary">Saligue by INDECIANA</p>
@@ -12,10 +23,10 @@ export function LegalPage({ title, updated, intro, sections }: { title: string; 
       <p className="mt-6 leading-relaxed">{intro}</p>
       <ol className="mt-8 space-y-8">
         {sections.map((s, i) => (
-          <li key={s.heading}>
+          <li key={`${i}-${s.heading}`}>
             <h2 className="text-xl font-bold">{i + 1}. {s.heading}</h2>
-            {s.paragraphs.map((p) => (
-              <p key={p} className="mt-2 leading-relaxed text-foreground/85">{p}</p>
+            {s.paragraphs.map((p, j) => (
+              <p key={j} className="mt-2 leading-relaxed text-foreground/85">{p}</p>
             ))}
           </li>
         ))}

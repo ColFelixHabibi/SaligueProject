@@ -82,6 +82,44 @@ export function zoomRange(track: MediaStreamTrack | undefined | null): (ZoomCaps
   return { ...caps, value };
 }
 
+export const DIGITAL_ZOOM_MAX = 3;
+
+/**
+ * Zoom for cameras that can't zoom from the browser (most phones and webcams): the centre of the picture is
+ * cropped and enlarged on a canvas, and that canvas is what viewers receive. 1× = the whole camera picture.
+ */
+export function digitalZoom(source: MediaStreamTrack) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = new MediaStream([source]);
+  void video.play().catch(() => {});
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  let zoom = 1;
+  const draw = () => {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const cw = w / zoom, ch = h / zoom;
+    ctx.drawImage(video, (w - cw) / 2, (h - ch) / 2, cw, ch, 0, 0, w, h);
+  };
+  const timer = setInterval(draw, 1000 / 30);
+  const track = canvas.captureStream(30).getVideoTracks()[0];
+  return {
+    track,
+    setZoom: (z: number) => { zoom = Math.min(DIGITAL_ZOOM_MAX, Math.max(1, z)); },
+    stop: () => {
+      clearInterval(timer);
+      track.stop();
+      video.srcObject = null;
+    },
+  };
+}
+
 export async function setZoom(track: MediaStreamTrack, zoom: number) {
   await track.applyConstraints({ advanced: [{ zoom } as MediaTrackConstraintSet] }).catch(() => {});
 }
@@ -108,7 +146,7 @@ export async function listCameras(): Promise<{ deviceId: string; label: string }
 }
 
 /** The camera the seller picked before going live (kept on this device). */
-export type CameraChoice = { facing: 'user' | 'environment'; deviceId?: string; zoom?: number };
+export type CameraChoice = { facing: 'user' | 'environment'; deviceId?: string; zoom?: number; digital?: number };
 const CHOICE_KEY = 'saligue-live-camera';
 
 export function loadCameraChoice(): CameraChoice {

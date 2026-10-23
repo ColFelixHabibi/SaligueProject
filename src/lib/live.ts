@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack } from 'livekit-client';
-import { loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraChoice } from './camera';
+import { DIGITAL_ZOOM_MAX, digitalZoom, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraChoice } from './camera';
 import { api, onServerEvent } from './api';
 import { withMedia, type Burst, type Live, type LiveComment, type LiveGuest } from './lives';
 
@@ -176,6 +176,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
           const tracks: LocalTrack[] = [new LocalVideoTrack(stream.getVideoTracks()[0], undefined, true)];
           if (audio && stream.getAudioTracks()[0]) tracks.push(new LocalAudioTrack(stream.getAudioTracks()[0], undefined, true));
           localTracks.current = tracks;
+          rawVideo.current = stream.getVideoTracks()[0];
           setMicOn(audio);
           setTiles([{ identity: 'me', name: 'You', role: 'host', video: tracks[0], audio: null, isLocal: true, speaking: false }]);
         } catch (e: any) {
@@ -193,6 +194,9 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
         await r.connect(pass.url, pass.token);
         if (cancelled) return r.disconnect();
         if (pass.role !== 'viewer') for (const t of localTracks.current) await r.localParticipant.publishTrack(t, { simulcast: true });
+        // The digital zoom chosen in the preview (cameras without their own zoom).
+        const wanted = loadCameraChoice().digital ?? 1;
+        if (publishWanted && wanted > 1 && !zoomRange(rawVideo.current)) await applyDigital(wanted);
         setRoom(r);
         setStatus('connected');
         update();
@@ -231,15 +235,55 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, [micOn]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  // Zoom: the camera's own when it has one, otherwise digital (crop of the centre, sent to viewers).
+  const rawVideo = useRef<MediaStreamTrack | null>(null);
+  const pipeline = useRef<ReturnType<typeof digitalZoom> | null>(null);
+  const digitalValue = useRef(1);
+  const videoLocal = () => localTracks.current.find((t) => t.kind === Track.Kind.Video) as (LocalTrack & { replaceTrack: (t: MediaStreamTrack, userProvided?: boolean) => Promise<unknown> }) | undefined;
+  async function applyDigital(z: number) {
+    const video = videoLocal();
+    const raw = rawVideo.current;
+    if (!video || !raw) return;
+    digitalValue.current = z;
+    if (z <= 1.01) {
+      if (pipeline.current) {
+        await video.replaceTrack(raw, true);
+        pipeline.current.stop();
+        pipeline.current = null;
+      }
+      return;
+    }
+    if (!pipeline.current) {
+      pipeline.current = digitalZoom(raw);
+      await video.replaceTrack(pipeline.current.track, true);
+    }
+    pipeline.current.setZoom(z);
+  }
+  useEffect(() => () => { pipeline.current?.stop(); pipeline.current = null; }, [liveId, attempt]);
+  const zoomInfo = useCallback(() => {
+    const hw = zoomRange(rawVideo.current);
+    return hw ? { ...hw, digital: false } : { min: 1, max: DIGITAL_ZOOM_MAX, step: 0.1, value: digitalValue.current, digital: true };
+  }, []);
+  const setLiveZoom = useCallback(async (z: number) => {
+    if (zoomRange(rawVideo.current) && rawVideo.current) await setZoom(rawVideo.current, z);
+    else await applyDigital(z);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // The camera itself (for zoom).
-  const videoTrack = useCallback(() => (localTracks.current.find((t) => t.kind === Track.Kind.Video)?.mediaStreamTrack ?? null), []);
+  const videoTrack = useCallback(() => rawVideo.current ?? (localTracks.current.find((t) => t.kind === Track.Kind.Video)?.mediaStreamTrack ?? null), []);
 
   // Front ↔ back camera on phones, or one chosen camera/lens; the full picture, not a cropped strip.
   const restartCamera = useCallback(async (next: CameraChoice) => {
     const video = localTracks.current.find((t) => t.kind === Track.Kind.Video) as (LocalTrack & { restartTrack?: (o: object) => Promise<void> }) | undefined;
     const which = next.deviceId ? { deviceId: { exact: next.deviceId } } : { facingMode: next.facing };
+    // A new camera starts at its whole picture.
+    pipeline.current?.stop();
+    pipeline.current = null;
+    digitalValue.current = 1;
     await video?.restartTrack?.({ ...which, width: { ideal: 1280 }, frameRate: { ideal: 30 }, resizeMode: 'none' });
     const track = video?.mediaStreamTrack;
+    rawVideo.current = track ?? null;
     const range = zoomRange(track);
     if (track && range) await setZoom(track, range.min);
     setFacing(next.facing);
@@ -247,7 +291,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, []);
   const flipCamera = useCallback(() => restartCamera({ facing: facing === 'user' ? 'environment' : 'user' }), [facing, restartCamera]);
 
-  return { room, tiles, viewers, audience, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack };
+  return { room, tiles, viewers, audience, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack, zoomInfo, setLiveZoom };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */

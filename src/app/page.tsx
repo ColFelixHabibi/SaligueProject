@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useT } from '@/lib/i18n';
 
 import { useBlockedIds } from '@/lib/blocks';
@@ -120,6 +122,7 @@ export default function ForYouPage() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const blocked = useBlockedIds();
   const tr = useT();
+  const on = useFeatures();
   const shown = useMemo(() => {
     const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id) && !blocked.has(p.sellerId ?? ''));
     if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) : [];
@@ -131,7 +134,7 @@ export default function ForYouPage() {
     { value: 'local', label: 'Local' },
     { value: 'foryou', label: 'For You' },
     { value: 'learn', label: 'Learn' },
-  ] as const;
+  ].filter((t) => t.value !== 'learn' || on('lessons')) as { value: 'following' | 'local' | 'foryou' | 'learn'; label: string }[];
 
   return (
     <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
@@ -147,7 +150,7 @@ export default function ForYouPage() {
       </div>
       <div className={cn('pointer-events-none sticky top-0 z-40 flex h-0 justify-start px-3', mode !== 'foryou' && 'hidden')}>
         {/* Who is live: the seller's photo in a pink ring with a LIVE tag, like stories. */}
-        {lives.length > 0 && (
+        {on('live') && lives.length > 0 && (
           <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} aria-label={`${lives.length} live now`} className="pointer-events-auto relative mt-14 flex flex-col items-center">
             <span className="rounded-full bg-gradient-to-tr from-primary to-[#e30613] p-[3px] shadow-lg">
               <SellerAvatar src={lives[0].sellerAvatar} name={lives[0].sellerName} className="h-12 w-12 ring-2 ring-background" />

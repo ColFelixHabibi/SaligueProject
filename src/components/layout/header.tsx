@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -44,6 +46,7 @@ export default function Header() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, role } = useAuth();
+  const on = useFeatures();
   const { cartItems } = useCart();
   const unreadMessages = useUnreadMessages();
   const liveCount = useLives()?.lives.length ?? 0;
@@ -83,13 +86,13 @@ export default function Header() {
               <Link href="/search" aria-label="Search"><Search className="h-5 w-5" /></Link>
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="relative" asChild>
+          {on('live') && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/live" aria-label="Live">
               <Radio className="h-5 w-5" />
               {liveCount > 0 && <span className="absolute -right-1 top-0 rounded bg-primary px-1 text-[8px] font-extrabold text-primary-foreground">LIVE</span>}
             </Link>
-          </Button>
-          {user && <Button variant="ghost" size="icon" className="relative" asChild>
+          </Button>}
+          {user && on('messages') && <Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/messages" aria-label={`Messages, ${unreadMessages} unread`}>
               <MessageCircle className="h-5 w-5" />
               {unreadMessages > 0 && (

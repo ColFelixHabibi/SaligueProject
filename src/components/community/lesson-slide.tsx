@@ -1,5 +1,7 @@
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useT } from '@/lib/i18n';
 
 import { TipButton } from '@/components/tip-button';
@@ -62,6 +64,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
     });
   };
   const t = useT();
+  const on = useFeatures();
   const topic = topicOf(lesson.topic);
   const TopicIcon = topic.icon;
 
@@ -158,12 +161,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           <span className={round}><Heart className={cn('h-5 w-5 text-foreground', like.liked && 'fill-primary text-primary')} /></span>
           {like.count > 0 && like.count}
         </button>
-        <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
+        {on('comments') && <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
           <span className={round}><MessageCircle className="h-5 w-5 text-foreground" /></span>
           {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
-        </button>
-        {!lesson.mine && <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
-        {!lesson.mine && !lesson.duetOf && (
+        </button>}
+        {!lesson.mine && on('tips') && <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
+        {!lesson.mine && !lesson.duetOf && on('duets') && (
           <Link href={`/learn/new?duet=${lesson.id}`} className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Duet: answer with your video" title="Duet">
             <span className={round}><Columns2 className="h-5 w-5 text-foreground" /></span>
             {(lesson.duetCount ?? 0) > 0 && lesson.duetCount}

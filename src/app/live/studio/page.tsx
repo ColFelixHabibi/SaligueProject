@@ -1,7 +1,7 @@
 'use client';
 
 import { ExpandableText } from '@/components/expandable-text';
-import { listCameras, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange } from '@/lib/camera';
+import { DIGITAL_ZOOM_MAX, listCameras, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -41,6 +41,8 @@ function Setup() {
   const [camError, setCamError] = useState<string | null>(null);
   const [camTry, setCamTry] = useState(0);
   const [zoom, setZoomState] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
+  // Cameras without their own zoom: digital zoom (the centre is cropped; viewers get the same picture once live).
+  const [digital, setDigital] = useState(() => (typeof window === 'undefined' ? 1 : loadCameraChoice().digital ?? 1));
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const previewBackdrop = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
@@ -63,7 +65,7 @@ function Setup() {
         stream = s;
         trackRef.current = s.getVideoTracks()[0];
         setZoomState(zoomRange(trackRef.current));
-        saveCameraChoice({ facing, deviceId, zoom: zoomRange(trackRef.current)?.value });
+        saveCameraChoice({ facing, deviceId, zoom: zoomRange(trackRef.current)?.value, digital: zoomRange(trackRef.current) ? 1 : digital });
         // Camera names are only readable once the camera is allowed.
         void listCameras().then(setCameras);
         if (video.current) {
@@ -102,7 +104,8 @@ function Setup() {
     <div className="mx-auto grid max-w-5xl gap-6 p-4 md:grid-cols-[minmax(0,360px)_1fr] md:p-8">
       <div className="relative mx-auto aspect-[9/16] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl">
         {previewWide && !fill && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
-        <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', fill ? 'object-cover' : 'object-contain', facing === 'user' && 'scale-x-[-1]')} />
+        <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', fill ? 'object-cover' : 'object-contain')}
+          style={{ transform: `scale(${facing === 'user' ? -(zoom ? 1 : digital) : zoom ? 1 : digital}, ${zoom ? 1 : digital})` }} />
         {camError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white/90">
             <VideoOff className="h-10 w-10" />
@@ -120,10 +123,21 @@ function Setup() {
           </button>
         </div>
         {cameras.length > 1 && (
-          <select aria-label="Camera" value={deviceId ?? ''} onChange={(e) => setDeviceId(e.target.value || undefined)} className={cn('absolute left-3 max-w-[70%] truncate rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white', zoom ? 'bottom-16' : 'bottom-4')}>
+          <select aria-label="Camera" value={deviceId ?? ''} onChange={(e) => setDeviceId(e.target.value || undefined)} className={cn('absolute bottom-16 left-3 max-w-[70%] truncate rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white')}>
             <option value="">{facing === 'user' ? 'Front camera' : 'Back camera'}</option>
             {cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
           </select>
+        )}
+        {!zoom && !camError && (
+          <div className="absolute inset-x-4 bottom-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs font-semibold text-white">
+            <span className="w-9">{digital.toFixed(1)}×</span>
+            <input type="range" aria-label="Zoom" className="w-full accent-primary" min={1} max={DIGITAL_ZOOM_MAX} step={0.1} value={digital}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setDigital(v);
+                saveCameraChoice({ facing, deviceId, digital: v });
+              }} />
+          </div>
         )}
         {zoom && (
           <div className="absolute inset-x-4 bottom-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs font-semibold text-white">
@@ -197,8 +211,8 @@ function Studio({ id }: { id: string }) {
   const { authUid } = useAuth();
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack } = useLiveRoom(id, live?.status === 'live', true);
-  const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number } | null>(null);
+  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
+  const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
   const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
   const [cameraId, setCameraId] = useState('');
   const elapsed = useElapsed(live?.startedAt);
@@ -283,7 +297,7 @@ function Studio({ id }: { id: string }) {
         {requests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold">{requests.length}</span>}
       </button>
       <button type="button" onClick={share} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Share"><Share2 className="h-5 w-5" /></button>
-      <button type="button" onClick={() => { setLiveZoom(zoomRange(videoTrack())); setCameraId(videoTrack()?.getSettings().deviceId ?? ''); void listCameras().then(setCameras); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => { setLiveZoom(zoomInfo()); setCameraId(videoTrack()?.getSettings().deviceId ?? ''); void listCameras().then(setCameras); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
     </div>
   );
 
@@ -323,7 +337,7 @@ function Studio({ id }: { id: string }) {
                 onClick={() => act(async () => {
                   await restartCamera({ facing, deviceId: c.deviceId });
                   setCameraId(c.deviceId);
-                  setLiveZoom(zoomRange(videoTrack()));
+                  setLiveZoom(zoomInfo());
                 })}>{c.label}</Button>
             ))}
           </div>
@@ -339,13 +353,11 @@ function Studio({ id }: { id: string }) {
               onChange={(e) => {
                 const v = Number(e.target.value);
                 setLiveZoom({ ...liveZoom, value: v });
-                const track = videoTrack();
-                if (track) void setZoom(track, v);
+                void applyZoom(v);
               }} />
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">This camera doesn’t allow zoom from the browser. Use Whole picture, a wide-angle camera above, or move further away.</p>
-        )}
+        ) : null}
+        {liveZoom?.digital && <p className="text-xs text-muted-foreground">This camera has no zoom of its own, so Saligue zooms into the centre of the picture. Viewers see exactly this. For a wider view, use Whole picture or a wide-angle camera.</p>}
       </div>
     </div>
   );

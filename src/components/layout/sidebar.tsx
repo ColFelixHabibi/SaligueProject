@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useT } from '@/lib/i18n';
 
 import { useLives } from '@/lib/lives';
@@ -40,6 +42,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, role } = useAuth();
   const t = useT();
+  const on = useFeatures();
   const { cartItems } = useCart();
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -83,15 +86,15 @@ export default function Sidebar() {
           );
         })}
 
-        <Link href="/live" title="Live" className={cn(row, pathname.includes('/live') ? 'text-primary' : 'text-foreground')}>
+        {on('live') && <Link href="/live" title="Live" className={cn(row, pathname.includes('/live') ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">
             <Radio className="h-7 w-7" />
             {liveCount > 0 && <span className="absolute -right-2 -top-1.5 rounded bg-primary px-1 text-[9px] font-extrabold text-primary-foreground">LIVE</span>}
           </span>
           <span className="hidden lg:inline">{t('Live')}</span>
-        </Link>
+        </Link>}
 
-        {user && (
+        {user && on('messages') && (
         <Link href="/messages" title="Messages" className={cn(row, inMessages ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">
             <MessageCircle className={cn('h-7 w-7', inMessages && 'stroke-[2.5]')} />

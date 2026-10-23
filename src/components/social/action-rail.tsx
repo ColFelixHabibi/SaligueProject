@@ -1,6 +1,8 @@
 
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import Link from 'next/link';
 import { Bookmark, Heart, MessageCircle, Share2, Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +34,7 @@ interface ActionRailProps {
  */
 export function ActionRail({ product, commentsOpen, onToggleComments, variant, hideWearIt }: ActionRailProps) {
   const { toast } = useToast();
+  const on = useFeatures();
   const liked = useLiked(product.id);
   const { wishlistItems, addToWishlist, removeFromWishlist } = useWishlist();
   const saved = wishlistItems.some((p) => p.id === product.id);
@@ -67,9 +70,9 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
         <Heart className={cn(icon, liked && 'fill-primary text-primary')} />
         {likeCount > 0 && <span>{compact(likeCount)}</span>}
       </button>
-      <button type="button" className={button} onClick={onToggleComments} aria-expanded={commentsOpen} aria-label="Comments" title="Comments">
+      {on('comments') && <button type="button" className={button} onClick={onToggleComments} aria-expanded={commentsOpen} aria-label="Comments" title="Comments">
         <MessageCircle className={cn(icon, commentsOpen && 'fill-current')} />
-      </button>
+      </button>}
       <button
         type="button"
         className={button}

@@ -1,5 +1,7 @@
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, MessageCircle, Send } from 'lucide-react';
@@ -22,6 +24,7 @@ type About = { product: Product; orderId?: never } | { orderId: string; product?
 export function MessageSellerButton({ label = 'Message seller', className, size = 'lg', variant = 'default', ...about }: About & { label?: string; className?: string; size?: ButtonProps['size']; variant?: ButtonProps['variant'] }) {
   const router = useRouter();
   const { toast } = useToast();
+  const on = useFeatures();
   const { authUid } = useAuth();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
@@ -46,7 +49,7 @@ export function MessageSellerButton({ label = 'Message seller', className, size 
     }
   };
 
-  if (own) return null;
+  if (own || !on('messages')) return null;
 
   return (
     <>

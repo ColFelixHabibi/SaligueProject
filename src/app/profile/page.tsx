@@ -1,5 +1,7 @@
 'use client';
 
+import { useFeatures } from '@/lib/features';
+
 import { useT } from '@/lib/i18n';
 
 import { TipButton } from '@/components/tip-button';
@@ -64,6 +66,7 @@ function ProfileView({ id }: { id: string }) {
   const follow = useFollow(id);
   const blockedIds = useBlockedIds();
   const t = useT();
+  const on = useFeatures();
   const isBlocked = blockedIds.has(id);
 
   const load = () =>
@@ -179,7 +182,7 @@ function ProfileView({ id }: { id: string }) {
             target="_blank" rel="noopener noreferrer" className={round} aria-label="Map" title={[profile.shop.street, profile.shop.city].join(', ')}><MapPin className="h-5 w-5" /></a>
         )}
         {profile.email && !profile.mine && <a href={`mailto:${profile.email}`} className={cn(round, 'hidden sm:flex')} aria-label="Email" title={profile.email}><Mail className="h-5 w-5" /></a>}
-        {!profile.mine && <TipButton toUserId={profile.id} toName={profile.name} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
+        {!profile.mine && on('tips') && <TipButton toUserId={profile.id} toName={profile.name} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
         <button type="button" onClick={share} className={round} aria-label="Share profile" title="Share"><Share2 className="h-5 w-5" /></button>
         {!profile.mine && (
           <DropdownMenu>
