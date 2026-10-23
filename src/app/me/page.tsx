@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bell, Bookmark, ChevronRight, Cookie, FileText, LayoutDashboard, LogOut, MapPin, MessageCircle, Package, PlusSquare, Repeat, Settings, ShoppingBag, Store } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
-import { CircleUserRound, Coins, GraduationCap, SlidersHorizontal, Smartphone } from 'lucide-react';
+import { BadgeCheck, CircleUserRound, Coins, GraduationCap, SlidersHorizontal, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -87,6 +87,7 @@ export default function MePage() {
           <Card className="divide-y overflow-hidden">
             {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My shop profile" detail="Bio, clients" />}
             <Row href="/tips" icon={Coins} label="Tips received" />
+            {user && <Row href="/verify" icon={BadgeCheck} label="Get verified" detail="Optional" />}
             <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
             <Row href="/messages" icon={MessageCircle} label="Messages from customers" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
             <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
@@ -105,6 +106,7 @@ export default function MePage() {
             <Row href="/orders" icon={Package} label="My orders" />
             {user && <Row href="/learn/new" icon={GraduationCap} label="Teach a lesson" />}
             {user && <Row href="/tips" icon={Coins} label="My tips" />}
+            {user && <Row href="/verify" icon={BadgeCheck} label="Get verified" detail="Optional" />}
             {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My profile" />}
             <Row href="/messages" icon={MessageCircle} label="Messages with shops" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
             <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
@@ -141,9 +143,7 @@ export default function MePage() {
 
       <Card className="mt-4 overflow-hidden">
         <Row href="/download" icon={Smartphone} label="Get the Android app" />
-        <Row href="/terms" icon={FileText} label="Terms of Service" />
-        <Row href="/privacy" icon={FileText} label="Privacy Policy" />
-        <Row href="/cookies" icon={Cookie} label="Cookie Policy" />
+        <Row href="/policies" icon={FileText} label="Policies" detail="Terms, privacy, monetization, ads…" />
         <Row href="/ads-policy" icon={FileText} label="Ads Policy" />
         <Row href="/monetization-policy" icon={FileText} label="Monetization Policy" />
       </Card>

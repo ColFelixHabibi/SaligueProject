@@ -11,6 +11,7 @@ export type Live = {
   sellerId: string;
   sellerName: string;
   sellerAvatar: string | null;
+  sellerVerified?: boolean;
   official: boolean;
   title: string;
   description: string;

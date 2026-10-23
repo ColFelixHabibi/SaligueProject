@@ -31,6 +31,7 @@ export type Lesson = {
   authorName: string;
   authorAvatar: string | null;
   authorIsShop: boolean;
+  authorVerified?: boolean;
   official: boolean;
   title: string;
   description: string;

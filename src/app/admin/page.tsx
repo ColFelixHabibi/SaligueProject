@@ -5,7 +5,7 @@ import { TipsAdmin } from '@/components/admin/tips-admin';
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
-import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin } from '@/components/admin/control-admin';
+import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -365,7 +365,7 @@ export default function AdminPage() {
     { value: 'rules', label: 'Rules & policies', show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'moderation', label: 'Moderation', show: has('moderation'), body: <AppealsAdmin /> },
     { value: 'money', label: 'Money & ads', show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}<MonetizationAdmin /></div> },
-    { value: 'accounts', label: 'Accounts', show: has('users'), body: <AccountsAdmin /> },
+    { value: 'accounts', label: 'Accounts', show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
     { value: 'admins', label: 'Admins', show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
     { value: 'platform', label: 'Platform', show: has('platform'), body: <PlatformSettings /> },
   ].filter((t) => t.show);

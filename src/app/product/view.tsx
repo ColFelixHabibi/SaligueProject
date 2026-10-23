@@ -1,6 +1,8 @@
 
 'use client';
 
+import { VerifiedBadge } from '@/components/verified-badge';
+
 import { useT } from '@/lib/i18n';
 
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
@@ -218,7 +220,7 @@ export default function ProductView({ id }: { id: string | null }) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-3 text-xl">
                   {product.sellerId && <ProfileAvatar id={product.sellerId} name={product.shop?.name ?? product.seller} src={product.sellerAvatar} />}
-                  <Link href={product.sellerId ? profileHref(product.sellerId) : '#'} className="min-w-0 flex-1 hover:underline">{product.shop?.name ?? 'Shop'}<span className="block text-xs font-normal text-muted-foreground">View profile</span></Link>
+                  <Link href={product.sellerId ? profileHref(product.sellerId) : '#'} className="min-w-0 flex-1 hover:underline">{product.shop?.name ?? 'Shop'}{product.sellerVerified && <VerifiedBadge className="ml-1" />}<span className="block text-xs font-normal text-muted-foreground">View profile</span></Link>
                   <FollowButton sellerId={product.sellerId} />
                 </CardTitle>
               </CardHeader>

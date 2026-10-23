@@ -2,7 +2,7 @@
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
@@ -106,6 +106,7 @@ function publicUser(u) {
     // Profile bio for people who aren't shops (a shop's bio is its description, shop.bio).
     bio: u.bio ?? null,
     isGuest: !!u.is_guest,
+    verified: !!u.verified,
     createdAt: u.created_at,
   };
 }
@@ -189,6 +190,7 @@ function productOut(r) {
     seller: r.seller,
     sellerId: r.seller_id,
     sellerAvatar: r.seller_avatar ?? undefined,
+    sellerVerified: !!r.seller_verified,
     sellerEmail: r.seller_email ?? undefined,
     status: r.status,
     description: r.description ?? undefined,
@@ -496,7 +498,7 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 
 // Products
 route('GET', '/api/products', ({ user }) =>
-  db.prepare('select p.*, u.avatar as seller_avatar from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc')
+  db.prepare('select p.*, u.avatar as seller_avatar, u.verified as seller_verified from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc')
     .all(user?.id ?? '').map(productOut));
 
 // Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.
@@ -1221,6 +1223,16 @@ route('GET', '/api/payments/config', () => {
 });
 
 function markPaid(payment, providerRef) {
+  // A verification fee: paid → an admin reviews the documents.
+  if (payment.verification_id) {
+    const changed = transaction(() => {
+      if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
+      db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+      return db.prepare("update verifications set status = 'in_review' where id = ? and status = 'pending_payment'").run(payment.verification_id).changes > 0;
+    });
+    if (changed) verificationToReview(payment.verification_id);
+    return;
+  }
   // A tip: paid → the receiver is told and it counts toward their next payout.
   if (payment.tip_id) {
     const changed = transaction(() => {
@@ -1369,12 +1381,13 @@ function cancelAbandonedOrders() {
 // ---------------------------------------------------------------------------
 
 function liveOut(l) {
-  const seller = db.prepare('select id, display_name, shop, avatar, official from users where id = ?').get(l.seller_id);
+  const seller = db.prepare('select id, display_name, shop, avatar, official, verified from users where id = ?').get(l.seller_id);
   return {
     id: l.id,
     sellerId: l.seller_id,
     sellerName: shopNameOf(seller),
     sellerAvatar: seller?.avatar ?? null,
+    sellerVerified: !!seller?.verified,
     official: !!seller?.official,
     title: l.title,
     description: l.description,
@@ -1704,6 +1717,7 @@ const FEATURES = {
   messages: 'Messages between buyers and shops',
   comments: 'Comments',
   reviews: 'Reviews',
+  verification: 'Verification badge requests',
 };
 const features = () => ({ ...Object.fromEntries(Object.keys(FEATURES).map((k) => [k, true])), ...(parse(db.prepare("select value from app_config where key = 'features'").get()?.value) ?? {}) });
 const featureOn = (name) => features()[name] !== false;
@@ -1717,7 +1731,7 @@ const ADMIN_PERMS = {
   moderation: 'Reports, appeals, removing lessons and comments',
   ads: 'Review ads and confirm ad payments',
   money: 'Creators, monthly payouts and tips',
-  users: 'Find accounts, suspend and restore them',
+  users: 'Accounts: find, suspend, restore; verification badges',
   content: 'Challenges',
   features: 'Switch app features on and off',
   policies: 'Edit policies, monetization and ad rules',
@@ -1907,12 +1921,13 @@ const LESSON_TOPICS = ['styling', 'sewing', 'care', 'shoes_accessories', 'tradit
 const LESSON_LANGUAGES = ['rw', 'sw', 'en', 'fr'];
 
 function lessonOut(l, viewer) {
-  const author = db.prepare('select id, display_name, email, is_guest, shop, avatar, role, official from users where id = ?').get(l.user_id);
+  const author = db.prepare('select id, display_name, email, is_guest, shop, avatar, role, official, verified from users where id = ?').get(l.user_id);
   return {
     id: l.id,
     authorId: l.user_id,
     authorName: author?.role === 'seller' ? shopNameOf(author) : personNameOf(author),
     authorAvatar: author?.avatar ?? null,
+    authorVerified: !!author?.verified,
     authorIsShop: author?.role === 'seller',
     official: !!author?.official,
     title: l.title,
@@ -2301,7 +2316,7 @@ route('PUT', '/api/admin/features', ({ user, body }) => {
 });
 
 // Policies: the text of each policy page can be edited (headings and paragraphs); empty = Saligue's default text.
-const POLICIES = ['monetization', 'ads', 'terms', 'privacy', 'cookies'];
+const POLICIES = ['monetization', 'ads', 'verification', 'terms', 'privacy', 'cookies'];
 route('GET', '/api/policies/([\\w-]+)', ({ params }) => {
   if (!POLICIES.includes(params[0])) fail(404, 'not_found', 'Not found.');
   return parse(db.prepare('select value from app_config where key = ?').get(`policy:${params[0]}`)?.value);
@@ -2329,7 +2344,7 @@ route('PUT', '/api/admin/policies/([\\w-]+)', ({ user, params, body }) => {
 route('GET', '/api/admin/rules', ({ user }) => {
   requireAdmin(user, 'policies');
   const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts };
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice() };
 });
 route('PUT', '/api/admin/rules', ({ user, body }) => {
   requireAdmin(user, 'policies');
@@ -2347,9 +2362,10 @@ route('PUT', '/api/admin/rules', ({ user, body }) => {
     const amounts = Array.isArray(body.tipAmounts) ? [...new Set(body.tipAmounts.map(Number).filter((x) => x >= 0.5 && x <= 1000))].sort((a, b) => a - b).slice(0, 8) : t.amounts;
     saveConfig('tips', { share: n(body.tipShare ?? t.share, 0.5, 1), amounts: amounts.length ? amounts : t.amounts });
   }
+  if (body.verificationPrice !== undefined) saveConfig('verification', { price: Math.round(n(body.verificationPrice, 0, 1000) * 100) / 100 });
   logAdmin(user, 'rules changed', JSON.stringify(body).slice(0, 250));
   const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts };
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice() };
 });
 
 // Accounts: find people, suspend or restore them.
@@ -2392,6 +2408,13 @@ route('POST', '/api/admin/admins', ({ user, body }) => {
   const target = db.prepare('select * from users where lower(email) = ? and is_guest = 0').get(String(body.email ?? '').trim().toLowerCase());
   if (!target) fail(404, 'not_found', 'No Saligue account with this email. Ask them to create one first.');
   if (target.admin_level === 1) fail(400, 'main', 'This is a main admin.');
+  // A second main admin (e.g. the owner's separate admin account) has every right and can manage admins.
+  if (body.main) {
+    db.prepare("update users set admin = 1, admin_level = 1, admin_perms = '[]' where id = ?").run(target.id);
+    notify(target.id, { type: 'account', title: 'You are now a main Saligue admin', body: 'You can do everything in the Admin dashboard, including managing admins.', link: '/admin' });
+    logAdmin(user, 'main admin added', target.email);
+    return { ok: true };
+  }
   const perms = cleanPerms(body.perms);
   if (!perms.length) fail(400, 'invalid', 'Choose at least one right.');
   db.prepare("update users set admin = 1, admin_level = 2, admin_perms = ? where id = ?").run(json(perms), target.id);
@@ -2411,8 +2434,10 @@ route('PUT', '/api/admin/admins/([\\w-]+)', ({ user, params, body }) => {
 });
 route('DELETE', '/api/admin/admins/([\\w-]+)', ({ user, params }) => {
   requireMain(user);
-  const target = db.prepare('select * from users where id = ? and admin_level = 2').get(params[0]);
-  if (!target) fail(404, 'not_found', 'Sub-admin not found.');
+  const target = db.prepare('select * from users where id = ? and admin_level in (1, 2)').get(params[0]);
+  if (!target) fail(404, 'not_found', 'Admin not found.');
+  // Saligue always keeps at least one main admin.
+  if (target.admin_level === 1 && db.prepare('select count(*) as n from users where admin_level = 1').get().n < 2) fail(400, 'last_main', 'Add another main admin first: Saligue must always have one.');
   db.prepare("update users set admin = 0, admin_level = 0, admin_perms = '[]' where id = ?").run(target.id);
   logAdmin(user, 'sub-admin removed', target.email);
   return { ok: true };
@@ -2421,6 +2446,144 @@ route('GET', '/api/admin/log', ({ user }) => {
   requireMain(user);
   return db.prepare('select l.*, u.display_name, u.email from admin_log l left join users u on u.id = l.user_id order by l.id desc limit 200').all()
     .map((r) => ({ id: r.id, who: r.display_name || r.email || 'admin', action: r.action, detail: r.detail, at: r.created_at }));
+});
+
+// ---------------------------------------------------------------------------
+// Verification badge: a person (ID card or passport) or a business (registration certificate) pays a small fee
+// and sends documents; an admin checks them. Documents are stored privately (never under /media) and deleted
+// as soon as the admin decides; only the result, the document type and the last 4 characters are kept.
+// ---------------------------------------------------------------------------
+
+const PRIVATE_DIR = join(resolve(process.env.SALIGUE_DATA || 'data'), 'private');
+mkdirSync(PRIVATE_DIR, { recursive: true });
+const verificationPrice = () => Number(parse(db.prepare("select value from app_config where key = 'verification'").get()?.value)?.price ?? 2.53);
+
+function savePrivate(dataUrl) {
+  const m = /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl ?? ''));
+  if (!m) fail(400, 'invalid_file', 'Add a clear photo (JPG or PNG) of each document.');
+  const bytes = Buffer.from(m[2], 'base64');
+  if (bytes.length > 8 * 1024 * 1024) fail(413, 'too_big', 'A photo is too large (8 MB at most).');
+  const name = `${randomUUID()}.${m[1] === 'jpg' ? 'jpeg' : m[1]}`;
+  writeFileSync(join(PRIVATE_DIR, name), bytes, { mode: 0o600 });
+  return name;
+}
+const removePrivate = (files) => {
+  for (const f of Object.values(files ?? {})) {
+    try { if (/^[\w-]+\.(jpeg|png|webp)$/.test(f)) unlinkSync(join(PRIVATE_DIR, f)); } catch { /* already gone */ }
+  }
+};
+
+function verificationToReview(id) {
+  const v = db.prepare('select * from verifications where id = ?').get(id);
+  if (!v) return;
+  notify(v.user_id, { type: 'account', title: 'Verification request received', body: 'Saligue checks your documents within a few days.', link: '/verify' });
+  for (const { id: admin } of db.prepare("select id from users where admin = 1 and (admin_level = 1 or admin_perms like '%users%')").all()) {
+    notify(admin, { type: 'account', title: 'Verification to review', body: `${v.legal_name} · ${v.type === 'business' ? v.business_name : v.type}`, link: '/admin', email: false });
+  }
+}
+
+const verificationOut = (v) => v && { id: v.id, type: v.type, legalName: v.legal_name, businessName: v.business_name, status: v.status, amount: v.amount, reference: v.reference, note: v.note, createdAt: v.created_at, decidedAt: v.decided_at };
+
+route('GET', '/api/verification', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const a = adSettings();
+  const last = db.prepare('select * from verifications where user_id = ? order by created_at desc limit 1').get(user.id);
+  return { verified: !!user.verified, verifiedType: user.verified_type, price: verificationPrice(), onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName, request: verificationOut(last) };
+});
+
+route('POST', '/api/verification', async ({ req, user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account first.');
+  needFeature('verification');
+  if (user.verified) fail(400, 'already', 'Your account is already verified.');
+  const open = db.prepare("select * from verifications where user_id = ? and status in ('pending_payment', 'in_review')").get(user.id);
+  if (open?.status === 'in_review') fail(400, 'in_review', 'Your request is being reviewed.');
+  const type = ['id', 'passport', 'business'].includes(body.type) ? body.type : fail(400, 'invalid', 'Choose ID card, passport or business.');
+  const legalName = String(body.legalName ?? '').trim().slice(0, 120);
+  const docNumber = String(body.docNumber ?? '').replace(/\s/g, '');
+  const country = String(body.country ?? '').trim().slice(0, 60);
+  const businessName = type === 'business' ? String(body.businessName ?? '').trim().slice(0, 120) : null;
+  if (legalName.length < 3 || docNumber.length < 4 || country.length < 2 || (type === 'business' && !businessName)) fail(400, 'invalid', 'Fill in every field exactly as on the document.');
+  const need = type === 'business' ? ['certificate', 'front', 'selfie'] : type === 'id' ? ['front', 'back', 'selfie'] : ['front', 'selfie'];
+  if (need.some((k) => !body.files?.[k])) fail(400, 'invalid_file', 'Add every photo asked for.');
+  const files = Object.fromEntries(need.map((k) => [k, savePrivate(body.files[k])]));
+  if (open) {
+    removePrivate(parse(open.files));
+    db.prepare("update verifications set status = 'cancelled', files = '{}' where id = ?").run(open.id);
+  }
+  // A request refused in the last 30 days after paying can be sent again without paying again.
+  const paidBefore = db.prepare("select 1 from verifications where user_id = ? and status = 'rejected' and decided_at > ?").get(user.id, new Date(Date.now() - 30 * 86_400_000).toISOString());
+  const id = randomUUID();
+  const reference = `VER-${id.slice(0, 6).toUpperCase()}`;
+  const amount = paidBefore ? 0 : verificationPrice();
+  db.prepare('insert into verifications (id, user_id, type, legal_name, doc_number, country, business_name, files, status, amount, reference, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, type, legalName, docNumber.slice(-4), country, businessName, json(files), amount ? 'pending_payment' : 'in_review', amount, reference, now());
+  if (!amount) {
+    verificationToReview(id);
+    return { id, status: 'in_review' };
+  }
+  if (!paymentsEnabled()) {
+    const a = adSettings();
+    return { id, status: 'pending_payment', manual: true, reference, amount, momoNumber: a.momoNumber, momoName: a.momoName };
+  }
+  const { currency } = paymentSettings();
+  const charge = toCharge(amount);
+  const txRef = `SAL-VER-${randomBytes(8).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, verification_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', charge, currency, id, now());
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({ txRef, amount: charge, currency, redirectUrl: `${base}/payment`, customer: { email: user.email, name: legalName }, title: 'Saligue verification', logo: `${configured}/icons/icon-192.png` });
+  return { id, status: 'pending_payment', link, reference };
+});
+
+// Admin: requests to check (payment first for Mobile Money, then documents), the documents themselves, and decisions.
+route('GET', '/api/admin/verifications', ({ user }) => {
+  requireAdmin(user, 'users');
+  return db.prepare("select v.*, u.email, u.display_name, u.role, u.shop from verifications v join users u on u.id = v.user_id where v.status in ('pending_payment', 'in_review') order by v.created_at").all()
+    .map((v) => ({ ...verificationOut(v), docLast4: v.doc_number, country: v.country, email: v.email, account: v.role === 'seller' ? shopNameOf(v) : v.display_name, files: Object.keys(parse(v.files) ?? {}) }));
+});
+route('GET', '/api/admin/verifications/([\\w-]+)/file/(\\w+)', ({ user, params, res }) => {
+  requireAdmin(user, 'users');
+  const v = db.prepare('select files from verifications where id = ?').get(params[0]);
+  const name = (parse(v?.files) ?? {})[params[1]];
+  if (!name || !existsSync(join(PRIVATE_DIR, name))) fail(404, 'not_found', 'This document was deleted after the decision.');
+  const data = readFileSync(join(PRIVATE_DIR, name));
+  res.writeHead(200, { 'Content-Type': `image/${name.split('.').pop()}`, 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.end(data);
+  return undefined;
+});
+route('POST', '/api/admin/verifications/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const v = db.prepare("select * from verifications where id = ? and status in ('pending_payment', 'in_review')").get(params[0]);
+  if (!v) fail(404, 'not_found', 'Request not found.');
+  if (body.decision === 'confirm_payment') {
+    db.prepare("update verifications set status = 'in_review' where id = ?").run(v.id);
+    logAdmin(user, 'verification payment confirmed', v.reference);
+    verificationToReview(v.id);
+    return { ok: true };
+  }
+  if (v.status !== 'in_review') fail(400, 'not_paid', 'Confirm the payment first.');
+  const approve = body.decision === 'approve';
+  const note = String(body.note ?? '').trim().slice(0, 300) || null;
+  transaction(() => {
+    db.prepare("update verifications set status = ?, note = ?, files = '{}', decided_at = ?, decided_by = ? where id = ?").run(approve ? 'approved' : 'rejected', note, now(), user.id, v.id);
+    if (approve) db.prepare('update users set verified = 1, verified_type = ?, verified_at = ? where id = ?').run(v.type, now(), v.user_id);
+  });
+  removePrivate(parse(v.files));
+  broadcast('products');
+  notify(v.user_id, approve
+    ? { type: 'account', title: 'Your account is verified ✓', body: 'The verification badge now shows next to your name.', link: `/profile?id=${v.user_id}` }
+    : { type: 'account', title: 'Verification not approved', body: `${note ?? 'The documents could not be confirmed.'} You can send new photos within 30 days without paying again.`, link: '/verify' });
+  logAdmin(user, approve ? 'verified' : 'verification refused', `${v.legal_name}${note ? `: ${note}` : ''}`);
+  return { ok: true };
+});
+route('POST', '/api/admin/users/([\\w-]+)/verified', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const target = db.prepare('select id, email from users where id = ?').get(params[0]);
+  if (!target) fail(404, 'not_found', 'Account not found.');
+  db.prepare('update users set verified = ?, verified_type = case when ? then verified_type else null end where id = ?').run(body.verified ? 1 : 0, body.verified ? 1 : 0, target.id);
+  logAdmin(user, body.verified ? 'badge given' : 'badge removed', target.email);
+  broadcast('products');
+  return { ok: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -2531,8 +2694,8 @@ route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
 });
 
 // Profiles: every shop and teacher has one. "Clients" are the people who follow them.
-const PROFILE_PEOPLE = 'select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official from follows f join users u on u.id = ';
-const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official });
+const PROFILE_PEOPLE = 'select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official, u.verified from follows f join users u on u.id = ';
+const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official, verified: !!u.verified });
 
 route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
   const u = db.prepare('select * from users where id = ?').get(params[0]);
@@ -2544,6 +2707,7 @@ route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
   return {
     ...personOut(u),
     bio: shop?.bio || u.bio || '',
+    verifiedType: u.verified ? u.verified_type : null,
     shop: shop ? { city: shop.city, country: shop.country, hours: shop.hours ?? null, phone: shop.phone, whatsapp: shop.whatsapp ?? null, street: shop.street, district: shop.district ?? null, landmark: shop.landmark ?? null, mapUrl: shop.mapUrl ?? null } : null,
     email: u.role === 'seller' ? u.email : null,
     clients: followerCount(u.id),
@@ -3028,12 +3192,13 @@ const server = http.createServer(async (req, res) => {
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     const user = userOf(req);
     const result = await match.handler({ req, res, url, params, body, user });
-    // Keep the session cookie in step with the session the app uses.
-    if (res.writableEnded) return;
+    // A route that answered by itself (a file) is done; never answer twice.
+    if (res.writableEnded || res.headersSent) return;
     if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));
     else if (bearer && user && cookieToken(req) !== tokenOf(req)) res.setHeader('Set-Cookie', sessionCookie(req, tokenOf(req)));
     send(res, 200, result ?? null);
   } catch (error) {
+    if (res.headersSent) return console.error(error);
     if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
     console.error(error);
     send(res, 500, { error: { code: 'server_error', message: 'Something went wrong. Please try again.' } });

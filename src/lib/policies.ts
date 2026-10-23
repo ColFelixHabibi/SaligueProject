@@ -3,7 +3,7 @@
 import type { LegalSection } from '@/components/legal-page';
 
 export type Policy = { title: string; updated: string; intro: string; sections: LegalSection[] };
-export type PolicyKey = 'monetization' | 'ads' | 'terms' | 'privacy' | 'cookies';
+export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'privacy' | 'cookies';
 
 export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   monetization: {
@@ -61,6 +61,18 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: ['Saligue may change the requirements, the share or the points, and will announce changes in the app at least 30 days before they apply to your earnings.'],
           },
         ]},
+  verification: {
+    title: 'Verification Policy',
+    updated: '23 October 2026',
+    intro: 'The blue check (✓) next to a name means Saligue checked who is behind the account: a person with an ID card or passport, or a business with its registration. Verification is optional — you can sell, go live, teach and earn without it. It exists for trust.',
+    sections: [
+      { heading: 'Who can ask', paragraphs: ['Anyone with a Saligue account: shoppers, shops and Community teachers.', 'A person sends an ID card (front and back) or a passport photo page, and a photo of themselves holding it. A business sends its registration certificate (e.g. RDB), the owner’s ID or passport and a photo of the owner holding it.'] },
+      { heading: 'Price', paragraphs: ['The check costs $2.53, paid once, online or by Mobile Money with a reference.', 'If Saligue cannot approve the request, you can send new photos within 30 days without paying again. The fee pays for the check, so it is not refunded.'] },
+      { heading: 'How we protect your documents', paragraphs: ['Your document photos are stored privately on Saligue’s own server, never on public links, and only Saligue admins with the right to check accounts can open them.', 'They are deleted as soon as the check is finished, approved or not. Saligue keeps only the result, the type of document, the country and the last 4 characters of the number.'] },
+      { heading: 'What the badge means — and what it does not', paragraphs: ['It means the name and documents matched when they were checked. It does not mean Saligue recommends the shop or guarantees its items; reviews, the Terms of Service and the Ads Policy still apply.'] },
+      { heading: 'Losing the badge', paragraphs: ['Saligue removes the badge if the documents turn out to be false, if the account is sold or given to someone else, or after serious breaks of the Terms of Service. Using false documents leads to closing of the account.'] },
+    ],
+  },
   ads: {
         title: "Ads Policy",
         updated: "22 October 2026",

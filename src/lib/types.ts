@@ -17,6 +17,7 @@ export type Product = {
   sellerId?: string;
   // The seller's profile photo.
   sellerAvatar?: string;
+  sellerVerified?: boolean;
   sellerEmail?: string;
   status: 'active' | 'archived' | 'draft';
   description?: string;

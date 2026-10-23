@@ -312,6 +312,26 @@ db.exec(`
     decided_at text
   );
 
+  -- Verification badge requests: ID card, passport or business registration, reviewed by an admin.
+  -- Document photos are kept privately (data/private) and deleted as soon as an admin decides.
+  create table if not exists verifications (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    type text not null check (type in ('id', 'passport', 'business')),
+    legal_name text not null,
+    doc_number text not null,           -- only the last 4 characters are kept
+    country text not null,
+    business_name text,
+    files text not null default '{}',   -- JSON: private file names (removed after the decision)
+    status text not null check (status in ('pending_payment', 'in_review', 'approved', 'rejected', 'cancelled')),
+    amount real not null,
+    reference text not null,
+    note text,
+    created_at text not null,
+    decided_at text,
+    decided_by text
+  );
+
   -- What admins did (who, what, when), so the main admin can follow sub-admins' work.
   create table if not exists admin_log (
     id integer primary key autoincrement,
@@ -439,7 +459,7 @@ db.exec(`
 
 // Columns added after the first release.
 for (const [table, column, type] of [
-  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['payments', 'verification_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],

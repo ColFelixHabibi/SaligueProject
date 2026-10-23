@@ -1,6 +1,8 @@
 
 'use client';
 
+import { VerifiedBadge } from '@/components/verified-badge';
+
 import { useT } from '@/lib/i18n';
 
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
@@ -213,7 +215,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
             {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}
             {product.shop && (
               <Link href={product.sellerId ? profileHref(product.sellerId) : productHref(product)} className="mt-1.5 flex w-fit max-w-full items-center gap-1.5 text-sm font-semibold text-foreground/80 hover:underline">
-                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name} · {product.shop.city}</span>
+                <MapPin className="h-4 w-4 shrink-0" /> <span className="truncate">{product.shop.name} · {product.shop.city}</span>{product.sellerVerified && <VerifiedBadge />}
               </Link>
             )}
             {product.sound && (

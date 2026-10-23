@@ -1,5 +1,7 @@
 'use client';
 
+import { VerifiedBadge } from '@/components/verified-badge';
+
 import { useFeatures } from '@/lib/features';
 
 import { useT } from '@/lib/i18n';
@@ -35,9 +37,10 @@ import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type Person = { id: string; name: string; avatar: string | null; isShop: boolean; official: boolean };
+type Person = { id: string; name: string; avatar: string | null; isShop: boolean; official: boolean; verified?: boolean };
 type Profile = Person & {
   bio: string;
+  verifiedType?: string | null;
   shop: { city: string; country: string; hours: string | null; phone: string; whatsapp: string | null; street: string; district: string | null; landmark: string | null; mapUrl: string | null } | null;
   email: string | null;
   clients: number;
@@ -146,6 +149,7 @@ function ProfileView({ id }: { id: string }) {
         <h1 className="flex items-center gap-1.5 text-xl font-extrabold">
           {profile.name}
           {profile.official && <BadgeCheck className="h-5 w-5 text-primary" />}
+          {profile.verified && <VerifiedBadge type={profile.verifiedType} className="h-5 w-5" />}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           {profile.isShop ? <span className="flex items-center gap-1"><Store className="h-4 w-4" /> {t('Shop')}</span> : <span className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> {t('Teacher')}</span>}
@@ -234,7 +238,7 @@ function ProfileView({ id }: { id: string }) {
             {people?.list?.map((p) => (
               <Link key={p.id} href={p.isShop ? profileHref(p.id) : '#'} onClick={() => setPeople(null)} className={cn('flex items-center gap-3 rounded-xl p-2 hover:bg-muted', !p.isShop && 'pointer-events-none')}>
                 <SellerAvatar src={p.avatar} name={p.name} className="h-10 w-10" />
-                <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{p.name}{p.verified && <VerifiedBadge className="ml-1" />}</span>
                 {p.isShop && <Store className="h-4 w-4 text-muted-foreground" />}
               </Link>
             ))}

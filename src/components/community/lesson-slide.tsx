@@ -1,5 +1,7 @@
 'use client';
 
+import { VerifiedBadge } from '@/components/verified-badge';
+
 import { useFeatures } from '@/lib/features';
 
 import { useT } from '@/lib/i18n';
@@ -200,7 +202,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </div>
         <h2 className="line-clamp-2 text-xl font-bold leading-tight">{lesson.title}</h2>
         {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}
-        <Link href={profileHref(lesson.authorId)} className="mt-2 block w-fit max-w-full truncate text-sm font-semibold hover:underline">@{lesson.authorName}</Link>
+        <Link href={profileHref(lesson.authorId)} className="mt-2 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
       </div>
       <Sheet open={captionsOpen} onOpenChange={setCaptionsOpen}>
         <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">

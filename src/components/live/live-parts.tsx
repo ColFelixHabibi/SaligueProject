@@ -1,5 +1,7 @@
 'use client';
 
+import { VerifiedBadge } from '@/components/verified-badge';
+
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Eye, HelpCircle, MicOff, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
@@ -99,7 +101,7 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
           </Avatar>
         </Link>
         <div className="min-w-0 leading-tight">
-          <p className="flex items-center gap-1 truncate text-sm font-bold">{live.sellerName}{live.official && <BadgeCheck className="h-3.5 w-3.5" />}</p>
+          <p className="flex items-center gap-1 truncate text-sm font-bold">{live.sellerName}{live.official && <BadgeCheck className="h-3.5 w-3.5" />}{live.sellerVerified && <VerifiedBadge className="h-3.5 w-3.5" />}</p>
           <p className="truncate text-[11px] text-white/80">{live.likeCount.toLocaleString()} likes</p>
         </div>
       </div>
