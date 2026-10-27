@@ -73,7 +73,10 @@ export function useLive(id: string | null, me: string | null) {
     });
   }, [id, me, load, burst]);
 
-  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords };
+  // My own comment shows at once (also when the host's word filter keeps it from everyone else).
+  const addMine = useCallback((c: LiveComment) => setComments((list) => (list.some((x) => x.id === c.id) ? list : [...list.slice(-150), c])), []);
+
+  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords, addMine };
 }
 
 // Actions

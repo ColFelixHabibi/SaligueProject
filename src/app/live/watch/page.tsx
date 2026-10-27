@@ -34,7 +34,7 @@ function Watch() {
   const { authUid, user } = useAuth();
   const { products } = useProductStore();
   const { addToCart } = useCart();
-  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote } = useLive(id, authUid);
+  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote, addMine } = useLive(id, authUid);
   const isGuest = myGuestStatus === 'accepted';
   const { tiles, viewers, status, toggleCam, toggleMic, camOn, micOn, flipCamera } = useLiveRoom(id, live?.status === 'live', isGuest);
   const heart = useHearts(id, burst);
@@ -101,7 +101,7 @@ function Watch() {
     if (!id || !text.trim()) return;
     setSending(true);
     try {
-      await sendLiveComment(id, text.trim(), question ? 'question' : 'comment');
+      addMine(await sendLiveComment(id, text.trim(), question ? 'question' : 'comment'));
       setText('');
       setQuestion(false);
     } catch (err) {
@@ -207,7 +207,8 @@ function Watch() {
         ) : (
         <>
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
-          <FollowButton sellerId={live.sellerId} onDark className="h-7 px-2.5 text-xs min-[360px]:px-3" />
+          {/* Small phones: just the + icon, so the host's name stays readable. */}
+          <FollowButton sellerId={live.sellerId} onDark className="h-7 w-7 px-0 text-xs min-[420px]:w-auto min-[420px]:px-3" labelClassName="hidden min-[420px]:ml-1 min-[420px]:inline" />
           <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close"><X className="h-4 w-4" /></button>
         </LiveTopBar>
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
