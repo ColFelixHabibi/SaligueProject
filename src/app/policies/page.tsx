@@ -10,7 +10,7 @@ const POLICIES = [
   { href: '/cookies', title: 'Cookie Policy', text: 'What is stored on your device and why.', icon: Cookie },
   { href: '/monetization-policy', title: 'Monetization Policy', text: 'How creators earn: requirements, points, tips, payouts.', icon: Coins },
   { href: '/ads-policy', title: 'Ads Policy', text: 'Sponsored items: prices, review and rules.', icon: Megaphone },
-  { href: '/verification-policy', title: 'Verification Policy', text: 'The optional blue check and how documents are protected.', icon: BadgeCheck },
+  { href: '/verification-policy', title: 'Verification Policy', text: 'The optional blue check ($2.53 per month) and how documents are protected.', icon: BadgeCheck },
 ];
 
 /** Every Saligue policy in one place, open to everyone (no account needed). */

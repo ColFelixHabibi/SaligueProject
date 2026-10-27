@@ -332,6 +332,17 @@ db.exec(`
     decided_by text
   );
 
+  -- Monthly renewals of the verification badge (documents are checked once; each payment adds 30 days).
+  create table if not exists verification_renewals (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    amount real not null,
+    reference text not null,
+    status text not null check (status in ('pending_payment', 'paid', 'cancelled')),
+    created_at text not null,
+    paid_at text
+  );
+
   -- What admins did (who, what, when), so the main admin can follow sub-admins' work.
   create table if not exists admin_log (
     id integer primary key autoincrement,
@@ -459,7 +470,7 @@ db.exec(`
 
 // Columns added after the first release.
 for (const [table, column, type] of [
-  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['payments', 'verification_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
@@ -470,6 +481,8 @@ for (const [table, column, type] of [
 }
 // Admins from before admin levels are main admins (type 1).
 db.exec('update users set admin_level = 1 where admin = 1 and admin_level = 0');
+// Badges from before monthly billing: documents were checked, the first month starts now.
+db.prepare('update users set identity_checked = 1, verified_until = ? where verified = 1 and verified_until is null').run(new Date(Date.now() + 30 * 86_400_000).toISOString());
 
 
 export const now = () => new Date().toISOString();

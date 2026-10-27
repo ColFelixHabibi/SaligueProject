@@ -1223,6 +1223,16 @@ route('GET', '/api/payments/config', () => {
 });
 
 function markPaid(payment, providerRef) {
+  // A monthly badge renewal: paid → 30 more days.
+  if (payment.renewal_id) {
+    const changed = transaction(() => {
+      if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
+      db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+      return true;
+    });
+    if (changed) renewalPaid(payment.renewal_id);
+    return;
+  }
   // A verification fee: paid → an admin reviews the documents.
   if (payment.verification_id) {
     const changed = transaction(() => {
@@ -2482,13 +2492,42 @@ function verificationToReview(id) {
   }
 }
 
+// Each paid month adds 30 days, counted from the end of the current month if the badge is still running.
+function renewalPaid(id) {
+  const r = db.prepare("select * from verification_renewals where id = ? and status = 'pending_payment'").get(id);
+  if (!r) return;
+  const u = db.prepare('select verified_until from users where id = ?').get(r.user_id);
+  const from = Math.max(Date.now(), Date.parse(u?.verified_until ?? '') || 0);
+  const until = new Date(from + 30 * 86_400_000).toISOString();
+  db.prepare("update verification_renewals set status = 'paid', paid_at = ? where id = ?").run(now(), r.id);
+  db.prepare('update users set verified = 1, verified_until = ?, verify_reminded = null where id = ? and identity_checked = 1').run(until, r.user_id);
+  broadcast('products');
+  notify(r.user_id, { type: 'account', title: 'Verification renewed ✓', body: `Your badge is active until ${until.slice(0, 10)}.`, link: '/verify' });
+}
+
+// Every hour: a reminder 3 days before the badge ends, and the badge goes away when the month is not renewed.
+function checkBadges() {
+  const soon = new Date(Date.now() + 3 * 86_400_000).toISOString();
+  for (const u of db.prepare('select id, verified_until from users where verified = 1 and verified_until < ? and verify_reminded is null').all(soon)) {
+    db.prepare('update users set verify_reminded = ? where id = ?').run(now(), u.id);
+    notify(u.id, { type: 'account', title: 'Your verification badge ends soon', body: `Renew it before ${String(u.verified_until).slice(0, 10)} to keep the ✓ (${money(verificationPrice())} per month).`, link: '/verify' });
+  }
+  const ended = db.prepare('select id from users where verified = 1 and verified_until < ?').all(now());
+  for (const u of ended) {
+    db.prepare('update users set verified = 0 where id = ?').run(u.id);
+    notify(u.id, { type: 'account', title: 'Your verification badge has ended', body: 'Renew it any time from Get verified; your documents don’t need to be sent again.', link: '/verify' });
+  }
+  if (ended.length) broadcast('products');
+}
+
 const verificationOut = (v) => v && { id: v.id, type: v.type, legalName: v.legal_name, businessName: v.business_name, status: v.status, amount: v.amount, reference: v.reference, note: v.note, createdAt: v.created_at, decidedAt: v.decided_at };
 
 route('GET', '/api/verification', ({ user }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
   const a = adSettings();
   const last = db.prepare('select * from verifications where user_id = ? order by created_at desc limit 1').get(user.id);
-  return { verified: !!user.verified, verifiedType: user.verified_type, price: verificationPrice(), onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName, request: verificationOut(last) };
+  const renewal = db.prepare("select id, reference, amount from verification_renewals where user_id = ? and status = 'pending_payment' order by created_at desc limit 1").get(user.id);
+  return { verified: !!user.verified, identityChecked: !!user.identity_checked, verifiedUntil: user.verified_until, renewal: renewal ?? null, verifiedType: user.verified_type, price: verificationPrice(), onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName, request: verificationOut(last) };
 });
 
 route('POST', '/api/verification', async ({ req, user, body }) => {
@@ -2535,6 +2574,45 @@ route('POST', '/api/verification', async ({ req, user, body }) => {
   return { id, status: 'pending_payment', link, reference };
 });
 
+// Renew the badge for a month (documents were already checked): online, or Mobile Money with a reference.
+route('POST', '/api/verification/renew', async ({ req, user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  needFeature('verification');
+  if (!user.identity_checked) fail(400, 'not_checked', 'Send your documents first.');
+  db.prepare("update verification_renewals set status = 'cancelled' where user_id = ? and status = 'pending_payment'").run(user.id);
+  const id = randomUUID();
+  const reference = `VRN-${id.slice(0, 6).toUpperCase()}`;
+  const amount = verificationPrice();
+  db.prepare("insert into verification_renewals (id, user_id, amount, reference, status, created_at) values (?, ?, ?, ?, 'pending_payment', ?)").run(id, user.id, amount, reference, now());
+  if (!paymentsEnabled()) {
+    const a = adSettings();
+    return { id, manual: true, reference, amount, momoNumber: a.momoNumber, momoName: a.momoName };
+  }
+  const { currency } = paymentSettings();
+  const charge = toCharge(amount);
+  const txRef = `SAL-VRN-${randomBytes(8).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, renewal_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', charge, currency, id, now());
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({ txRef, amount: charge, currency, redirectUrl: `${base}/payment`, customer: { email: user.email, name: personNameOf(user) }, title: 'Saligue verification (1 month)', logo: `${configured}/icons/icon-192.png` });
+  return { id, link, reference };
+});
+
+route('GET', '/api/admin/verification-renewals', ({ user }) => {
+  requireAdmin(user, 'users');
+  return db.prepare("select r.*, u.email, u.display_name, u.role, u.shop from verification_renewals r join users u on u.id = r.user_id where r.status = 'pending_payment' order by r.created_at").all()
+    .map((r) => ({ id: r.id, reference: r.reference, amount: r.amount, account: r.role === 'seller' ? shopNameOf(r) : r.display_name, email: r.email, createdAt: r.created_at }));
+});
+route('POST', '/api/admin/verification-renewals/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const r = db.prepare("select * from verification_renewals where id = ? and status = 'pending_payment'").get(params[0]);
+  if (!r) fail(404, 'not_found', 'Renewal not found.');
+  if (body.decision === 'cancel') db.prepare("update verification_renewals set status = 'cancelled' where id = ?").run(r.id);
+  else renewalPaid(r.id);
+  logAdmin(user, body.decision === 'cancel' ? 'renewal cancelled' : 'renewal payment confirmed', r.reference);
+  return { ok: true };
+});
+
 // Admin: requests to check (payment first for Mobile Money, then documents), the documents themselves, and decisions.
 route('GET', '/api/admin/verifications', ({ user }) => {
   requireAdmin(user, 'users');
@@ -2566,7 +2644,8 @@ route('POST', '/api/admin/verifications/([\\w-]+)', ({ user, params, body }) => 
   const note = String(body.note ?? '').trim().slice(0, 300) || null;
   transaction(() => {
     db.prepare("update verifications set status = ?, note = ?, files = '{}', decided_at = ?, decided_by = ? where id = ?").run(approve ? 'approved' : 'rejected', note, now(), user.id, v.id);
-    if (approve) db.prepare('update users set verified = 1, verified_type = ?, verified_at = ? where id = ?').run(v.type, now(), v.user_id);
+    // The first payment covers the first month.
+    if (approve) db.prepare('update users set verified = 1, identity_checked = 1, verified_type = ?, verified_at = ?, verified_until = ?, verify_reminded = null where id = ?').run(v.type, now(), new Date(Date.now() + 30 * 86_400_000).toISOString(), v.user_id);
   });
   removePrivate(parse(v.files));
   broadcast('products');
@@ -3228,6 +3307,7 @@ const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 cancelAbandonedOrders();
 setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
+setInterval(checkBadges, 60 * 60_000).unref();
 // The For You model relearns from everyone's behaviour every few minutes.
 try {
   train();
@@ -3252,4 +3332,5 @@ server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);
   // Captions for lessons that don't have them yet (a minute after start, so starting stays quick).
   setTimeout(() => featureOn('captions') && captionMissing(), 60_000).unref();
+  setTimeout(checkBadges, 30_000).unref();
 });

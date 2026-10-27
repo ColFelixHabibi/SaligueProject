@@ -108,7 +108,7 @@ export function RulesAdmin() {
           {field('tipAmounts', 'Amounts offered ($)', 'Separated by commas, e.g. 1, 2, 5, 10, 20')}
         </div>
         <p className="text-sm font-semibold">Verification badge (optional for users)</p>
-        <div className="grid gap-3 sm:grid-cols-2">{field('verificationPrice', 'Price ($)', 'Paid once; cents only, e.g. 2.53')}</div>
+        <div className="grid gap-3 sm:grid-cols-2">{field('verificationPrice', 'Price per month ($)', 'Each payment gives 30 days; cents only, e.g. 2.53')}</div>
         <Button onClick={save}>Save rules</Button>
       </CardContent>
     </Card>
@@ -297,7 +297,11 @@ export function VerificationsAdmin() {
   const [rows, setRows] = useState<VerificationRow[]>([]);
   const [images, setImages] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const load = useCallback(() => api<VerificationRow[]>('/admin/verifications').then(setRows).catch(() => {}), []);
+  const [renewals, setRenewals] = useState<{ id: string; reference: string; amount: number; account: string; email: string }[]>([]);
+  const load = useCallback(() => {
+    api<VerificationRow[]>('/admin/verifications').then(setRows).catch(() => {});
+    api<typeof renewals>('/admin/verification-renewals').then(setRenewals).catch(() => {});
+  }, []);
   useEffect(() => void load(), [load]);
   // Documents need the admin's session, so they are fetched and shown from memory (never a public link).
   const show = async (id: string, file: string) => {
@@ -312,11 +316,18 @@ export function VerificationsAdmin() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-sky-500" /> Verification requests {rows.length > 0 && <Badge>{rows.length}</Badge>}</CardTitle>
+        <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-sky-500" /> Verification requests {rows.length + renewals.length > 0 && <Badge>{rows.length + renewals.length}</Badge>}</CardTitle>
         <CardDescription>Check that the name, number and face match. Documents are deleted from the server as soon as you decide.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {rows.length === 0 && <p className="text-sm text-muted-foreground">Nothing waiting.</p>}
+        {rows.length === 0 && renewals.length === 0 && <p className="text-sm text-muted-foreground">Nothing waiting.</p>}
+        {renewals.map((r) => (
+          <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm">
+            <span className="min-w-0 flex-1">Monthly renewal · <b>{r.account}</b> ({r.email}) · ${r.amount.toFixed(2)} · ref <b className="select-all">{r.reference}</b></span>
+            <Button size="sm" variant="outline" onClick={() => act(() => api(`/admin/verification-renewals/${r.id}`, { body: { decision: 'confirm' } }), '30 days added').then(load)}>Payment received</Button>
+            <Button size="sm" variant="ghost" onClick={() => act(() => api(`/admin/verification-renewals/${r.id}`, { body: { decision: 'cancel' } }), 'Cancelled').then(load)}>Cancel</Button>
+          </div>
+        ))}
         {rows.map((v) => (
           <div key={v.id} className="space-y-2 rounded-xl border p-3 text-sm">
             <p className="font-semibold">{v.type === 'business' ? `${v.businessName} · owner ${v.legalName}` : v.legalName} <span className="font-normal text-muted-foreground">· {v.type === 'id' ? 'ID card' : v.type} …{v.docLast4} · {v.country} · account {v.account} ({v.email})</span></p>

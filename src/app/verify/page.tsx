@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 
 type Status = {
   verified: boolean;
+  identityChecked?: boolean;
+  verifiedUntil?: string | null;
+  renewal?: { id: string; reference: string; amount: number } | null;
   verifiedType: string | null;
   price: number;
   onlinePayment: boolean;
@@ -90,14 +93,36 @@ export default function VerifyPage() {
     }
   };
 
+  const renew = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ link?: string; manual?: boolean; reference: string; amount: number; momoNumber: string | null; momoName: string }>('/verification/renew', { body: {} });
+      if (r.link) window.location.href = r.link;
+      else setManual(r);
+      await load();
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Not done', description: friendlyError(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
   const req = s.request;
   return (
     <div className="mx-auto max-w-xl space-y-5 p-4 pb-24 md:p-8">
       <h1 className="flex items-center gap-2 text-2xl font-extrabold"><VerifiedBadge className="h-7 w-7" /> Get verified</h1>
-      <p className="text-muted-foreground">Optional: you can sell, go live, teach and earn without it. The blue check shows buyers and clients that Saligue checked who you are, for more trust. It costs <b className="text-foreground">{formatPrice(s.price)}</b> once.</p>
+      <p className="text-muted-foreground">Optional: you can sell, go live, teach and earn without it. The blue check shows buyers and clients that Saligue checked who you are, for more trust. It costs <b className="text-foreground">{formatPrice(s.price)} per month</b>. Your documents are checked once; renew each month to keep the ✓.</p>
 
-      {s.verified ? (
-        <div className="flex items-center gap-3 rounded-2xl bg-sky-50 p-4 text-sky-900"><CheckCircle2 className="h-6 w-6" /> Your account is verified.</div>
+      {(s.renewal || manual?.reference.startsWith('VRN')) ? (
+        <div className="space-y-3 rounded-2xl border p-4 text-sm">
+          <p className="flex items-center gap-2 font-semibold"><CreditCard className="h-5 w-5 text-primary" /> Pay to renew for 30 days</p>
+          <p>Send <b>{formatPrice(manual?.amount ?? s.renewal!.amount)}</b> by Mobile Money to <b>{manual?.momoNumber ?? s.momoNumber ?? 'Saligue'}</b> ({manual?.momoName ?? s.momoName}) with this reference:</p>
+          <p className="select-all rounded-xl bg-muted p-3 text-center text-xl font-extrabold tracking-widest">{manual?.reference ?? s.renewal!.reference}</p>
+        </div>
+      ) : s.identityChecked ? (
+        <div className={cn('space-y-3 rounded-2xl p-4', s.verified ? 'bg-sky-50 text-sky-900' : 'bg-amber-50 text-amber-900')}>
+          <p className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-6 w-6" /> {s.verified ? `Verified until ${s.verifiedUntil ? new Date(s.verifiedUntil).toLocaleDateString() : ''}` : 'Your badge has ended. Your documents are still checked.'}</p>
+          <Button onClick={renew} disabled={busy}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {s.verified ? 'Renew now' : 'Renew'} · {formatPrice(s.price)} for 30 days</Button>
+        </div>
       ) : req?.status === 'in_review' ? (
         <div className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 text-amber-900"><Clock className="h-6 w-6 shrink-0" /> Saligue is checking your documents. You’ll get a notification.</div>
       ) : (manual || req?.status === 'pending_payment') ? (
@@ -109,7 +134,7 @@ export default function VerifyPage() {
         </div>
       ) : null}
 
-      {!s.verified && req?.status !== 'in_review' && !(manual || req?.status === 'pending_payment') && (
+      {!s.identityChecked && req?.status !== 'in_review' && !(manual || req?.status === 'pending_payment') && (
         <form onSubmit={send} className="space-y-5">
           {req?.status === 'rejected' && <p className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm">Last request not approved{req.note ? `: ${req.note}` : '.'} Send new photos — no new payment within 30 days.</p>}
           <div className="grid grid-cols-3 gap-2">
@@ -143,7 +168,7 @@ export default function VerifyPage() {
             ))}
           </div>
           <p className="flex items-start gap-2 text-xs text-muted-foreground"><Lock className="mt-0.5 h-4 w-4 shrink-0" /> Only Saligue admins see your documents. They are deleted as soon as the check is done; Saligue keeps only the result and the last 4 characters of the number. <Link href="/verification-policy" className="text-primary underline">Verification Policy</Link></p>
-          <Button type="submit" className="h-12 w-full" disabled={busy}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Send and pay {formatPrice(s.price)}</Button>
+          <Button type="submit" className="h-12 w-full" disabled={busy}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Send and pay {formatPrice(s.price)} (first month)</Button>
         </form>
       )}
     </div>
