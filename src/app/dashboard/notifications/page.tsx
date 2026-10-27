@@ -59,12 +59,12 @@ export default function NotificationsPage() {
 
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex items-center justify-between">
-                <div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
                     <h1 className="text-2xl font-bold tracking-tight">Notifications</h1>
                     <p className="text-muted-foreground">Manage your account and sales notifications.</p>
                 </div>
-                <Button onClick={markAllAsRead}>
+                <Button onClick={markAllAsRead} className="shrink-0">
                     <Check className="mr-2 h-4 w-4" />
                     Mark all as read
                 </Button>

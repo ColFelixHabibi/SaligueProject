@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Download, ShieldCheck, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AppVersion } from '@/components/app-update';
 
 export const metadata: Metadata = { title: 'Get the Saligue app' };
 
@@ -14,7 +15,7 @@ export default function DownloadPage() {
       <div className="space-y-2 text-center">
         <Smartphone className="mx-auto h-12 w-12 text-primary" />
         <h1 className="text-3xl font-extrabold tracking-tight">Saligue for Android</h1>
-        <p className="text-muted-foreground">Version 1.6 · about 33 MB · Android 7 or newer</p>
+        <p className="text-muted-foreground"><AppVersion /> · about 33 MB · Android 7 or newer</p>
       </div>
       <Button size="lg" className="h-14 w-full text-lg" asChild>
         <a href={APK} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>

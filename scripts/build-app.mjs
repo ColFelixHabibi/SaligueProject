@@ -5,13 +5,18 @@
 // SALIGUE_SERVER sets the server address (default: SITE_URL, else the live link).
 // The app build temporarily replaces the website's build (out/); with --apk the website is rebuilt at the end.
 import { execSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const apk = process.argv.includes('--apk');
 const server = (process.env.SALIGUE_SERVER || process.env.SITE_URL || 'https://78-47-151-100.sslip.io').replace(/\/+$/, '');
+// The app knows its own version, so it can tell when the server has a newer one (update banner).
+const gradle = readFileSync('android/app/build.gradle', 'utf8');
+const versionCode = Number(/versionCode\s+(\d+)/.exec(gradle)?.[1] ?? 0);
+const versionName = /versionName\s+"([^"]+)"/.exec(gradle)?.[1] ?? '';
 const env = {
   ...process.env,
+  NEXT_PUBLIC_APP_VERSION: String(versionCode),
   NEXT_PUBLIC_BASE_PATH: '',
   NEXT_PUBLIC_API_URL: server,
   ...(apk ? { NEXT_PUBLIC_BUNDLED_MODELS: '0', NEXT_PUBLIC_MODELS_URL: `${server}/models` } : { NEXT_PUBLIC_BUNDLED_MODELS: '1' }),
@@ -37,6 +42,8 @@ if (apk) {
   const target = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads');
   mkdirSync(target, { recursive: true });
   copyFileSync(built, join(target, 'saligue.apk'));
+  // Installed apps compare this with their own version and offer the update.
+  writeFileSync(join(target, 'saligue.json'), JSON.stringify({ versionCode, versionName, builtAt: new Date().toISOString() }));
   // Put the website's own build back (with its AI models), so the live site keeps working.
   execSync('npm run build', { stdio: 'inherit', env: { ...process.env, NEXT_PUBLIC_API_URL: '', NEXT_PUBLIC_MODELS_URL: '', NEXT_PUBLIC_BUNDLED_MODELS: '' } });
   console.log(`Android app ready: ${server}/download/saligue.apk (website rebuilt; restart the server)`);

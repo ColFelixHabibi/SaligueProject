@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
 import { CookieBanner } from '@/components/cookie-banner';
+import { AppUpdate } from '@/components/app-update';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
@@ -62,6 +63,7 @@ export default function RootLayout({
           <PageTranslator />
           <PwaRegister />
           <CookieBanner />
+          <AppUpdate />
         </AuthProvider>
       </body>
     </html>

@@ -3334,6 +3334,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname, req);
+  // The newest Android app on the server: installed apps show an Update banner when theirs is older.
+  if (url.pathname === '/api/app/version') {
+    const info = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.json');
+    let latest = null;
+    try {
+      latest = JSON.parse(readFileSync(info, 'utf8'));
+    } catch {
+      // No app built yet.
+    }
+    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${siteUrl()}/download/saligue.apk` } : null);
+  }
   // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
   if (url.pathname === '/download/saligue.apk') {
     const apk = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.apk');
