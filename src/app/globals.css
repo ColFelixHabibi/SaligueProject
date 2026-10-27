@@ -5,6 +5,8 @@
 
 body {
   font-family: 'Inter', Arial, Helvetica, sans-serif;
+  /* One element too wide for a small phone must never make the whole page slide sideways. */
+  overflow-x: clip;
 }
 
 @layer base {

@@ -29,19 +29,19 @@ const run = (cmd, args, timeoutMs) =>
     child.on('error', reject);
   });
 
-/** Saves the request body to a temporary file, refusing uploads larger than 200 MB. */
-export function receiveUpload(req) {
+/** Saves the request body to a temporary file, refusing uploads larger than 200 MB (or `maxBytes`). */
+export function receiveUpload(req, maxBytes = MAX_UPLOAD_BYTES) {
   return new Promise((resolve, reject) => {
     const file = join(UPLOAD_DIR, `upload-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     const out = createWriteStream(file);
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_UPLOAD_BYTES) {
+      if (size > maxBytes) {
         req.destroy();
         out.destroy();
         try { unlinkSync(file); } catch { /* already gone */ }
-        reject(Object.assign(new Error('This video is too large (more than 200 MB). Record it again in a lower quality.'), { status: 413 }));
+        reject(Object.assign(new Error(`This video is too large (more than ${Math.round(maxBytes / 1048576)} MB). Record it again in a lower quality.`), { status: 413 }));
       }
     });
     req.pipe(out);
@@ -79,7 +79,7 @@ export async function processVideo(upload, maxSeconds = MAX_VIDEO_SECONDS) {
       '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-pix_fmt', 'yuv420p', '-profile:v', 'main',
       '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', tmpOut,
-    ], 10 * 60_000);
+    ], 25 * 60_000);
     await run('ffmpeg', ['-y', '-ss', String(Math.min(1, seconds / 2)), '-i', tmpOut, '-frames:v', '1', '-q:v', '4', tmpPoster], 60_000);
     const keep = (from, ext) => {
       const name = `${createHash('sha256').update(readFileSync(from)).digest('hex').slice(0, 32)}.${ext}`;

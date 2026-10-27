@@ -7,9 +7,9 @@ import { AppealsAdmin } from '@/components/admin/appeals-admin';
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, CircleDashed, Copy, Cpu, CreditCard, Download, Eye, KeyRound, Loader2, Mail, Radio, Shirt, SlidersHorizontal } from 'lucide-react';
+import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Scale, ScrollText, Server, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useToast } from '@/hooks/use-toast';
 import { api, getToken } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
+import { cn } from '@/lib/utils';
 
 type Platform = {
   site: string;
@@ -341,12 +342,127 @@ function PlatformSettings() {
 }
 
 type AdminInfo = { level: number; perms: string[]; allPerms: Record<string, string>; features: Record<string, string> };
+type Overview = {
+  stats: { users: number; newUsers: number; sellers: number; products: number; orders: number; newOrders: number; lessons: number; livesNow: number };
+  waiting: { key: string; tab: string; count: number }[];
+  days: { date: string; users: number; orders: number }[];
+};
+
+/**
+ * New accounts and orders per day as two small bar rows (each with its own scale) under one date axis.
+ * On phones the 30 days scroll sideways and open at today; tap or hover a bar for its number.
+ */
+function DailyBars({ days }: { days: Overview['days'] }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [picked, setPicked] = useState<number | null>(null);
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollLeft = scroller.current.scrollWidth;
+  }, []);
+  const rows: { key: 'users' | 'orders'; label: string }[] = [{ key: 'users', label: 'New accounts' }, { key: 'orders', label: 'Orders' }];
+  const day = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const shown = picked ?? days.length - 1;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Last 30 days</CardTitle>
+        <CardDescription className="tabular-nums">
+          {day(days[shown].date)}: <b className="text-foreground">{days[shown].users}</b> new accounts · <b className="text-foreground">{days[shown].orders}</b> orders
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div ref={scroller} className="overflow-x-auto pb-1 [scrollbar-width:thin]">
+          <div className="min-w-[600px] space-y-3">
+            {rows.map((r) => {
+              const max = Math.max(1, ...days.map((d) => d[r.key]));
+              return (
+                <div key={r.key}>
+                  <p className="sticky left-0 mb-1 w-fit text-xs font-semibold text-muted-foreground">{r.label} · max {max}</p>
+                  <div className="flex h-20 items-end gap-0.5 border-b">
+                    {days.map((d, i) => (
+                      <button key={d.date} type="button" title={`${day(d.date)}: ${d[r.key]}`} aria-label={`${day(d.date)}: ${d[r.key]} ${r.label.toLowerCase()}`}
+                        onClick={() => setPicked(i)} onMouseEnter={() => setPicked(i)}
+                        className={cn('flex h-full min-w-0 flex-1 items-end rounded-sm', i === shown && 'bg-muted')}>
+                        <span className={cn('block w-full rounded-t bg-primary', i !== shown && picked !== null && 'opacity-60')} style={{ height: `${d[r.key] ? Math.max(4, (d[r.key] / max) * 100) : 0}%` }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex gap-0.5 text-[10px] text-muted-foreground">
+              {days.map((d, i) => <span key={d.date} className="min-w-0 flex-1 whitespace-nowrap text-center">{i % 5 === 4 || i === days.length - 1 ? day(d.date) : ''}</span>)}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const WAITING: Record<string, { label: string; icon: LucideIcon }> = {
+  verifications: { label: 'Verification requests', icon: BadgeCheck },
+  appeals: { label: 'Appeals', icon: Scale },
+  hidden: { label: 'Hidden after reports', icon: EyeOff },
+  ads: { label: 'Ads to review', icon: Megaphone },
+  creators: { label: 'Monetization applications', icon: Wallet },
+  tips: { label: 'Tips waiting for payment', icon: Coins },
+};
+
+/** The platform at a glance and what is waiting for this admin; each waiting line opens its tab. */
+function OverviewAdmin({ open }: { open: (tab: string) => void }) {
+  const [data, setData] = useState<Overview | null>(null);
+  useEffect(() => void api<Overview>('/admin/overview').then(setData).catch(() => setData(null)), []);
+  if (!data) return <Skeleton className="h-72" />;
+  const s = data.stats;
+  const tiles: [LucideIcon, string, number, string?][] = [
+    [Users, 'Accounts', s.users, s.newUsers ? `+${s.newUsers} this week` : undefined],
+    [Store, 'Shops', s.sellers],
+    [Package, 'Items on sale', s.products],
+    [ShoppingBag, 'Orders', s.orders, s.newOrders ? `+${s.newOrders} this week` : undefined],
+    [GraduationCap, 'Lessons', s.lessons],
+    [Radio, 'Live now', s.livesNow],
+  ];
+  const todo = data.waiting.filter((w) => w.count > 0);
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {tiles.map(([Icon, label, value, sub]) => (
+          <div key={label} className="min-w-0 rounded-xl border bg-card p-3">
+            <Icon className="h-4 w-4 text-primary" />
+            <p className="mt-1 text-2xl font-bold tabular-nums">{value.toLocaleString()}</p>
+            <p className="truncate text-xs text-muted-foreground">{label}</p>
+            {sub && <p className="truncate text-[11px] font-semibold text-emerald-600">{sub}</p>}
+          </div>
+        ))}
+      </div>
+      {data.days?.length ? <DailyBars days={data.days} /> : null}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Waiting for you</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {todo.length === 0 && <p className="flex items-center gap-2 text-sm text-muted-foreground"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Nothing waiting.</p>}
+          {todo.map((w) => {
+            const meta = WAITING[w.key] ?? { label: w.key, icon: CircleDashed };
+            return (
+              <button key={w.key} type="button" onClick={() => open(w.tab)} className="flex w-full items-center gap-3 rounded-xl border p-3 text-left text-sm transition hover:bg-muted">
+                <meta.icon className="h-5 w-5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 font-medium">{meta.label}</span>
+                <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">{w.count}</span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 /** The admin dashboard: each tab needs a right; the main admin (type 1) has them all and manages sub-admins. */
 export default function AdminPage() {
   const { isAuthLoading } = useAuth();
   const admin = useUserRoleStore((s) => s.admin);
   const [me, setMe] = useState<AdminInfo | null>(null);
+  const [tab, setTab] = useState('overview');
   useEffect(() => {
     if (admin) api<AdminInfo>('/admin/me').then(setMe).catch(() => setMe(null));
   }, [admin]);
@@ -360,26 +476,38 @@ export default function AdminPage() {
     );
   }
   const has = (perm: string) => me.perms.includes(perm);
-  const tabs = [
-    { value: 'features', label: 'Features', show: has('features'), body: <FeaturesAdmin features={me.features} /> },
-    { value: 'rules', label: 'Rules & policies', show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
-    { value: 'moderation', label: 'Moderation', show: has('moderation'), body: <AppealsAdmin /> },
-    { value: 'money', label: 'Money & ads', show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}<MonetizationAdmin /></div> },
-    { value: 'accounts', label: 'Accounts', show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
-    { value: 'admins', label: 'Admins', show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
-    { value: 'platform', label: 'Platform', show: has('platform'), body: <PlatformSettings /> },
+  const open = (value: string) => {
+    setTab(value);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const tabs: { value: string; label: string; icon: LucideIcon; show: boolean; body: React.ReactNode }[] = [
+    { value: 'overview', label: 'Overview', icon: LayoutDashboard, show: true, body: <OverviewAdmin open={open} /> },
+    { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <AppealsAdmin /> },
+    { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
+    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
+    { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
+    { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
+    { value: 'platform', label: 'Platform', icon: Server, show: has('platform'), body: <PlatformSettings /> },
   ].filter((t) => t.show);
   return (
-    <div className="mx-auto max-w-4xl space-y-5 px-4 py-8">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin · {me.level === 1 ? 'Main admin' : 'Sub-admin'}</p>
-        <h1 className="text-3xl font-extrabold tracking-tight">Admin dashboard</h1>
+    <div className="mx-auto max-w-4xl space-y-4 px-3 py-5 sm:px-4 md:py-8">
+      <div className="min-w-0">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin · {me.level === 1 ? 'Main admin' : 'Sub-admin'}</p>
+        <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Admin dashboard</h1>
       </div>
-      <Tabs defaultValue={tabs[0]?.value}>
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
-          {tabs.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
-        </TabsList>
-        {tabs.map((t) => <TabsContent key={t.value} value={t.value} className="mt-5">{t.body}</TabsContent>)}
+      <Tabs value={tab} onValueChange={setTab}>
+        {/* Phones: one row of icon tabs that scrolls sideways and stays under the top bar. */}
+        <div className="sticky top-16 z-30 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:top-0">
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {tabs.map((t) => (
+              <TabsTrigger key={t.value} value={t.value} title={t.label} className="shrink-0 gap-1.5 px-2.5 py-1.5">
+                <t.icon className="h-4 w-4" /> <span className={cn(t.value !== tab && 'hidden sm:inline')}>{t.label}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        {tabs.map((t) => <TabsContent key={t.value} value={t.value} className="mt-3">{t.body}</TabsContent>)}
       </Tabs>
     </div>
   );

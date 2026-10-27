@@ -1,11 +1,11 @@
 'use client';
 
 import { ExpandableText } from '@/components/expandable-text';
-import { DIGITAL_ZOOM_MAX, listCameras, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange } from '@/lib/camera';
+import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirrorFor, onDevicesChange, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraDevice, type MicDevice } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Eye, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Radio, Share2, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, useVideoShape } from '@/components/live/live-parts';
+import { CoverPicker, HeartGoal, Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, PollCard, snapFrame, useVideoShape } from '@/components/live/live-parts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -22,6 +22,32 @@ import { decideGuest, endLive, goLive, inviteOnCamera, muteInLive, removeLiveCom
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 import { onServerEvent } from '@/lib/api';
+
+/**
+ * Where the picture comes from, as chips in a row that scrolls sideways: the phone's front and back camera, and
+ * every other camera found — a digital camera by USB (webcam mode) or HDMI capture card, a webcam, a wide lens.
+ */
+function CameraSources({ cameras, facing, deviceId, onPick }: { cameras: CameraDevice[]; facing: 'user' | 'environment'; deviceId?: string; onPick: (facing: 'user' | 'environment', deviceId?: string) => void }) {
+  const chip = (on: boolean) => cn('flex h-10 max-w-[220px] shrink-0 snap-start items-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition', on ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted');
+  const extra = cameras.filter((c) => c.kind === 'external' || c.kind === 'other' || cameras.filter((x) => x.kind === c.kind).length > 1);
+  return (
+    <div className="space-y-1.5">
+      <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button type="button" className={chip(!deviceId && facing === 'user')} onClick={() => onPick('user')}><Smartphone className="h-4 w-4 shrink-0" /> Front</button>
+        <button type="button" className={chip(!deviceId && facing === 'environment')} onClick={() => onPick('environment')}><SwitchCamera className="h-4 w-4 shrink-0" /> Back</button>
+        {extra.map((c) => (
+          <button key={c.deviceId} type="button" title={c.label} className={chip(deviceId === c.deviceId)} onClick={() => onPick(c.kind === 'front' ? 'user' : 'environment', c.deviceId)}>
+            {c.kind === 'external' ? <Camera className="h-4 w-4 shrink-0" /> : <Video className="h-4 w-4 shrink-0" />}
+            <span className="truncate">{c.kind === 'external' ? `Digital · ${c.label}` : c.label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        <Camera className="mr-1 inline h-3.5 w-3.5" />Digital camera: plug it in by USB (webcam mode) or through an HDMI capture card. It appears here.
+      </p>
+    </div>
+  );
+}
 
 /** Before going live: camera check, title, description and the items to show. */
 function Setup() {
@@ -36,7 +62,10 @@ function Setup() {
   const [picked, setPicked] = useState<string[]>([]);
   const [facing, setFacing] = useState<'user' | 'environment'>(() => (typeof window === 'undefined' ? 'user' : loadCameraChoice().facing));
   const [deviceId, setDeviceId] = useState<string | undefined>(() => (typeof window === 'undefined' ? undefined : loadCameraChoice().deviceId));
-  const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
+  const [cameras, setCameras] = useState<CameraDevice[]>([]);
+  const [mics, setMics] = useState<MicDevice[]>([]);
+  const [micId, setMicId] = useState<string | undefined>(() => (typeof window === 'undefined' ? undefined : loadCameraChoice().micId));
+  const [cover, setCover] = useState<string | null>(null);
   const [fill, setFill] = useState(false);
   const [camError, setCamError] = useState<string | null>(null);
   const [camTry, setCamTry] = useState(0);
@@ -48,6 +77,15 @@ function Setup() {
   const [starting, setStarting] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const previewWide = useVideoShape(video);
+  const device = cameras.find((c) => c.deviceId === deviceId) ?? null;
+  const external = device?.kind === 'external';
+  const mirror = mirrorFor(facing, device);
+
+  // A digital camera plugged in (or removed) while on this screen shows up at once.
+  useEffect(() => onDevicesChange(() => {
+    void listCameras().then(setCameras);
+    void listMicrophones().then(setMics);
+  }), []);
 
   // The blurred fill behind a wide camera picture shows the same camera.
   useEffect(() => {
@@ -59,15 +97,16 @@ function Setup() {
     let stream: MediaStream | null = null;
     let cancelled = false;
     setCamError(null);
-    openCamera(facing, false, { deviceId })
+    openCamera(facing, false, { deviceId, external })
       .then(({ stream: s }) => {
         if (cancelled) return s.getTracks().forEach((t) => t.stop());
         stream = s;
         trackRef.current = s.getVideoTracks()[0];
         setZoomState(zoomRange(trackRef.current));
-        saveCameraChoice({ facing, deviceId, zoom: zoomRange(trackRef.current)?.value, digital: zoomRange(trackRef.current) ? 1 : digital });
-        // Camera names are only readable once the camera is allowed.
+        saveCameraChoice({ facing, deviceId, external, mirror, micId, zoom: zoomRange(trackRef.current)?.value, digital: zoomRange(trackRef.current) ? 1 : digital });
+        // Camera and microphone names are only readable once they are allowed.
         void listCameras().then(setCameras);
+        void listMicrophones().then(setMics);
         if (video.current) {
           video.current.srcObject = s;
           video.current.play().catch(() => {});
@@ -79,6 +118,7 @@ function Setup() {
       cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facing, deviceId, camTry]);
 
   const mineLive = lives?.lives.find((l) => l.sellerId === authUid);
@@ -87,7 +127,8 @@ function Setup() {
     e.preventDefault();
     setStarting(true);
     try {
-      const live = await goLive({ title, description, productIds: picked });
+      // No cover chosen: a frame from the camera, so the live never shows up as an empty card.
+      const live = await goLive({ title, description, productIds: picked, thumbnail: cover ?? snapFrame(video.current, mirror) });
       if (fill) await updateLive(live.id, { videoFit: 'fill' }).catch(() => {});
       router.replace(`/live/studio?id=${live.id}`);
     } catch (error) {
@@ -101,11 +142,11 @@ function Setup() {
   }
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-6 p-4 md:grid-cols-[minmax(0,360px)_1fr] md:p-8">
-      <div className="relative mx-auto aspect-[9/16] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl">
+    <div className="mx-auto grid max-w-5xl gap-5 px-3 py-4 min-[360px]:px-4 md:grid-cols-[minmax(0,360px)_1fr] md:gap-6 md:p-8">
+      <div className="relative mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl md:max-h-none">
         {previewWide && !fill && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
         <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', fill ? 'object-cover' : 'object-contain')}
-          style={{ transform: `scale(${facing === 'user' ? -(zoom ? 1 : digital) : zoom ? 1 : digital}, ${zoom ? 1 : digital})` }} />
+          style={{ transform: `scale(${mirror ? -(zoom ? 1 : digital) : zoom ? 1 : digital}, ${zoom ? 1 : digital})` }} />
         {camError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-white/90">
             <VideoOff className="h-10 w-10" />
@@ -113,7 +154,7 @@ function Setup() {
             <Button size="sm" variant="secondary" className="bg-white text-primary hover:bg-white/90" onClick={() => setCamTry((n) => n + 1)}>Try again</Button>
           </div>
         )}
-        <span className="absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-xs font-bold text-white">Preview</span>
+        <span className="absolute left-3 top-3 flex items-center gap-1 rounded-md bg-black/50 px-2 py-1 text-xs font-bold text-white">Preview{external && <><Camera className="h-3.5 w-3.5" /> Digital camera</>}</span>
         <div className="absolute right-3 top-3 flex flex-col gap-2">
           <button type="button" onClick={() => { setDeviceId(undefined); setFacing((f) => (f === 'user' ? 'environment' : 'user')); }} className="rounded-full bg-black/50 p-2 text-white" aria-label="Switch camera" title="Switch camera">
             <SwitchCamera className="h-5 w-5" />
@@ -122,12 +163,6 @@ function Setup() {
             {fill ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
           </button>
         </div>
-        {cameras.length > 1 && (
-          <select aria-label="Camera" value={deviceId ?? ''} onChange={(e) => setDeviceId(e.target.value || undefined)} className={cn('absolute bottom-16 left-3 max-w-[70%] truncate rounded-full bg-black/50 px-3 py-1.5 text-xs font-semibold text-white')}>
-            <option value="">{facing === 'user' ? 'Front camera' : 'Back camera'}</option>
-            {cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
-          </select>
-        )}
         {!zoom && !camError && (
           <div className="absolute inset-x-4 bottom-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs font-semibold text-white">
             <span className="w-9">{digital.toFixed(1)}×</span>
@@ -135,7 +170,7 @@ function Setup() {
               onChange={(e) => {
                 const v = Number(e.target.value);
                 setDigital(v);
-                saveCameraChoice({ facing, deviceId, digital: v });
+                saveCameraChoice({ facing, deviceId, external, mirror, micId, digital: v });
               }} />
           </div>
         )}
@@ -147,7 +182,7 @@ function Setup() {
                 const v = Number(e.target.value);
                 setZoomState({ ...zoom, value: v });
                 if (trackRef.current) void setZoom(trackRef.current, v);
-                saveCameraChoice({ facing, deviceId, zoom: v });
+                saveCameraChoice({ facing, deviceId, external, mirror, micId, zoom: v });
               }} />
           </div>
         )}
@@ -156,7 +191,7 @@ function Setup() {
       <form onSubmit={start} className="space-y-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue Live</p>
-          <h1 className="text-3xl font-extrabold tracking-tight">Go live</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight min-[360px]:text-3xl">Go live</h1>
           <p className="text-muted-foreground">Show your items on camera. Shoppers chat, send hearts, buy while you talk, and can join you on camera.</p>
         </div>
         {mineLive && (
@@ -165,6 +200,21 @@ function Setup() {
             <Button size="sm" asChild><Link href={`/live/studio?id=${mineLive.id}`}>Back to it</Link></Button>
           </div>
         )}
+        <div className="space-y-2">
+          <Label className="font-semibold">Camera</Label>
+          <CameraSources cameras={cameras} facing={facing} deviceId={deviceId} onPick={(f, id) => { setFacing(f); setDeviceId(id); }} />
+          {mics.length > 1 && (
+            <select aria-label="Microphone" value={micId ?? ''} onChange={(e) => { setMicId(e.target.value || undefined); saveCameraChoice({ ...loadCameraChoice(), micId: e.target.value || undefined }); }}
+              className="h-10 w-full truncate rounded-xl border bg-background px-3 text-sm">
+              <option value="">🎙 Usual microphone</option>
+              {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>🎙 {m.label}</option>)}
+            </select>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label className="font-semibold">Cover</Label>
+          <CoverPicker value={cover} onChange={setCover} snap={() => snapFrame(video.current, mirror)} />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="live-title" className="font-semibold">Title <span className="text-destructive">*</span></Label>
           <Input id="live-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} required placeholder="e.g. New kitenge dresses — try them on with me" className="h-12" />
@@ -178,7 +228,7 @@ function Setup() {
           {mine.length === 0 ? (
             <p className="text-sm text-muted-foreground">You have no items on sale. <Link href="/sell" className="text-primary underline">Add one</Link> to sell during the live.</p>
           ) : (
-            <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
+            <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto min-[360px]:grid-cols-3 sm:grid-cols-4">
               {mine.map((p) => {
                 const on = picked.includes(p.id);
                 return (
@@ -210,13 +260,17 @@ function Studio({ id }: { id: string }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
   const { products } = useProductStore();
-  const { live, comments, guests, bursts, error } = useLive(id, authUid);
-  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, retry, videoTrack, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
+  const { live, comments, guests, bursts, error, blockedWords, setBlockedWords } = useLive(id, authUid);
+  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
-  const [cameras, setCameras] = useState<{ deviceId: string; label: string }[]>([]);
+  const [cameras, setCameras] = useState<CameraDevice[]>([]);
+  const [mics, setMics] = useState<MicDevice[]>([]);
+  const [micId, setMicId] = useState(() => (typeof window === 'undefined' ? '' : loadCameraChoice().micId ?? ''));
   const [cameraId, setCameraId] = useState('');
+  const [goal, setGoal] = useState('');
+  const [wordsDraft, setWordsDraft] = useState('');
   const elapsed = useElapsed(live?.startedAt);
-  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | 'viewers' | null>(null);
+  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | 'viewers' | 'poll' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [say, setSay] = useState('');
@@ -286,18 +340,30 @@ function Studio({ id }: { id: string }) {
     );
   }
 
+  const button = 'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white min-[360px]:h-12 min-[360px]:w-12';
+  const openSettings = () => {
+    setLiveZoom(zoomInfo());
+    setCameraId(videoTrack()?.getSettings().deviceId ?? '');
+    setGoal(live.heartGoal ? String(live.heartGoal) : '');
+    setWordsDraft(blockedWords.join(', '));
+    void listCameras().then(setCameras);
+    void listMicrophones().then(setMics);
+    setPanel('settings');
+  };
+  // Small phones: the buttons scroll sideways instead of running off the screen.
   const controls = (
-    <div className="flex items-center justify-center gap-2">
-      <button type="button" onClick={toggleMic} className={cn('flex h-12 w-12 items-center justify-center rounded-full text-white', micOn ? 'bg-black/45' : 'bg-destructive')} aria-label={micOn ? 'Mute' : 'Unmute'}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
-      <button type="button" onClick={toggleCam} className={cn('flex h-12 w-12 items-center justify-center rounded-full text-white', camOn ? 'bg-black/45' : 'bg-destructive')} aria-label={camOn ? 'Camera off' : 'Camera on'}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
-      <button type="button" onClick={flipCamera} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Switch camera"><SwitchCamera className="h-5 w-5" /></button>
-      <button type="button" onClick={() => setPanel('products')} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Items"><Package className="h-5 w-5" /></button>
-      <button type="button" onClick={() => setPanel('guests')} className="relative flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Guests">
+    <div className="-mx-3 flex snap-x items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
+      <button type="button" onClick={toggleMic} className={cn(button, micOn ? 'bg-black/45' : 'bg-destructive')} aria-label={micOn ? 'Mute' : 'Unmute'}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
+      <button type="button" onClick={toggleCam} className={cn(button, camOn ? 'bg-black/45' : 'bg-destructive')} aria-label={camOn ? 'Camera off' : 'Camera on'}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
+      <button type="button" onClick={flipCamera} className={cn(button, 'bg-black/45')} aria-label="Switch camera"><SwitchCamera className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('products')} className={cn(button, 'bg-black/45')} aria-label="Items"><Package className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('poll')} className={cn(button, live.poll?.open ? 'bg-primary' : 'bg-black/45')} aria-label="Poll"><BarChart3 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('guests')} className={cn(button, 'relative bg-black/45')} aria-label="Guests">
         <Users className="h-5 w-5" />
         {requests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold">{requests.length}</span>}
       </button>
-      <button type="button" onClick={share} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Share"><Share2 className="h-5 w-5" /></button>
-      <button type="button" onClick={() => { setLiveZoom(zoomInfo()); setCameraId(videoTrack()?.getSettings().deviceId ?? ''); void listCameras().then(setCameras); setPanel('settings'); }} className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white" aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
+      <button type="button" onClick={share} className={cn(button, 'bg-black/45')} aria-label="Share"><Share2 className="h-5 w-5" /></button>
+      <button type="button" onClick={openSettings} className={cn(button, 'bg-black/45')} aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
     </div>
   );
 
@@ -333,17 +399,58 @@ function Studio({ id }: { id: string }) {
           <p className="text-sm font-semibold">Camera</p>
           <div className="grid gap-2">
             {cameras.map((c) => (
-              <Button key={c.deviceId} type="button" variant={cameraId === c.deviceId ? 'default' : 'outline'} className="justify-start truncate"
+              <Button key={c.deviceId} type="button" variant={cameraId === c.deviceId ? 'default' : 'outline'} className="min-w-0 justify-start"
                 onClick={() => act(async () => {
-                  await restartCamera({ facing, deviceId: c.deviceId });
+                  const f = c.kind === 'front' ? 'user' : c.kind === 'back' || c.kind === 'external' ? 'environment' : facing;
+                  await restartCamera({ facing: f, deviceId: c.deviceId, external: c.kind === 'external', mirror: mirrorFor(f, c) });
                   setCameraId(c.deviceId);
                   setLiveZoom(zoomInfo());
-                })}>{c.label}</Button>
+                })}>
+                {c.kind === 'external' ? <Camera className="mr-2 h-4 w-4 shrink-0" /> : c.kind === 'front' ? <Smartphone className="mr-2 h-4 w-4 shrink-0" /> : <Video className="mr-2 h-4 w-4 shrink-0" />}
+                <span className="truncate">{c.kind === 'external' ? `Digital camera · ${c.label}` : c.label}</span>
+              </Button>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">On many phones one of the back cameras is wide-angle: pick it to show more.</p>
+          <p className="text-xs text-muted-foreground">Digital cameras connect by USB (webcam mode) or an HDMI capture card. On many phones one back camera is wide-angle: pick it to show more.</p>
         </div>
       )}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-semibold">Mirror my picture</span>
+        <Button type="button" size="sm" variant={mirror ? 'default' : 'outline'} onClick={flipMirror}><FlipHorizontal2 className="mr-1.5 h-4 w-4" /> {mirror ? 'On' : 'Off'}</Button>
+      </div>
+      <p className="-mt-4 text-xs text-muted-foreground">Only for you. Viewers always see the real picture, so writing reads the right way.</p>
+      {mics.length > 1 && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Microphone</p>
+          <select aria-label="Microphone" value={micId} onChange={(e) => { setMicId(e.target.value); void act(() => switchMic(e.target.value)); }} className="h-10 w-full truncate rounded-xl border bg-background px-3 text-sm">
+            <option value="">Usual microphone</option>
+            {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+          </select>
+        </div>
+      )}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Cover</p>
+        <CoverPicker value={live.thumbnail ?? null} onChange={(v) => act(() => updateLive(id, { thumbnail: v }), 'Cover changed')}
+          snap={() => snapFrame(document.querySelector<HTMLVideoElement>('video[data-live-video="host"]'), false)} />
+      </div>
+      <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void act(() => updateLive(id, { heartGoal: Number(goal) || 0 }), Number(goal) ? 'Goal set' : 'Goal removed'); }}>
+        <p className="flex items-center gap-1.5 text-sm font-semibold"><Heart className="h-4 w-4 text-primary" /> Heart goal</p>
+        <div className="flex gap-2">
+          <Input type="number" min={0} inputMode="numeric" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="e.g. 1000" className="min-w-0" />
+          <Button type="submit" variant="outline">Save</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">A bar shows everyone how close you are. Empty = no goal.</p>
+      </form>
+      <form className="space-y-2" onSubmit={(e) => {
+        e.preventDefault();
+        const words = wordsDraft.split(/[,\n]+/).map((w) => w.trim()).filter(Boolean);
+        void act(() => updateLive(id, { blockedWords: words }).then(() => setBlockedWords(words)), 'Filter saved');
+      }}>
+        <p className="flex items-center gap-1.5 text-sm font-semibold"><ShieldOff className="h-4 w-4 text-primary" /> Hide comments with these words</p>
+        <Textarea value={wordsDraft} onChange={(e) => setWordsDraft(e.target.value)} placeholder="Words separated by commas" className="min-h-16" />
+        <Button type="submit" variant="outline" className="w-full">Save filter</Button>
+        <p className="text-xs text-muted-foreground">The writer still sees their comment; nobody else does.</p>
+      </form>
       <div className="space-y-2">
         <p className="text-sm font-semibold">Zoom</p>
         {liveZoom ? (
@@ -369,6 +476,7 @@ function Studio({ id }: { id: string }) {
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onViewers={() => setPanel('viewers')}>
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>
+        <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
         <Hearts bursts={bursts} />
         {roomError && (
           <div className="absolute inset-x-3 top-1/3 z-20 space-y-3 rounded-2xl bg-background/95 p-4 text-center text-sm shadow-xl">
@@ -382,6 +490,7 @@ function Studio({ id }: { id: string }) {
           </button>
         )}
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pt-16">
+          {live.poll && <button type="button" className="block w-full text-left" onClick={() => setPanel('poll')}><PollCard poll={live.poll} /></button>}
           <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={(c) => c.kind !== 'join' && setSelected(c)} />
           {pinned && <PinnedProduct product={pinned} compact />}
           <form className="flex gap-2" onSubmit={(e) => {
@@ -407,16 +516,17 @@ function Studio({ id }: { id: string }) {
           </div>
         </div>
         <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} />
+        <div className="rounded-2xl border bg-card p-5"><h2 className="mb-3 flex items-center gap-2 font-bold"><BarChart3 className="h-4 w-4 text-primary" /> Poll</h2><PollPanel id={id} live={live} /></div>
         <GuestsPanel id={id} requests={requests} onCamera={onCamera} />
         <ViewersPanel id={id} live={live} audience={audience} guests={guests} />
         <div className="rounded-2xl border bg-card p-5"><h2 className="mb-4 font-bold">Live settings</h2>{settingsPanel}</div>
       </aside>
 
       <Sheet open={!!panel} onOpenChange={(v) => !v && setPanel(null)}>
-        <SheetContent side="bottom" className={cn('max-h-[75vh] overflow-y-auto rounded-t-3xl', panel !== 'settings' && 'md:hidden')}>
-          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : panel === 'viewers' ? `Watching (${audience.length})` : 'Guests'}</SheetTitle></SheetHeader>
+        <SheetContent side="bottom" className={cn('max-h-[80vh] overflow-y-auto rounded-t-3xl px-4 min-[360px]:px-6', panel !== 'settings' && panel !== 'poll' && 'md:hidden')}>
+          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : panel === 'poll' ? 'Poll' : panel === 'viewers' ? `Watching (${audience.length})` : 'Guests'}</SheetTitle></SheetHeader>
           <div className="mt-4">
-            {panel === 'viewers' ? <ViewersPanel id={id} live={live} audience={audience} guests={guests} bare /> : panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
+            {panel === 'viewers' ? <ViewersPanel id={id} live={live} audience={audience} guests={guests} bare /> : panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : panel === 'poll' ? <PollPanel id={id} live={live} /> : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
           </div>
         </SheetContent>
       </Sheet>
@@ -458,6 +568,45 @@ function Studio({ id }: { id: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** Ask viewers a question with 2–4 answers (like Instagram and TikTok live polls); results update as they vote. */
+function PollPanel({ id, live }: { id: string; live: Live }) {
+  const { toast } = useToast();
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['', '']);
+  const save = (body: Parameters<typeof updateLive>[1], done: string) => updateLive(id, body).then(() => toast({ title: done })).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }));
+  if (live.poll) {
+    return (
+      <div className="space-y-3">
+        <PollCard poll={live.poll} className="border shadow-none" />
+        <div className="grid grid-cols-2 gap-2">
+          {live.poll.open
+            ? <Button variant="outline" onClick={() => save({ pollOpen: false }, 'Poll closed')}>Close voting</Button>
+            : <Button variant="outline" onClick={() => save({ pollOpen: true }, 'Poll open again')}>Open again</Button>}
+          <Button variant="ghost" className="text-destructive" onClick={() => save({ poll: null }, 'Poll removed')}><Trash2 className="mr-1.5 h-4 w-4" /> Remove</Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <form className="space-y-2" onSubmit={(e) => {
+      e.preventDefault();
+      void save({ poll: { question, options: options.filter((o) => o.trim()) } }, 'Poll started').then(() => { setQuestion(''); setOptions(['', '']); });
+    }}>
+      <Input value={question} onChange={(e) => setQuestion(e.target.value)} maxLength={120} required placeholder="Question, e.g. Which colour next?" />
+      {options.map((o, i) => (
+        <div key={i} className="flex gap-2">
+          <Input value={o} onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))} maxLength={40} required={i < 2} placeholder={`Answer ${i + 1}`} className="min-w-0" />
+          {i >= 2 && <Button type="button" size="icon" variant="ghost" aria-label="Remove answer" onClick={() => setOptions(options.filter((_, j) => j !== i))}><X className="h-4 w-4" /></Button>}
+        </div>
+      ))}
+      <div className="flex gap-2">
+        {options.length < 4 && <Button type="button" variant="outline" onClick={() => setOptions([...options, ''])}><Plus className="mr-1 h-4 w-4" /> Answer</Button>}
+        <Button type="submit" className="flex-1"><BarChart3 className="mr-1.5 h-4 w-4" /> Start poll</Button>
+      </div>
+    </form>
   );
 }
 

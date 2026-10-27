@@ -216,7 +216,7 @@ function Mirror() {
       <div className="space-y-6">
           {/* Step 1: a standing photo, so the AI can dress the person as they really are. */}
           <Card className={cn(!personUrl && 'border-2 border-dashed border-primary/50')}>
-            <CardContent className="flex flex-wrap items-center gap-4 p-4">
+            <CardContent className="flex flex-wrap items-center gap-3 p-3 min-[360px]:gap-4 min-[360px]:p-4">
               {personUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={personUrl} alt="Your photo" className="h-24 w-20 shrink-0 rounded-lg border bg-gradient-to-b from-muted to-background object-contain" />
@@ -231,7 +231,8 @@ function Mirror() {
                     : 'Head to feet · standing · good light')}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              {/* Phones: the buttons get their own row under the photo. */}
+              <div className="flex w-full items-center gap-2 sm:w-auto">
                 {personBusy ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <PhotoInputs onFile={handlePersonFile} compact={!!personUrl} />}
               </div>
             </CardContent>

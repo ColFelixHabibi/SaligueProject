@@ -45,7 +45,7 @@ export function AppealsAdmin() {
             </p>
             <p className="rounded-lg bg-muted p-2">“{a.text}”</p>
             <Input placeholder="Note to the owner (optional)" value={notes[a.id] ?? ''} onChange={(e) => setNotes({ ...notes, [a.id]: e.target.value })} />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => decide(a.id, 'restore')}>Show again</Button>
               <Button size="sm" variant="outline" onClick={() => decide(a.id, 'keep')}>Keep hidden</Button>
             </div>

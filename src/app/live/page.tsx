@@ -16,7 +16,10 @@ function LiveCard({ live }: { live: Live }) {
   const cover = products.find((p) => p.id === (live.pinnedProductId ?? live.productIds[0]));
   return (
     <Link href={`/live/watch?id=${live.id}`} className="group relative block aspect-[9/14] overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-foreground shadow-md">
-      {cover && (
+      {live.thumbnail ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={live.thumbnail} alt="" className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105" />
+      ) : cover && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={cover.cutout || cover.image} alt="" className="absolute inset-0 h-full w-full object-contain p-8 opacity-90 transition group-hover:scale-105" />
       )}
@@ -42,7 +45,7 @@ export default function LivesPage() {
   const lives = useLives();
   const { role } = useAuth();
   return (
-    <div className="container mx-auto space-y-6 px-4 py-6 md:py-8">
+    <div className="container mx-auto space-y-6 px-3 py-4 min-[360px]:px-4 md:py-8">
       <PageIntro icon={Radio} title="Live" subtitle="Shops showing their items on camera right now.">
         {role === 'seller' && <Button asChild><Link href="/live/studio"><Radio className="mr-2 h-4 w-4" /> Go live</Link></Button>}
       </PageIntro>
@@ -59,7 +62,7 @@ export default function LivesPage() {
           {role === 'seller' && <Button className="mt-4" asChild><Link href="/live/studio"><Radio className="mr-2 h-4 w-4" /> Go live</Link></Button>}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">{lives.lives.map((l) => <LiveCard key={l.id} live={l} />)}</div>
+        <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">{lives.lives.map((l) => <LiveCard key={l.id} live={l} />)}</div>
       )}
     </div>
   );

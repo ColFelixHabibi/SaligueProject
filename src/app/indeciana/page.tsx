@@ -115,14 +115,14 @@ function IndecianaStore() {
                       </div>
                     ))}
                 </dl>
-                <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
-                  <Button size="lg" className="h-14 rounded-none bg-primary text-base text-primary-foreground hover:bg-primary/90" asChild>
-                    <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-2 h-5 w-5" /> Wear it</Link>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:gap-3">
+                  <Button size="lg" className="h-14 min-w-0 rounded-none bg-primary px-2 text-sm text-primary-foreground hover:bg-primary/90 sm:px-8 sm:text-base" asChild>
+                    <Link href={`/mirror?item=${selected.id}`}><Wand2 className="mr-1.5 h-5 w-5 sm:mr-2" /> Wear it</Link>
                   </Button>
-                  <Button size="lg" variant="outline" className="h-14 rounded-none border-foreground bg-transparent text-base text-foreground hover:bg-foreground hover:text-background" onClick={add}>
-                    <ShoppingBag className="mr-2 h-5 w-5" /> Add to bag
+                  <Button size="lg" variant="outline" className="h-14 min-w-0 rounded-none border-foreground bg-transparent px-2 text-sm text-foreground hover:bg-foreground hover:text-background sm:px-8 sm:text-base" onClick={add}>
+                    <ShoppingBag className="mr-1.5 h-5 w-5 sm:mr-2" /> <span className="truncate">Add to bag</span>
                   </Button>
-                  <MessageSellerButton product={selected} label="Message INDECIANA" size="icon" variant="outline" className="h-14 w-14 rounded-none border-foreground" />
+                  <MessageSellerButton product={selected} label="Message INDECIANA" size="icon" variant="outline" className="h-14 w-12 rounded-none border-foreground sm:w-14" />
                 </div>
                 {selected.shop && (
                   <div className="rounded-md border bg-card p-4 text-foreground">

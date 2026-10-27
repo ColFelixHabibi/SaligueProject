@@ -25,15 +25,21 @@ export type Live = {
   slowSeconds: number;
   videoFit?: 'fit' | 'fill';
   moderators?: { uid: string; name: string }[];
+  // Cover picture for the list of lives.
+  thumbnail?: string | null;
+  // Hearts the host hopes to reach (0 = none).
+  heartGoal?: number;
+  poll?: LivePoll | null;
   startedAt: string;
   endedAt: string | null;
 };
 
+export type LivePoll = { id: string; question: string; open: boolean; total: number; options: { text: string; votes: number }[] };
 export type LiveComment = { id: string; uid: string; name: string; text: string; kind: 'comment' | 'question' | 'join'; createdAt: string };
 export type LiveGuest = { uid: string; name: string; status: 'requested' | 'accepted' };
 export type Burst = { id: number; emoji: string; x: number };
 
-export const withMedia = (l: Live): Live => ({ ...l, sellerAvatar: mediaUrl(l.sellerAvatar ?? undefined) ?? null });
+export const withMedia = (l: Live): Live => ({ ...l, sellerAvatar: mediaUrl(l.sellerAvatar ?? undefined) ?? null, thumbnail: mediaUrl(l.thumbnail ?? undefined) ?? null });
 
 /** Lives happening now, kept up to date. */
 export function useLives() {

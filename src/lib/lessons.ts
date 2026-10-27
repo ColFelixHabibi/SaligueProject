@@ -1,22 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Footprints, Gem, Scissors, Shirt, Sparkles, Store, WashingMachine, type LucideIcon } from 'lucide-react';
+import { BookOpen, Gem, Scissors, Shirt, Sparkles, Store, type LucideIcon } from 'lucide-react';
 import { api, mediaUrl, onServerEvent } from './api';
 
 // Community: fashion lessons anyone with an account can teach, in videos up to 4 min 30 s (server: /api/lessons).
+// General studies are longer lessons, up to 10 min.
 
 export const LESSON_MAX_SECONDS = 270;
+export const GENERAL_MAX_SECONDS = 600;
+export const lessonMaxSeconds = (topic: string | null | undefined) => (topic === 'general' ? GENERAL_MAX_SECONDS : LESSON_MAX_SECONDS);
 
-export const LESSON_TOPICS: { value: string; label: string; icon: LucideIcon }[] = [
-  { value: 'styling', label: 'Styling', icon: Sparkles },
-  { value: 'sewing', label: 'Sewing', icon: Scissors },
-  { value: 'care', label: 'Care', icon: WashingMachine },
-  { value: 'shoes_accessories', label: 'Shoes & bags', icon: Footprints },
-  { value: 'traditional', label: 'Traditional', icon: Gem },
-  { value: 'business', label: 'Fashion business', icon: Store },
+// Similar topics are merged: care is part of sewing, shoes & bags part of styling.
+export const LESSON_TOPICS: { value: string; label: string; icon: LucideIcon; hint: string }[] = [
+  { value: 'styling', label: 'Styling', icon: Sparkles, hint: 'Outfits, shoes, bags' },
+  { value: 'sewing', label: 'Sewing & care', icon: Scissors, hint: 'Make, fix, wash' },
+  { value: 'traditional', label: 'Traditional', icon: Gem, hint: 'Kitenge, imishanana' },
+  { value: 'business', label: 'Business', icon: Store, hint: 'Sell, price, brand' },
+  { value: 'general', label: 'General studies', icon: BookOpen, hint: 'Up to 10 min' },
 ];
-export const topicOf = (value: string) => LESSON_TOPICS.find((t) => t.value === value) ?? { value, label: value, icon: Shirt };
+const MERGED: Record<string, string> = { care: 'sewing', shoes_accessories: 'styling' };
+export const topicOf = (value: string) => LESSON_TOPICS.find((t) => t.value === (MERGED[value] ?? value)) ?? { value, label: value, icon: Shirt, hint: '' };
 
 export const LESSON_LANGUAGES = [
   { value: 'rw', label: 'Kinyarwanda' },

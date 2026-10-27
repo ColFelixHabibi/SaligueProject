@@ -44,13 +44,14 @@ function SellSteps({ step }: { step: Step }) {
   return (
     <ol className="mb-6 flex items-center gap-2 text-xs sm:text-sm">
       {STEPS.map((s, i) => (
-        <li key={s.key} className="flex flex-1 items-center gap-2">
+        <li key={s.key} className={cn('flex min-w-0 items-center gap-2', i === current ? 'flex-[2]' : 'flex-1')}>
           <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-semibold',
             i < current ? 'border-primary bg-primary text-primary-foreground' : i === current ? 'border-primary text-primary' : 'text-muted-foreground')}>
             {i < current ? '✓' : i + 1}
           </span>
-          <span className={cn('leading-tight', i === current ? 'font-semibold' : 'text-muted-foreground')}>{s.label}</span>
-          {i < STEPS.length - 1 && <span className="h-px flex-1 bg-border" />}
+          {/* Small phones: only the current step is named. */}
+          <span className={cn('min-w-0 leading-tight', i === current ? 'font-semibold' : 'hidden text-muted-foreground sm:inline')}>{s.label}</span>
+          {i < STEPS.length - 1 && <span className="h-px min-w-2 flex-1 bg-border" />}
         </li>
       ))}
     </ol>

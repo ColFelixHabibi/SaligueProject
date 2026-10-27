@@ -57,7 +57,7 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
           <div className="flex h-full flex-col items-center justify-center gap-4 bg-muted p-8 pt-24 text-center">
             <GraduationCap className="h-14 w-14 text-primary" />
             <p className="text-xl font-bold">{following ? 'No lessons from people you follow yet' : 'No lessons here yet'}</p>
-            <p className="max-w-xs text-sm text-muted-foreground">Teach styling, sewing, clothing care or fashion business in a video up to 4 min 30 s.</p>
+            <p className="max-w-xs text-sm text-muted-foreground">Teach styling, sewing, traditional wear or fashion business in a video up to 4 min 30 s, or a General studies lesson up to 10 min.</p>
             <Button asChild><Link href="/learn/new"><Plus className="mr-2 h-4 w-4" /> Teach a lesson</Link></Button>
           </div>
         ) : (

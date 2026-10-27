@@ -1414,10 +1414,32 @@ function liveOut(l) {
     videoFit: l.video_fit === 'fill' ? 'fill' : 'fit',
     // People the host trusts to look after the chat (remove comments, mute, pin, chat settings).
     moderators: (parse(l.moderators) ?? []).map((uid) => ({ uid, name: personNameOf(db.prepare('select display_name, email, is_guest from users where id = ?').get(uid)) })),
+    // Cover picture shown in the list of lives (a photo, or a frame from the host's camera).
+    thumbnail: l.thumbnail ?? null,
+    // Hearts the host hopes to reach (0 = no goal), shown as a bar to everyone.
+    heartGoal: l.heart_goal ?? 0,
+    poll: pollOut(l.poll),
     startedAt: l.started_at,
     endedAt: l.ended_at,
   };
 }
+
+// A live poll: a question with 2–4 answers; everyone sees the counts, nobody sees who voted what.
+function pollOut(raw) {
+  const p = parse(raw);
+  if (!p) return null;
+  const votes = Object.values(p.votes ?? {});
+  return { id: p.id, question: p.question, open: !!p.open, total: votes.length, options: p.options.map((text, i) => ({ text, votes: votes.filter((v) => v === i).length })) };
+}
+const liveThumbnail = (value) => {
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(String(value ?? ''))) fail(400, 'invalid_file', 'Choose a JPG or PNG picture for the cover.');
+  return storeImage(value);
+};
+const blockedWordIn = (live, text) => {
+  const words = parse(live.blocked_words) ?? [];
+  const lower = text.toLowerCase();
+  return words.some((w) => w && lower.includes(w));
+};
 
 const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.kind, createdAt: c.created_at });
 
@@ -1461,8 +1483,9 @@ route('POST', '/api/lives', ({ user, body }) => {
   }
   const id = randomUUID();
   const productIds = sellerProductIds(user.id, body.productIds);
-  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, started_at) values (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, now());
+  const thumbnail = body.thumbnail ? liveThumbnail(body.thumbnail) : null;
+  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now());
   broadcast('lives');
   // Tell the shop's past customers (in the app, not by email).
   const shopName = shopNameOf(user);
@@ -1477,7 +1500,13 @@ route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
   const guests = db.prepare("select g.user_id, g.status, u.display_name, u.is_guest from live_guests g join users u on u.id = g.user_id where g.live_id = ? and g.status != 'declined'").all(live.id)
     .map((g) => ({ uid: g.user_id, name: personNameOf({ display_name: g.display_name, is_guest: g.is_guest }), status: g.status }));
   const me = user ? db.prepare('select status from live_guests where live_id = ? and user_id = ?').get(live.id, user.id)?.status ?? null : null;
-  return { live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false, invited: user ? (parse(live.invited) ?? []).includes(user.id) : false };
+  const staff = !!user && (live.seller_id === user.id || isLiveMod(live, user));
+  return {
+    live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false, invited: user ? (parse(live.invited) ?? []).includes(user.id) : false,
+    myVote: user ? parse(live.poll)?.votes?.[user.id] ?? null : null,
+    // Only the host and moderators see the words they filter out of the chat.
+    blockedWords: staff ? parse(live.blocked_words) ?? [] : undefined,
+  };
 });
 
 // A pass into the video room: hosts and accepted guests can use their camera; everyone else watches.
@@ -1499,7 +1528,26 @@ route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
 route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   const live = modLive(user, params[0]);
   // Moderators look after the chat; the live itself (title, items, picture) stays the host's.
-  if (live.seller_id !== user.id && Object.keys(body).some((k) => !['pinnedCommentId', 'chatMode', 'slowSeconds'].includes(k))) fail(403, 'forbidden', 'Only the host can change this.');
+  if (live.seller_id !== user.id && Object.keys(body).some((k) => !['pinnedCommentId', 'chatMode', 'slowSeconds', 'poll', 'pollOpen', 'blockedWords'].includes(k))) fail(403, 'forbidden', 'Only the host can change this.');
+  if (body.thumbnail !== undefined) db.prepare('update lives set thumbnail = ? where id = ?').run(body.thumbnail ? liveThumbnail(body.thumbnail) : null, live.id);
+  if (body.heartGoal !== undefined) db.prepare('update lives set heart_goal = ? where id = ?').run(Math.min(10_000_000, Math.max(0, Math.floor(Number(body.heartGoal) || 0))), live.id);
+  if (body.blockedWords !== undefined) {
+    const words = (Array.isArray(body.blockedWords) ? body.blockedWords : []).map((w) => String(w).trim().toLowerCase().slice(0, 30)).filter(Boolean);
+    db.prepare('update lives set blocked_words = ? where id = ?').run(json([...new Set(words)].slice(0, 50)), live.id);
+  }
+  if (body.poll !== undefined) {
+    if (body.poll === null) db.prepare('update lives set poll = null where id = ?').run(live.id);
+    else {
+      const question = String(body.poll.question ?? '').trim().slice(0, 120);
+      const options = (Array.isArray(body.poll.options) ? body.poll.options : []).map((o) => String(o).trim().slice(0, 40)).filter(Boolean).slice(0, 4);
+      if (!question || options.length < 2) fail(400, 'invalid', 'Write a question and at least two answers.');
+      db.prepare('update lives set poll = ? where id = ?').run(json({ id: randomUUID(), question, options, open: true, votes: {} }), live.id);
+    }
+  }
+  if (body.pollOpen !== undefined) {
+    const p = parse(live.poll);
+    if (p) db.prepare('update lives set poll = ? where id = ?').run(json({ ...p, open: !!body.pollOpen }), live.id);
+  }
   if (body.title !== undefined) db.prepare('update lives set title = ? where id = ?').run(String(body.title).trim().slice(0, 100) || live.title, live.id);
   if (body.description !== undefined) db.prepare('update lives set description = ? where id = ?').run(String(body.description).trim().slice(0, 1000), live.id);
   if (body.productIds !== undefined) db.prepare('update lives set product_ids = ? where id = ?').run(json(sellerProductIds(user.id, body.productIds)), live.id);
@@ -1551,6 +1599,10 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   }
   const text = kind === 'join' ? 'joined' : String(body.text ?? '').trim().slice(0, 2500);
   if (!text) fail(400, 'empty_comment', 'Write a comment first.');
+  // Words the host filters out: like TikTok, the writer still sees their comment, nobody else does.
+  if (kind !== 'join' && !isHost && blockedWordIn(live, text)) {
+    return liveCommentOut({ id: randomUUID(), user_id: user.id, name: personNameOf(user).slice(0, 60), text, kind, created_at: now() });
+  }
   const window = Date.now() - 10_000;
   const recent = (liveCommentRuns.get(user.id) ?? []).filter((t) => t > window);
   if (kind !== 'join' && recent.length >= 5) fail(429, 'too_many', 'Slow down a little — wait a few seconds.');
@@ -1586,6 +1638,27 @@ route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
   const likeCount = db.prepare('select like_count from lives where id = ?').get(live.id).like_count;
   liveEvent(live.id, { type: 'likes', likeCount, count, emoji: ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️', from: user.id });
   return { likeCount };
+});
+
+// Voting in the host's poll (one answer per person; changing it is allowed while the poll is open).
+const pollUpdates = new Map(); // live id → timer, so a burst of votes sends one update
+route('POST', '/api/lives/([\\w-]+)/poll', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = getLive(params[0]);
+  const p = parse(live.poll);
+  if (!p || !p.open || live.status !== 'live') fail(400, 'closed', 'This poll is closed.');
+  const option = Math.floor(Number(body.option));
+  if (!(option >= 0 && option < p.options.length)) fail(400, 'invalid', 'Choose an answer.');
+  p.votes = { ...(p.votes ?? {}), [user.id]: option };
+  db.prepare('update lives set poll = ? where id = ?').run(json(p), live.id);
+  if (!pollUpdates.has(live.id)) {
+    pollUpdates.set(live.id, setTimeout(() => {
+      pollUpdates.delete(live.id);
+      const fresh = db.prepare('select * from lives where id = ?').get(live.id);
+      if (fresh) liveEvent(live.id, { type: 'updated', live: liveOut(fresh) });
+    }, 800));
+  }
+  return { myVote: option, poll: pollOut(json(p)) };
 });
 
 // Joining on camera: a viewer asks, the host accepts (the guest then gets a pass with camera rights) or declines.
@@ -1927,7 +2000,11 @@ route('POST', '/api/admin/signing-key/password', ({ user }) => {
 // ---------------------------------------------------------------------------
 
 const LESSON_MAX_SECONDS = 270;
-const LESSON_TOPICS = ['styling', 'sewing', 'care', 'shoes_accessories', 'traditional', 'business'];
+// General studies (longer lessons: fashion history, design, textiles, study skills…) may run up to 10 minutes.
+const GENERAL_MAX_SECONDS = 600;
+const lessonMaxSeconds = (topic) => (topic === 'general' ? GENERAL_MAX_SECONDS : LESSON_MAX_SECONDS);
+// Similar topics were merged (care → sewing, shoes & bags → styling; see db.mjs).
+const LESSON_TOPICS = ['styling', 'sewing', 'traditional', 'business', 'general'];
 const LESSON_LANGUAGES = ['rw', 'sw', 'en', 'fr'];
 
 function lessonOut(l, viewer) {
@@ -2313,6 +2390,49 @@ route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
 route('GET', '/api/admin/me', ({ user }) => {
   if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
   return { level: user.admin_level, perms: user.admin_level === 1 ? Object.keys(ADMIN_PERMS) : parse(user.admin_perms) ?? [], allPerms: ADMIN_PERMS, features: FEATURES };
+});
+
+// The first tab of the admin dashboard: the platform at a glance, and what is waiting for this admin
+// (only the queues their rights cover).
+route('GET', '/api/admin/overview', ({ user }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  const n = (sql, ...args) => db.prepare(sql).get(...args).n;
+  const week = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const waiting = [];
+  if (can(user, 'users')) waiting.push({ key: 'verifications', tab: 'accounts', count: n("select count(*) as n from verifications where status in ('pending_payment', 'in_review')") });
+  if (can(user, 'moderation')) {
+    waiting.push({ key: 'appeals', tab: 'moderation', count: n("select count(*) as n from appeals where status = 'open'") });
+    waiting.push({ key: 'hidden', tab: 'moderation', count: n('select count(*) as n from products where hidden = 1') + n('select count(*) as n from lessons where hidden = 1') });
+  }
+  if (can(user, 'ads')) waiting.push({ key: 'ads', tab: 'money', count: n("select count(*) as n from ad_campaigns where status in ('in_review', 'pending_payment')") });
+  if (can(user, 'money')) {
+    waiting.push({ key: 'creators', tab: 'money', count: n("select count(*) as n from creators where status = 'applied'") });
+    waiting.push({ key: 'tips', tab: 'money', count: n("select count(*) as n from tips where status = 'pending_payment' and created_at > ?", new Date(Date.now() - 14 * 86_400_000).toISOString()) });
+  }
+  return {
+    stats: {
+      users: n('select count(*) as n from users where is_guest = 0'),
+      newUsers: n('select count(*) as n from users where is_guest = 0 and created_at > ?', week),
+      sellers: n("select count(*) as n from users where role = 'seller' and is_guest = 0"),
+      products: n("select count(*) as n from products where status = 'active' and hidden = 0"),
+      orders: n("select count(*) as n from orders where status != 'cancelled'"),
+      newOrders: n("select count(*) as n from orders where status != 'cancelled' and created_at > ?", week),
+      lessons: n('select count(*) as n from lessons where hidden = 0 and video is not null'),
+      livesNow: n("select count(*) as n from lives where status = 'live'"),
+    },
+    // New accounts and orders per day for the last 30 days (the overview's chart).
+    days: (() => {
+      const since = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+      const perDay = (sql) => new Map(db.prepare(sql).all(since).map((r) => [r.d, r.n]));
+      const users = perDay('select substr(created_at, 1, 10) as d, count(*) as n from users where is_guest = 0 and created_at >= ? group by d');
+      const orders = perDay("select substr(created_at, 1, 10) as d, count(*) as n from orders where status != 'cancelled' and created_at >= ? group by d");
+      return Array.from({ length: 30 }, (_, i) => {
+        const date = new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10);
+        return { date, users: users.get(date) ?? 0, orders: orders.get(date) ?? 0 };
+      });
+    })(),
+    waiting,
+  };
 });
 
 route('PUT', '/api/admin/features', ({ user, body }) => {
@@ -3023,11 +3143,27 @@ route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
   return { ok: true };
 });
 
+// Where sellers send ad money while online payment is off. Prices and the creators' share are edited in the
+// money rules (/api/admin/rules); only the fields sent are changed, so saving the number never resets prices.
+route('GET', '/api/admin/platform/ads', ({ user }) => {
+  if (!['ads', 'money', 'policies'].some((p) => can(user, p))) requireAdmin(user, 'ads');
+  const a = adSettings();
+  return { cpm: a.cpm, minBudget: a.minBudget, creatorShare: a.creatorShare, momoNumber: a.momoNumber, momoName: a.momoName ?? 'INDECIANA' };
+});
 route('PUT', '/api/admin/platform/ads', ({ user, body }) => {
-  requireAdmin(user, 'policies');
-  const cpm = Number(body.cpm), minBudget = Number(body.minBudget), share = Number(body.creatorShare);
-  if (!(cpm >= 0.1 && cpm <= 100) || !(minBudget >= 1) || !(share >= 0 && share <= 0.9)) fail(400, 'invalid', 'Check the numbers.');
-  saveConfig('ads', { cpm, minBudget, creatorShare: share, momoNumber: String(body.momoNumber ?? '').trim() || null, momoName: String(body.momoName ?? '').trim() || 'INDECIANA' });
+  const prices = body.cpm !== undefined || body.minBudget !== undefined || body.creatorShare !== undefined;
+  if (prices) requireAdmin(user, 'policies');
+  else if (!['ads', 'money', 'policies'].some((p) => can(user, p))) requireAdmin(user, 'ads');
+  const saved = parse(db.prepare("select value from app_config where key = 'ads'").get()?.value) ?? {};
+  const next = { ...saved };
+  if (body.cpm !== undefined) next.cpm = Number(body.cpm);
+  if (body.minBudget !== undefined) next.minBudget = Number(body.minBudget);
+  if (body.creatorShare !== undefined) next.creatorShare = Number(body.creatorShare);
+  if (prices && !(next.cpm >= 0.1 && next.cpm <= 100 && next.minBudget >= 1 && next.creatorShare >= 0 && next.creatorShare <= 0.9)) fail(400, 'invalid', 'Check the numbers.');
+  if (body.momoNumber !== undefined) next.momoNumber = String(body.momoNumber ?? '').trim().slice(0, 30) || null;
+  if (body.momoName !== undefined) next.momoName = String(body.momoName ?? '').trim().slice(0, 60) || 'INDECIANA';
+  saveConfig('ads', next);
+  logAdmin(user, 'ad payment settings', JSON.stringify(body).slice(0, 250));
   return { ok: true };
 });
 
@@ -3214,7 +3350,7 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(req, res, url.pathname);
   }
 
-  // Lesson video (Community): up to 4 min 30 s, same conversion as item videos.
+  // Lesson video (Community): up to 4 min 30 s (General studies 10 min), same conversion as item videos.
   const lessonUpload = req.method === 'PUT' && /^\/api\/lessons\/([\w-]+)\/video$/.exec(url.pathname);
   if (lessonUpload) {
     try {
@@ -3223,8 +3359,9 @@ const server = http.createServer(async (req, res) => {
       const lesson = db.prepare('select * from lessons where id = ?').get(lessonUpload[1]);
       if (!lesson || lesson.user_id !== user.id) fail(404, 'not_found', 'Lesson not found.');
       if (!/^video\//.test(String(req.headers['content-type'] || ''))) fail(400, 'invalid_video', 'Choose a video file.');
-      const file = await receiveUpload(req);
-      const { video, poster, duration } = await processVideo(file, LESSON_MAX_SECONDS);
+      // A 10-minute phone video can pass 200 MB.
+      const file = await receiveUpload(req, lesson.topic === 'general' ? 600 * 1024 * 1024 : undefined);
+      const { video, poster, duration } = await processVideo(file, lessonMaxSeconds(lesson.topic));
       db.prepare("update lessons set video = ?, poster = ?, duration = ?, captions = null, captions_status = null where id = ?").run(video, poster, duration, lesson.id);
       broadcast('lessons');
       if (featureOn('captions')) enqueueCaptions(lesson.id);

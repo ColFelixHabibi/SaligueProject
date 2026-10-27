@@ -26,11 +26,11 @@ export default function Footer() {
               <Link
                 key={href}
                 href={href}
-                className={cn('flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold', active ? 'text-primary' : 'text-muted-foreground')}
+                className={cn('flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-center text-[10px] font-semibold leading-tight min-[360px]:text-[11px]', active ? 'text-primary' : 'text-muted-foreground')}
                 aria-current={active ? 'page' : undefined}
               >
-                <Icon className={cn('h-6 w-6', active && 'stroke-[2.5]')} />
-                {t(label)}
+                <Icon className={cn('h-6 w-6 shrink-0', active && 'stroke-[2.5]')} />
+                <span className="w-full truncate">{t(label)}</span>
               </Link>
             );
           })}

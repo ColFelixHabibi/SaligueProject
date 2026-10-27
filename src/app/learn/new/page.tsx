@@ -12,10 +12,10 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { VideoField, uploadVideo } from '@/components/video-field';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { LESSON_LANGUAGES, LESSON_MAX_SECONDS, LESSON_TOPICS, createLesson, deleteLesson, getChallenge, getLesson, timeLeft, type Challenge, type Lesson } from '@/lib/lessons';
+import { LESSON_LANGUAGES, LESSON_TOPICS, lessonMaxSeconds, createLesson, deleteLesson, getChallenge, getLesson, timeLeft, type Challenge, type Lesson } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 
-/** Teach a fashion lesson: a video up to 4 min 30 s, a title and a fashion topic. Anyone with an account. */
+/** Teach a fashion lesson: a video up to 4 min 30 s (General studies 10 min), a title and a topic. Anyone with an account. */
 export default function NewLessonPage() {
   return (
     <Suspense fallback={null}>
@@ -40,6 +40,14 @@ function NewLesson() {
   const [topic, setTopic] = useState('');
   const [language, setLanguage] = useState('rw');
   const [uploading, setUploading] = useState<number | null>(null);
+  // A video longer than the new topic allows is dropped (General studies allow 10 min, the others 4 min 30 s).
+  const pickTopic = (value: string) => {
+    setTopic(value);
+    if (video && lessonMaxSeconds(value) < lessonMaxSeconds(topic)) {
+      setVideo(null);
+      toast({ title: 'Choose the video again', description: 'This topic allows up to 4 min 30 s.' });
+    }
+  };
   useEffect(() => {
     if (challengeId) getChallenge(challengeId).then((c) => { setChallenge(c); setTopic((t) => t || c.topic); }).catch(() => {});
     if (duetId) getLesson(duetId).then((l) => { setDuetOf(l); setTopic((t) => t || l.topic); setTitle((t) => t || `Duet: ${l.title}`.slice(0, 100)); }).catch(() => {});
@@ -58,8 +66,8 @@ function NewLesson() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!video) return toast({ variant: 'destructive', title: 'Add your video', description: 'A lesson is a video up to 4 min 30 s.' });
     if (!topic) return toast({ variant: 'destructive', title: 'Choose a topic' });
+    if (!video) return toast({ variant: 'destructive', title: 'Add your video', description: topic === 'general' ? 'Up to 10 min.' : 'Up to 4 min 30 s.' });
     setUploading(0);
     let created: string | null = null;
     try {
@@ -77,7 +85,7 @@ function NewLesson() {
   };
 
   return (
-    <form onSubmit={submit} className="mx-auto max-w-xl space-y-6 p-4 pb-24 md:p-8">
+    <form onSubmit={submit} className="mx-auto max-w-xl space-y-6 px-3 py-4 pb-24 min-[360px]:px-4 md:p-8">
       <div className="flex items-center gap-3">
         <GraduationCap className="h-8 w-8 text-primary" />
         <h1 className="text-2xl font-extrabold">Teach a lesson</h1>
@@ -97,19 +105,20 @@ function NewLesson() {
         </div>
       )}
 
-      <VideoField file={video} onChange={setVideo} uploading={uploading} maxSeconds={LESSON_MAX_SECONDS} label="Video *" optional={false} />
-
       <div className="space-y-2">
         <Label className="text-lg font-medium">Topic *</Label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3">
           {LESSON_TOPICS.map((t) => (
-            <button key={t.value} type="button" onClick={() => setTopic(t.value)} aria-pressed={topic === t.value}
-              className={cn('flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-semibold transition', topic === t.value ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted')}>
-              <t.icon className="h-6 w-6" /> {t.label}
+            <button key={t.value} type="button" onClick={() => pickTopic(t.value)} aria-pressed={topic === t.value}
+              className={cn('flex min-w-0 flex-col items-center gap-1 rounded-xl border p-2.5 text-center text-xs font-semibold transition', topic === t.value ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted')}>
+              <t.icon className="h-6 w-6" /> <span className="break-words">{t.label}</span>
+              <span className="text-[10px] font-normal text-muted-foreground">{t.hint}</span>
             </button>
           ))}
         </div>
       </div>
+
+      <VideoField key={lessonMaxSeconds(topic)} file={video} onChange={setVideo} uploading={uploading} maxSeconds={lessonMaxSeconds(topic)} label="Video *" optional={false} />
 
       <div className="space-y-2">
         <Label htmlFor="lesson-title" className="text-lg font-medium">Title *</Label>

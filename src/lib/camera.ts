@@ -33,15 +33,18 @@ function explain(error: unknown): CameraError {
  * Opens the camera facing the given way, with the microphone when `audio` is true.
  * If the microphone alone fails (none, or blocked), the camera still opens and `audio` comes back false.
  */
-export async function openCamera(facing: 'user' | 'environment', audio: boolean, choice?: { deviceId?: string; zoom?: number }): Promise<{ stream: MediaStream; audio: boolean }> {
+export async function openCamera(facing: 'user' | 'environment', wantAudio: boolean, choice?: { deviceId?: string; zoom?: number; micId?: string; external?: boolean }): Promise<{ stream: MediaStream; audio: boolean }> {
   if (typeof window === 'undefined' || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     throw new CameraError('insecure', 'The camera only works on the secure address (https://). Open Saligue from its https:// link.');
   }
   const which: MediaTrackConstraints = choice?.deviceId ? { deviceId: { exact: choice.deviceId } } : { facingMode: facing };
+  // A chosen microphone (e.g. a clip-on mic, or the digital camera's own sound through its capture card).
+  const audio: boolean | MediaTrackConstraints = wantAudio && choice?.micId ? { deviceId: { exact: choice.micId } } : wantAudio;
   // The camera's own picture: no fixed shape, because asking for a tall 720×1280 picture makes most cameras
   // cut a narrow strip out of the sensor, which looks zoomed in. resizeMode 'none' stops Chrome cropping.
   const videoOptions: MediaTrackConstraints[] = [
-    { ...which, width: { ideal: 1280 }, frameRate: { ideal: 30 }, resizeMode: 'none' } as MediaTrackConstraints,
+    // Digital cameras and capture cards give a sharp Full HD picture; phones and webcams 720p.
+    { ...which, width: { ideal: choice?.external ? 1920 : 1280 }, frameRate: { ideal: 30 }, resizeMode: 'none' } as MediaTrackConstraints,
     which,
     ...(choice?.deviceId ? [{ facingMode: facing }] : []),
     {},
@@ -49,15 +52,22 @@ export async function openCamera(facing: 'user' | 'environment', audio: boolean,
   let lastError: unknown;
   for (const video of videoOptions) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio });
+      } catch (micError) {
+        // The chosen microphone was unplugged: the usual one instead.
+        if (typeof audio !== 'object' || (micError as { name?: string })?.name !== 'OverconstrainedError') throw micError;
+        stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio: true });
+      }
       await startZoom(stream, choice?.zoom);
-      return { stream, audio };
+      return { stream, audio: !!audio };
     } catch (error) {
       lastError = error;
       const name = (error as { name?: string })?.name;
       // Blocked or missing won't get better with other settings, except that a missing/blocked microphone
       // shouldn't stop the camera: try once more without it.
-      if (audio && (name === 'NotFoundError' || name === 'NotAllowedError' || name === 'NotReadableError')) {
+      if (wantAudio && (name === 'NotFoundError' || name === 'NotAllowedError' || name === 'NotReadableError')) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio: false });
           await startZoom(stream, choice?.zoom);
@@ -133,20 +143,64 @@ async function startZoom(stream: MediaStream, wanted?: number) {
   if (zoom !== range.value) await setZoom(track, zoom);
 }
 
-/** The cameras on this device. Phones often list their wide-angle lens as its own camera. */
-export async function listCameras(): Promise<{ deviceId: string; label: string }[]> {
+// Digital cameras (Canon, Sony, Nikon, Fujifilm, GoPro…) reach the browser as a USB webcam (the maker's webcam
+// mode or app) or through an HDMI capture card (Elgato Cam Link, generic "USB Video"); OBS adds a virtual camera.
+const EXTERNAL = /usb|capture|hdmi|cam ?link|elgato|canon|eos|sony|alpha|nikon|fuji|x ?webcam|panasonic|lumix|gopro|obs|virtual|external|dslr|mirrorless|uvc|logitech|razer|insta360|dji|osmo/i;
+const FRONT = /front|user|facetime|selfie/i;
+const BACK = /back|rear|environment|wide|ultra|tele/i;
+
+export type CameraDevice = { deviceId: string; label: string; kind: 'front' | 'back' | 'external' | 'other' };
+export type MicDevice = { deviceId: string; label: string };
+
+/** Sorts a camera: the phone's front or back lens, a digital/USB camera, or another built-in camera. */
+export function cameraKind(label: string): CameraDevice['kind'] {
+  if (EXTERNAL.test(label)) return 'external';
+  if (FRONT.test(label)) return 'front';
+  if (BACK.test(label)) return 'back';
+  return 'other';
+}
+
+/** The cameras on this device, including plugged-in digital cameras. Phones often list their wide-angle lens as its own camera. */
+export async function listCameras(): Promise<CameraDevice[]> {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     return devices
       .filter((d) => d.kind === 'videoinput' && d.deviceId)
-      .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      .map((d, i) => {
+        const label = d.label || `Camera ${i + 1}`;
+        return { deviceId: d.deviceId, label, kind: cameraKind(label) };
+      });
   } catch {
     return [];
   }
 }
 
+/** The microphones on this device (names show once the microphone is allowed). */
+export async function listMicrophones(): Promise<MicDevice[]> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
+      .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+  } catch {
+    return [];
+  }
+}
+
+/** Calls back when a camera or microphone is plugged in or removed (e.g. a digital camera by USB). */
+export function onDevicesChange(callback: () => void) {
+  const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
+  if (!md?.addEventListener) return () => {};
+  md.addEventListener('devicechange', callback);
+  return () => md.removeEventListener('devicechange', callback);
+}
+
+/** A selfie camera is shown mirrored to the host (like a mirror); digital and back cameras are not. */
+export const mirrorFor = (facing: 'user' | 'environment', device?: CameraDevice | null) =>
+  device ? device.kind === 'front' || (device.kind === 'other' && facing === 'user') : facing === 'user';
+
 /** The camera the seller picked before going live (kept on this device). */
-export type CameraChoice = { facing: 'user' | 'environment'; deviceId?: string; zoom?: number; digital?: number };
+export type CameraChoice = { facing: 'user' | 'environment'; deviceId?: string; zoom?: number; digital?: number; micId?: string; external?: boolean; mirror?: boolean };
 const CHOICE_KEY = 'saligue-live-camera';
 
 export function loadCameraChoice(): CameraChoice {

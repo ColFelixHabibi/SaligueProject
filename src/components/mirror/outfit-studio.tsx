@@ -51,7 +51,7 @@ export function PhotoInputs({ onFile, disabled, compact }: { onFile: (file: File
     if (file) onFile(file);
   };
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <Button type="button" size={compact ? 'sm' : 'lg'} onClick={() => cameraRef.current?.click()} disabled={disabled}>
         <Camera className="mr-2 h-4 w-4" /> {compact ? 'Retake' : 'Camera'}
       </Button>

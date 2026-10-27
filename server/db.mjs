@@ -474,10 +474,16 @@ for (const [table, column, type] of [
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
+  ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
+}
+// Lesson topics that were merged: clothing care joins sewing, shoes & bags join styling.
+for (const table of ['lessons', 'challenges']) {
+  db.exec(`update ${table} set topic = 'sewing' where topic = 'care'`);
+  db.exec(`update ${table} set topic = 'styling' where topic = 'shoes_accessories'`);
 }
 // Admins from before admin levels are main admins (type 1).
 db.exec('update users set admin_level = 1 where admin = 1 and admin_level = 0');

@@ -10,7 +10,7 @@ function Learn() {
   return <LessonFeed startAt={params.get('lesson')} className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md md:h-dvh" />;
 }
 
-// Community: fashion lessons by anyone (styling, sewing, care, fashion business), up to 4 min 30 s each.
+// Community: fashion lessons by anyone (styling, sewing & care, traditional, business), up to 4 min 30 s each; General studies up to 10 min.
 export default function LearnPage() {
   return (
     <Suspense fallback={<Skeleton className="mx-auto h-[80vh] max-w-md" />}>

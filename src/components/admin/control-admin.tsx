@@ -64,12 +64,14 @@ export function RulesAdmin() {
   const act = useAct();
   const [r, setR] = useState<Rules | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     api<Rules>('/admin/rules').then((d) => {
       setR(d);
       setForm({ followers: String(d.followers), views90: String(d.views90), accountDays: String(d.accountDays), creatorShare: String(Math.round(d.creatorShare * 100)), cpm: String(d.cpm), minBudget: String(d.minBudget), tipShare: String(Math.round(d.tipShare * 100)), tipAmounts: d.tipAmounts.join(', '), verificationPrice: String(d.verificationPrice) });
-    }).catch(() => {});
+    }).catch(() => setFailed(true));
   }, []);
+  if (failed) return <p className="text-sm text-muted-foreground">The money rules could not be loaded. Reload the page.</p>;
   if (!r) return <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />;
   const field = (key: string, label: string, hint?: string) => (
     <div className="space-y-1.5">
@@ -204,7 +206,7 @@ export function AccountsAdmin() {
         {list?.map((a) => (
           <div key={a.id} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm', a.suspended && 'border-destructive/40 bg-destructive/5')}>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
+              <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
               <p className="truncate text-xs text-muted-foreground">{a.email} · {a.role === 'seller' ? 'Shop' : 'Shopper'} · {a.items} items · {a.orders} orders · since {new Date(a.createdAt).toLocaleDateString()}</p>
               {a.suspended && <p className="text-xs font-semibold text-destructive">Suspended{a.suspendReason ? `: ${a.suspendReason}` : ''}</p>}
             </div>
@@ -232,7 +234,7 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
   const load = useCallback(() => api<AdminRow[]>('/admin/admins').then(setAdmins).catch(() => {}), []);
   useEffect(() => void load(), [load]);
   const toggle = (list: string[], p: string) => (list.includes(p) ? list.filter((x) => x !== p) : [...list, p]);
-  const PermBoxes = ({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) => (
+  const permBoxes = (value: string[], onChange: (v: string[]) => void) => (
     <div className="grid gap-1.5 sm:grid-cols-2">
       {Object.entries(allPerms).map(([p, label]) => (
         <label key={p} className="flex items-start gap-2 rounded-lg border p-2 text-xs">
@@ -252,18 +254,18 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
         {admins.map((a) => (
           <div key={a.id} className="space-y-2 rounded-xl border p-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 flex-1"><b>{a.name || a.email}</b> <span className="text-muted-foreground">{a.email}</span></span>
+              <span className="min-w-0 flex-1 break-words"><b>{a.name || a.email}</b> <span className="break-all text-muted-foreground">{a.email}</span></span>
               <Badge>{a.level === 1 ? 'Main admin · everything' : 'Sub-admin'}</Badge>
               {(a.level === 2 || admins.filter((x) => x.level === 1).length > 1) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => confirm(`Remove ${a.email} as admin?`) && act(() => api(`/admin/admins/${a.id}`, { method: 'DELETE' }), 'Admin removed').then(load)}>Remove</Button>}
             </div>
-            {a.level === 2 && <PermBoxes value={a.perms} onChange={(v) => act(() => api(`/admin/admins/${a.id}`, { method: 'PUT', body: { perms: v } }), 'Rights updated').then(load)} />}
+            {a.level === 2 && permBoxes(a.perms, (v) => act(() => api(`/admin/admins/${a.id}`, { method: 'PUT', body: { perms: v } }), 'Rights updated').then(load))}
           </div>
         ))}
         <div className="space-y-2 rounded-xl bg-muted/50 p-3">
           <p className="text-sm font-semibold">Add a sub-admin</p>
           <Input type="email" placeholder="Their Saligue account email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" className="accent-primary" checked={mainAdmin} onChange={(e) => setMainAdmin(e.target.checked)} /> Main admin (every right, can manage admins) — e.g. your own separate admin account</label>
-          {!mainAdmin && <PermBoxes value={perms} onChange={setPerms} />}
+          <label className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" className="mt-1 accent-primary" checked={mainAdmin} onChange={(e) => setMainAdmin(e.target.checked)} /> Main admin (every right, can manage admins) — e.g. your own separate admin account</label>
+          {!mainAdmin && permBoxes(perms, setPerms)}
           <Button disabled={!email.trim() || (!mainAdmin && !perms.length)} onClick={() => act(() => api('/admin/admins', { body: mainAdmin ? { email, main: true } : { email, perms } }), mainAdmin ? 'Main admin added' : 'Sub-admin added').then((r) => { if (r) { setEmail(''); setMainAdmin(false); void load(); } })}><Plus className="mr-1 h-4 w-4" /> Add</Button>
         </div>
       </CardContent>
@@ -323,14 +325,14 @@ export function VerificationsAdmin() {
         {rows.length === 0 && renewals.length === 0 && <p className="text-sm text-muted-foreground">Nothing waiting.</p>}
         {renewals.map((r) => (
           <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3 text-sm">
-            <span className="min-w-0 flex-1">Monthly renewal · <b>{r.account}</b> ({r.email}) · ${r.amount.toFixed(2)} · ref <b className="select-all">{r.reference}</b></span>
+            <span className="min-w-0 flex-1 break-words">Monthly renewal · <b>{r.account}</b> ({r.email}) · ${r.amount.toFixed(2)} · ref <b className="select-all">{r.reference}</b></span>
             <Button size="sm" variant="outline" onClick={() => act(() => api(`/admin/verification-renewals/${r.id}`, { body: { decision: 'confirm' } }), '30 days added').then(load)}>Payment received</Button>
             <Button size="sm" variant="ghost" onClick={() => act(() => api(`/admin/verification-renewals/${r.id}`, { body: { decision: 'cancel' } }), 'Cancelled').then(load)}>Cancel</Button>
           </div>
         ))}
         {rows.map((v) => (
           <div key={v.id} className="space-y-2 rounded-xl border p-3 text-sm">
-            <p className="font-semibold">{v.type === 'business' ? `${v.businessName} · owner ${v.legalName}` : v.legalName} <span className="font-normal text-muted-foreground">· {v.type === 'id' ? 'ID card' : v.type} …{v.docLast4} · {v.country} · account {v.account} ({v.email})</span></p>
+            <p className="break-words font-semibold">{v.type === 'business' ? `${v.businessName} · owner ${v.legalName}` : v.legalName} <span className="font-normal text-muted-foreground">· {v.type === 'id' ? 'ID card' : v.type} …{v.docLast4} · {v.country} · account {v.account} ({v.email})</span></p>
             {v.status === 'pending_payment' ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span>Waiting for {v.amount ? `$${v.amount.toFixed(2)}` : 'payment'} · ref <b className="select-all">{v.reference}</b></span>
@@ -341,11 +343,11 @@ export function VerificationsAdmin() {
                 <div className="flex flex-wrap gap-2">
                   {v.files.map((f) => images[`${v.id}/${f}`] ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <a key={f} href={images[`${v.id}/${f}`]} target="_blank" rel="noreferrer"><img src={images[`${v.id}/${f}`]} alt={FILE_LABEL[f] ?? f} className="h-28 rounded-lg border object-cover" /></a>
+                    <a key={f} href={images[`${v.id}/${f}`]} target="_blank" rel="noreferrer"><img src={images[`${v.id}/${f}`]} alt={FILE_LABEL[f] ?? f} className="h-28 max-w-full rounded-lg border object-cover" /></a>
                   ) : <Button key={f} size="sm" variant="outline" onClick={() => show(v.id, f)}>Show: {FILE_LABEL[f] ?? f}</Button>)}
                 </div>
                 <Input placeholder="Note to them (required to refuse)" value={notes[v.id] ?? ''} onChange={(e) => setNotes({ ...notes, [v.id]: e.target.value })} />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button size="sm" onClick={() => decide(v.id, 'approve')}>Approve ✓</Button>
                   <Button size="sm" variant="outline" disabled={!notes[v.id]?.trim()} onClick={() => decide(v.id, 'reject')}>Refuse</Button>
                 </div>

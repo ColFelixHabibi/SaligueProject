@@ -4,9 +4,11 @@ import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Eye, HelpCircle, MicOff, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
+import { BadgeCheck, BarChart3, Camera, Check, Eye, Heart, HelpCircle, ImageUp, MicOff, Radio, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { attach, type Burst, type Live, type LiveComment, type Tile } from '@/lib/live';
+import { attach, type Burst, type Live, type LiveComment, type LivePoll, type Tile } from '@/lib/live';
+import { useLives } from '@/lib/lives';
+import { encodeCanvas, fileToImage } from '@/lib/ai/canvas';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -45,8 +47,8 @@ function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
     <div className={cn('relative h-full w-full overflow-hidden bg-neutral-900', tile.speaking && tile.role === 'guest' && 'ring-4 ring-inset ring-primary')}>
       {tile.video ? (
         <>
-          {wide && !cover && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.isLocal && '-scale-x-110')} />}
-          <video ref={video} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover ? 'object-cover' : 'object-contain', tile.isLocal && 'scale-x-[-1]')} />
+          {wide && !cover && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.mirror && '-scale-x-110')} />}
+          <video ref={video} data-live-video={tile.role} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover ? 'object-cover' : 'object-contain', tile.mirror && 'scale-x-[-1]')} />
         </>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/70">
@@ -200,5 +202,137 @@ export function LiveInput({ value, onChange, placeholder, disabled }: { value: s
       placeholder={placeholder}
       className="max-h-[104px] min-h-11 w-full min-w-0 flex-1 resize-none rounded-3xl border-0 bg-white/20 px-4 py-2.5 text-sm text-white placeholder:text-white/70 focus:outline-none focus:ring-2 focus:ring-primary"
     />
+  );
+}
+
+/** The host's heart goal as a thin bar under the top bar (like TikTok's live goals). */
+export function HeartGoal({ likes, goal }: { likes: number; goal?: number }) {
+  if (!goal) return null;
+  const done = likes >= goal;
+  return (
+    <div className="pointer-events-none absolute inset-x-3 top-[60px] z-10 flex items-center gap-2 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+      <Heart className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />
+      <span className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/25">
+        <span className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(100, (likes / goal) * 100)}%` }} />
+      </span>
+      <span className="shrink-0 tabular-nums">{done ? <Check className="inline h-3.5 w-3.5" /> : null} {likes.toLocaleString()}/{goal.toLocaleString()}</span>
+    </div>
+  );
+}
+
+/** The host's poll: viewers tap an answer, everyone sees the share of each answer. */
+export function PollCard({ poll, myVote, onVote, className }: { poll: LivePoll; myVote?: number | null; onVote?: (i: number) => void; className?: string }) {
+  const showResults = myVote != null || !poll.open || !onVote;
+  return (
+    <div className={cn('w-full rounded-2xl bg-white/95 p-3 text-foreground shadow-lg', className)}>
+      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary"><BarChart3 className="h-3.5 w-3.5" /> {poll.open ? 'Poll' : 'Poll closed'} · {poll.total} {poll.total === 1 ? 'vote' : 'votes'}</p>
+      <p className="mb-2 break-words text-sm font-semibold">{poll.question}</p>
+      <div className="grid gap-1.5">
+        {poll.options.map((o, i) => {
+          const pct = poll.total ? Math.round((o.votes / poll.total) * 100) : 0;
+          return (
+            <button key={i} type="button" disabled={!poll.open || !onVote} onClick={() => onVote?.(i)} aria-pressed={myVote === i}
+              className={cn('relative overflow-hidden rounded-xl border px-3 py-2 text-left text-sm font-medium transition', myVote === i ? 'border-primary' : 'border-border', poll.open && onVote && 'active:scale-[0.98]')}>
+              {showResults && <span className="absolute inset-y-0 left-0 bg-primary/15 transition-[width] duration-500" style={{ width: `${pct}%` }} />}
+              <span className="relative flex items-center gap-2">
+                <span className="min-w-0 flex-1 break-words">{o.text}</span>
+                {myVote === i && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                {showResults && <span className="shrink-0 text-xs font-bold tabular-nums">{pct}%</span>}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Every item in the live as a strip that scrolls sideways, each with Buy and Try on (live shopping). */
+export function ProductStrip({ products, pinnedId, onBuy }: { products: Product[]; pinnedId?: string | null; onBuy: (id: string) => void }) {
+  return (
+    <div className="-mx-3 flex snap-x snap-mandatory gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {products.map((p) => (
+        <div key={p.id} className={cn('flex w-[150px] shrink-0 snap-start flex-col rounded-2xl bg-white/95 p-2 text-foreground shadow-lg', pinnedId === p.id && 'ring-2 ring-primary')}>
+          <Link href={`/product?id=${p.id}`} className="block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={p.cutout || p.image} alt="" className="aspect-square w-full rounded-xl bg-muted object-contain p-1" />
+            <p className="mt-1 truncate text-xs font-semibold">{p.name}</p>
+            <p className="text-xs font-extrabold">{formatPrice(Number(p.price))}</p>
+          </Link>
+          <div className="mt-1.5 grid grid-cols-2 gap-1">
+            <button type="button" onClick={() => onBuy(p.id)} disabled={p.stock === 0} aria-label={`Buy ${p.name}`} className="flex items-center justify-center rounded-full bg-primary py-1.5 text-primary-foreground disabled:opacity-50"><ShoppingBag className="h-4 w-4" /></button>
+            <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Other lives right now as cover pictures in a row that scrolls sideways (like Instagram and TikTok). */
+export function LiveRail({ exclude, onDark, className }: { exclude?: string; onDark?: boolean; className?: string }) {
+  const lives = useLives()?.lives.filter((l) => l.id !== exclude) ?? [];
+  if (!lives.length) return <p className={cn('text-sm', onDark ? 'text-white/70' : 'text-muted-foreground', className)}>No other lives right now.</p>;
+  return (
+    <div className={cn('flex snap-x gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}>
+      {lives.map((l) => (
+        <Link key={l.id} href={`/live/watch?id=${l.id}`} className="relative block aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-xl bg-gradient-to-br from-primary to-foreground shadow">
+          {l.thumbnail && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={l.thumbnail} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          )}
+          <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
+          <span className="absolute left-1.5 top-1.5 flex items-center gap-0.5 rounded bg-primary px-1 text-[9px] font-extrabold text-white"><Radio className="h-2.5 w-2.5" /> LIVE</span>
+          <span className="absolute inset-x-1.5 bottom-1.5 text-white">
+            <span className="flex items-center gap-1">
+              <Avatar className="h-5 w-5 ring-1 ring-primary"><AvatarImage src={l.sellerAvatar ?? undefined} className="object-cover" /><AvatarFallback className="bg-primary text-[9px] text-primary-foreground">{l.sellerName.charAt(0)}</AvatarFallback></Avatar>
+              <span className="min-w-0 truncate text-[11px] font-semibold">{l.sellerName}</span>
+            </span>
+            <span className="mt-0.5 line-clamp-2 block text-[11px] leading-tight">{l.title}</span>
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** A frame from a <video> as a JPEG (the live's cover). */
+export function snapFrame(video: HTMLVideoElement | null, mirror?: boolean): string | null {
+  if (!video?.videoWidth) return null;
+  const scale = Math.min(1, 720 / video.videoWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  const ctx = canvas.getContext('2d')!;
+  if (mirror) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.82);
+}
+
+/** The live's cover picture: take it from the camera, or choose a photo. */
+export function CoverPicker({ value, onChange, snap, dark }: { value: string | null; onChange: (dataUrl: string | null) => void; snap?: () => string | null; dark?: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  const btn = cn('flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold transition', dark ? 'border-white/30 text-white hover:bg-white/10' : 'hover:bg-muted');
+  return (
+    <div className="flex items-center gap-3">
+      <span className="relative aspect-[9/14] w-16 shrink-0 overflow-hidden rounded-lg bg-muted">
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="Cover" className="h-full w-full object-cover" />
+        ) : <ImageUp className="absolute inset-0 m-auto h-6 w-6 text-muted-foreground" />}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+        {snap && <button type="button" className={btn} onClick={() => { const v = snap(); if (v) onChange(v); }}><Camera className="h-4 w-4 shrink-0" /> Snap</button>}
+        <button type="button" className={btn} onClick={() => input.current?.click()}><ImageUp className="h-4 w-4 shrink-0" /> Photo</button>
+      </div>
+      <input ref={input} type="file" accept="image/*" className="sr-only" onChange={async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file) onChange(await encodeCanvas(await fileToImage(file), { transparent: false, maxLength: 900_000, maxEdge: 1000 }));
+      }} />
+    </div>
   );
 }
