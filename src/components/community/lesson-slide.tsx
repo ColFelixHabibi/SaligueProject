@@ -1,5 +1,6 @@
 'use client';
 
+import { ask } from '@/components/confirm-dialog';
 import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useFeatures } from '@/lib/features';
@@ -182,7 +183,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         )}
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         {lesson.mine || user?.uid === lesson.authorId ? (
-          <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={() => confirm('Delete this lesson?') && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
+          <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={async () => (await ask({ title: 'Delete this lesson?', description: 'It is removed for everyone. This can’t be undone.', confirm: 'Delete', destructive: true })) && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
         ) : (
           <button type="button" className={round} aria-label="Report: not fashion or not OK" title="Report" onClick={() => run(() => reportLesson(lesson.id, 'not_fashion'), 'Thank you for reporting')}><Flag className="h-5 w-5" /></button>
         )}

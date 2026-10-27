@@ -11,8 +11,14 @@ import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
 import { CookieBanner } from '@/components/cookie-banner';
 import { AppUpdate } from '@/components/app-update';
+import { ConfirmHost } from '@/components/confirm-dialog';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+
+// The Android app (Capacitor) writes the system bar sizes onto <html> as soon as the page shows, before React
+// starts, and React then wipes them. This copies them into their own stylesheet the moment they arrive (and
+// again whenever they change), so the top bar and bottom bar always clear the phone's own bars.
+const KEEP_SAFE_AREA = `(function(){try{var s=document.createElement('style');s.id='saligue-safe-area';document.head.appendChild(s);var r=document.documentElement;function copy(){var t=r.style.getPropertyValue('--safe-area-inset-top'),b=r.style.getPropertyValue('--safe-area-inset-bottom');if(t||b)s.textContent=':root{--cap-sat:'+(t||'0px')+';--cap-sab:'+(b||'0px')+'}'}new MutationObserver(copy).observe(r,{attributes:true,attributeFilter:['style']});copy()}catch(e){}})();`;
 
 export const metadata: Metadata = {
   title: 'Saligue by INDECIANA',
@@ -44,6 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: KEEP_SAFE_AREA }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -56,7 +63,7 @@ export default function RootLayout({
           <div className="relative flex min-h-screen flex-col">
             <Header />
             <Sidebar />
-            <main className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
+            <main className="flex-1 pb-[calc(4rem+var(--sab))] md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
             <Footer />
           </div>
           <Toaster />
@@ -64,6 +71,7 @@ export default function RootLayout({
           <PwaRegister />
           <CookieBanner />
           <AppUpdate />
+          <ConfirmHost />
         </AuthProvider>
       </body>
     </html>

@@ -8,22 +8,20 @@ import { useT } from '@/lib/i18n';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bell, Bookmark, ChevronRight, Cookie, FileText, LayoutDashboard, LogOut, MapPin, MessageCircle, Package, PlusSquare, Repeat, Settings, ShoppingBag, Store } from 'lucide-react';
+import { Bell, Bookmark, ChevronRight, FileText, LogOut, MapPin, Package, Repeat, Settings, Store } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { BadgeCheck, CircleUserRound, Coins, GraduationCap, SlidersHorizontal, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
-import { useCart } from '@/hooks/use-cart-store';
 import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
 import { useNotificationStore } from '@/hooks/use-notification-store';
-import { useUnreadMessages } from '@/lib/messages';
 
 function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
   const t = useT();
@@ -43,32 +41,37 @@ function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon
 export default function MePage() {
   const router = useRouter();
   const { user, role } = useAuth();
-  const unreadMessages = useUnreadMessages();
   const shop = useUserRoleStore((s) => s.shop);
   const admin = useUserRoleStore((s) => s.admin);
+  const photo = useUserRoleStore((s) => s.avatar);
   const { wishlistItems } = useWishlist();
-  const { cartItems } = useCart();
   const unread = useNotificationStore((st) => st.notifications.filter((n) => !n.read).length);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
 
   return (
-    <div className="mx-auto max-w-xl space-y-6 px-4 py-6 md:py-10">
+    <div className="mx-auto max-w-xl space-y-4 px-3 py-4 min-[360px]:px-4 md:space-y-6 md:py-10">
       <LanguagePicker className="justify-center" />
       <Card>
-        <CardContent className="flex items-center gap-4 p-5">
-          <Avatar className="h-16 w-16">
-            <AvatarImage src={user?.photoURL ?? undefined} alt="" />
-            <AvatarFallback className="bg-primary/10 text-2xl font-bold text-primary">
-              {user ? (user.displayName || user.email || 'U').charAt(0).toUpperCase() : 'S'}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xl font-bold">{user ? user.displayName || 'My account' : 'Welcome to Saligue'}</p>
-            <p className="line-clamp-2 text-sm text-muted-foreground">
-              {user ? (role === 'seller' ? `Seller${shop ? ` · ${shop.name}` : ''}` : user.email) : 'Browsing as a guest — your likes and saves are kept on this device.'}
-            </p>
-          </div>
+        <CardContent className="p-4 min-[360px]:p-5">
+          {/* One photo: tap it to change it. */}
+          {user ? (
+            <ProfilePhotoField name={shop?.name ?? user.displayName} required={role === 'seller'}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xl font-bold">{user.displayName || 'My account'}</p>
+                <p className="line-clamp-2 text-sm text-muted-foreground">{role === 'seller' ? `Seller${shop ? ` · ${shop.name}` : ''}` : user.email}</p>
+                {role === 'seller' && !photo && <p className="text-xs font-semibold text-primary">Tap the photo to add your face or shop logo</p>}
+              </div>
+            </ProfilePhotoField>
+          ) : (
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16"><AvatarFallback className="bg-primary/10 text-2xl font-bold text-primary">S</AvatarFallback></Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xl font-bold">Welcome to Saligue</p>
+                <p className="line-clamp-2 text-sm text-muted-foreground">Browsing as a guest — your likes and saves are kept on this device.</p>
+              </div>
+            </div>
+          )}
         </CardContent>
         {!user && (
           <div className="grid grid-cols-2 gap-2 px-5 pb-5">
@@ -80,19 +83,11 @@ export default function MePage() {
 
       {user && role === 'seller' ? (
         <>
-          {/* A seller's Me page is about their shop. */}
-          <Card className="p-5">
-            <ProfilePhotoField name={shop?.name ?? user.displayName} required />
-          </Card>
+          {/* A seller's Me page is about their shop. Dashboard, orders and new items are in the bottom bar; messages in the top bar. */}
           <Card className="divide-y overflow-hidden">
             {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My shop profile" detail="Bio, clients" />}
             <Row href="/tips" icon={Coins} label="Tips received" />
             {user && <Row href="/verify" icon={BadgeCheck} label="Get verified" detail="Optional" />}
-            <Row href="/dashboard" icon={LayoutDashboard} label="Seller dashboard" />
-            <Row href="/messages" icon={MessageCircle} label="Messages from customers" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
-            <Row href="/dashboard/orders" icon={Store} label="Shop orders" />
-            <Row href="/dashboard/products" icon={Package} label="My products" />
-            <Row href="/sell" icon={PlusSquare} label="Add a new item" />
             <Row href="/dashboard/settings#shop" icon={MapPin} label="Shop & address" detail={shop ? undefined : 'Add'} />
             <Row href="/dashboard/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />
           </Card>
@@ -108,9 +103,8 @@ export default function MePage() {
             {user && <Row href="/tips" icon={Coins} label="My tips" />}
             {user && <Row href="/verify" icon={BadgeCheck} label="Get verified" detail="Optional" />}
             {user && <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label="My profile" />}
-            <Row href="/messages" icon={MessageCircle} label="Messages with shops" detail={unreadMessages ? `${unreadMessages} new` : undefined} />
+            {/* Messages and the cart are in the top bar. */}
             <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
-            <Row href="/cart" icon={ShoppingBag} label="Cart" detail={String(cartItems.reduce((n, i) => n + i.quantity, 0))} />
             {user && <Row href="/notifications" icon={Bell} label="Notifications" detail={unread ? String(unread) : undefined} />}
           </Card>
           {user && (
@@ -123,7 +117,7 @@ export default function MePage() {
 
       {user && admin && (
         <Card className="divide-y overflow-hidden border-primary/40">
-          <Row href="/admin" icon={SlidersHorizontal} label="Platform settings" detail="Email, payments, try-on" />
+          <Row href="/admin" icon={SlidersHorizontal} label="Admin dashboard" detail="Moderation, money, settings" />
         </Card>
       )}
 
@@ -141,11 +135,9 @@ export default function MePage() {
         </Card>
       )}
 
-      <Card className="mt-4 overflow-hidden">
+      <Card className="divide-y overflow-hidden">
         <Row href="/download" icon={Smartphone} label="Get the Android app" />
         <Row href="/policies" icon={FileText} label="Policies" detail="Terms, privacy, monetization, ads…" />
-        <Row href="/ads-policy" icon={FileText} label="Ads Policy" />
-        <Row href="/monetization-policy" icon={FileText} label="Monetization Policy" />
       </Card>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />

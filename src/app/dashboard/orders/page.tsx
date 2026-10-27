@@ -1,5 +1,6 @@
 'use client';
 
+import { ask } from '@/components/confirm-dialog';
 import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
@@ -133,7 +134,7 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
 
         {order.status !== 'cancelled' && order.status !== 'delivered' && (
           <Button variant="ghost" className="w-full text-destructive hover:text-destructive" disabled={saving}
-            onClick={() => window.confirm('Cancel this order? The items go back in stock and the customer is told.') && change({ status: 'cancelled' }, 'Order cancelled').then(onClose)}>
+            onClick={async () => (await ask({ title: 'Cancel this order?', description: 'The items go back in stock and the customer is told.', confirm: 'Cancel order', destructive: true })) && change({ status: 'cancelled' }, 'Order cancelled').then(onClose)}>
             <XCircle className="mr-2 h-4 w-4" /> Cancel order
           </Button>
         )}
@@ -184,7 +185,7 @@ function OrdersManager() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Orders</h2>
+          <h2 className="hidden text-2xl font-bold tracking-tight md:block">Orders</h2>
           <p className="text-sm text-muted-foreground">Confirm, send and deliver orders. Customers are told at every step.</p>
         </div>
         <Button variant="outline" onClick={exportCsv} disabled={!shown.length}><Download className="mr-2 h-4 w-4" /> Export</Button>

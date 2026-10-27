@@ -1,5 +1,6 @@
 'use client';
 
+import { ask } from '@/components/confirm-dialog';
 import { useCallback, useEffect, useState } from 'react';
 import { Ban, History, Loader2, Plus, RotateCcw, ScrollText, Search, ShieldCheck, SlidersHorizontal, Trash2, UserCog, Wallet } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -188,8 +189,11 @@ export function AccountsAdmin() {
     return () => clearTimeout(t);
   }, [search]);
   const suspend = async (a: Account) => {
-    const reason = a.suspended ? '' : window.prompt(`Suspend ${a.name}? Reason (shown to them):`, 'Breaking the Terms of Service');
-    if (!a.suspended && reason === null) return;
+    const answer = a.suspended
+      ? await ask({ title: `Restore ${a.name}?`, description: 'They can log in again.', confirm: 'Restore' })
+      : await ask({ title: `Suspend ${a.name}?`, description: 'They are signed out everywhere and can’t log in until you restore them.', confirm: 'Suspend', destructive: true, input: { label: 'Reason (shown to them)', value: 'Breaking the Terms of Service' } });
+    if (answer === null) return;
+    const reason = typeof answer === 'string' ? answer : '';
     await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: !a.suspended, reason } }), a.suspended ? 'Account restored' : 'Account suspended');
     void search();
   };
@@ -256,7 +260,7 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 flex-1 break-words"><b>{a.name || a.email}</b> <span className="break-all text-muted-foreground">{a.email}</span></span>
               <Badge>{a.level === 1 ? 'Main admin · everything' : 'Sub-admin'}</Badge>
-              {(a.level === 2 || admins.filter((x) => x.level === 1).length > 1) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => confirm(`Remove ${a.email} as admin?`) && act(() => api(`/admin/admins/${a.id}`, { method: 'DELETE' }), 'Admin removed').then(load)}>Remove</Button>}
+              {(a.level === 2 || admins.filter((x) => x.level === 1).length > 1) && <Button size="sm" variant="ghost" className="text-destructive" onClick={async () => (await ask({ title: `Remove ${a.email} as admin?`, description: 'Their account stays; only the admin rights are removed.', confirm: 'Remove', destructive: true })) && act(() => api(`/admin/admins/${a.id}`, { method: 'DELETE' }), 'Admin removed').then(load)}>Remove</Button>}
             </div>
             {a.level === 2 && permBoxes(a.perms, (v) => act(() => api(`/admin/admins/${a.id}`, { method: 'PUT', body: { perms: v } }), 'Rights updated').then(load))}
           </div>

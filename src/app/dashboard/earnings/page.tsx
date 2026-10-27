@@ -60,7 +60,7 @@ export default function EarningsPage() {
   return (
     <div className="grid gap-6">
       <div>
-        <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Coins className="h-6 w-6 text-primary" /> Earnings</h2>
+        <h2 className="hidden items-center gap-2 text-2xl md:flex font-bold tracking-tight"><Coins className="h-6 w-6 text-primary" /> Earnings</h2>
         <p className="text-sm text-muted-foreground">Monetized shops share {Math.round(data.share * 100)}% of Saligue’s ad income every month.</p>
       </div>
 

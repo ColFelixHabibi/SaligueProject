@@ -498,7 +498,7 @@ export default function AdminPage() {
       </div>
       <Tabs value={tab} onValueChange={setTab}>
         {/* Phones: one row of icon tabs that scrolls sideways and stays under the top bar. */}
-        <div className="sticky top-16 z-30 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:top-0">
+        <div className="sticky top-[calc(4rem+var(--sat))] z-30 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:top-0">
           <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {tabs.map((t) => (
               <TabsTrigger key={t.value} value={t.value} title={t.label} className="shrink-0 gap-1.5 px-2.5 py-1.5">

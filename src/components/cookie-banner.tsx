@@ -37,7 +37,7 @@ export function CookieBanner() {
   if (!open) return null;
 
   return (
-    <div role="dialog" aria-live="polite" aria-label="Cookies" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[60] mx-auto max-w-xl rounded-2xl border bg-background p-4 shadow-2xl md:bottom-6">
+    <div role="dialog" aria-live="polite" aria-label="Cookies" className="fixed inset-x-3 bottom-[calc(4.5rem+var(--sab))] z-[60] mx-auto max-w-xl rounded-2xl border bg-background p-4 shadow-2xl md:bottom-6">
       <div className="flex gap-3">
         <Cookie className="mt-0.5 h-6 w-6 shrink-0 text-primary" />
         <div className="space-y-3">

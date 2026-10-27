@@ -7,7 +7,7 @@ import { LessonFeed } from '@/components/community/lesson-feed';
 
 function Learn() {
   const params = useSearchParams();
-  return <LessonFeed startAt={params.get('lesson')} className="mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md md:h-dvh" />;
+  return <LessonFeed startAt={params.get('lesson')} className="mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md md:h-dvh" />;
 }
 
 // Community: fashion lessons by anyone (styling, sewing & care, traditional, business), up to 4 min 30 s each; General studies up to 10 min.

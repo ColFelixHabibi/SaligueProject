@@ -20,7 +20,7 @@ function ChallengeView() {
   if (error || !id) return <p className="p-10 text-center text-muted-foreground">{error ?? 'This challenge does not exist.'}</p>;
   if (!c) return <Skeleton className="mx-auto h-[80vh] max-w-md" />;
   return (
-    <div className="mx-auto flex h-[calc(100dvh-4rem-4rem)] max-w-md flex-col md:h-dvh">
+    <div className="mx-auto flex h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md flex-col md:h-dvh">
       <div className="space-y-1 bg-gradient-to-r from-amber-300 to-amber-200 p-3 text-amber-950">
         <div className="flex items-center gap-2">
           <Link href="/challenges" aria-label="All challenges"><ArrowLeft className="h-5 w-5" /></Link>

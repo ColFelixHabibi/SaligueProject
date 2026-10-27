@@ -150,7 +150,7 @@ function ProductsTable() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Products</h2>
+          <h2 className="hidden text-2xl font-bold tracking-tight md:block">Products</h2>
           <p className="text-sm text-muted-foreground">Add, edit, publish and remove your items. Change price and stock right in the table.</p>
         </div>
         <div className="flex gap-2">

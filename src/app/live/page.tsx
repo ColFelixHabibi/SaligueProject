@@ -59,7 +59,6 @@ export default function LivesPage() {
           <Eye className="mx-auto mb-3 h-10 w-10 text-primary" />
           <p className="font-semibold text-foreground">No one is live right now</p>
           <p className="mt-1 text-sm">{role === 'seller' ? 'Be the first: show your items on camera.' : 'You’ll get a notification when a shop you bought from goes live.'}</p>
-          {role === 'seller' && <Button className="mt-4" asChild><Link href="/live/studio"><Radio className="mr-2 h-4 w-4" /> Go live</Link></Button>}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">{lives.lives.map((l) => <LiveCard key={l.id} live={l} />)}</div>

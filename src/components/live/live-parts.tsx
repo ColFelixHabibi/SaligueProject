@@ -4,7 +4,7 @@ import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, BarChart3, Camera, Check, Eye, Heart, HelpCircle, ImageUp, MicOff, Radio, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
+import { BadgeCheck, BarChart3, Camera, Check, ChevronDown, ChevronUp, Eye, Settings2, Heart, HelpCircle, ImageUp, MicOff, Radio, ShoppingBag, VideoOff, Wand2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { attach, type Burst, type Live, type LiveComment, type LivePoll, type Tile } from '@/lib/live';
 import { useLives } from '@/lib/lives';
@@ -94,7 +94,7 @@ export function Hearts({ bursts }: { bursts: Burst[] }) {
 /** Top bar: who is live, LIVE badge, how long, how many watching. */
 export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { live: Live; viewers: number; elapsed: string; onViewers?: () => void; children?: React.ReactNode }) {
   return (
-    <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10">
+    <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10 pt-[calc(0.75rem+var(--sat))]">
       <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/35 p-1 pr-3 text-white backdrop-blur">
         <Link href={`/profile?id=${live.sellerId}`} aria-label={`${live.sellerName}: profile`}>
           <Avatar className="h-9 w-9 ring-2 ring-primary">
@@ -125,7 +125,10 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
 /** Chat over the video, newest at the bottom; questions and the pinned comment stand out. */
 export function LiveChat({ comments, pinned, onAction, roles, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; roles?: Record<string, 'Host' | 'Mod'>; className?: string }) {
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [comments.length]);
+  // Braces matter: newer Chrome returns a Promise from scrollIntoView, and React would call it as a cleanup (crash).
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' });
+  }, [comments.length]);
   return (
     <div className={cn('flex max-h-[38vh] flex-col gap-1.5', className)}>
       {pinned && (
@@ -210,7 +213,7 @@ export function HeartGoal({ likes, goal }: { likes: number; goal?: number }) {
   if (!goal) return null;
   const done = likes >= goal;
   return (
-    <div className="pointer-events-none absolute inset-x-3 top-[60px] z-10 flex items-center gap-2 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+    <div className="pointer-events-none absolute inset-x-3 top-[calc(60px+var(--sat))] z-10 flex items-center gap-2 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
       <Heart className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />
       <span className="relative h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/25">
         <span className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(100, (likes / goal) * 100)}%` }} />
@@ -243,6 +246,33 @@ export function PollCard({ poll, myVote, onVote, className }: { poll: LivePoll; 
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The poll as a small chip at the top-left, so the streamer stays visible. Tap to open the answers, tap again to
+ * close; after voting it closes by itself. The host gets a button to manage it.
+ */
+export function PollBubble({ poll, myVote, onVote, onManage, lower }: { poll: LivePoll; myVote?: number | null; onVote?: (i: number) => void; onManage?: () => void; lower?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState<string | null>(null);
+  const fresh = seen !== poll.id && myVote == null && !!onVote && poll.open;
+  return (
+    <div className={cn('absolute left-3 z-10 w-[min(75%,300px)]', lower ? 'top-[calc(92px+var(--sat))]' : 'top-[calc(62px+var(--sat))]')}>
+      <button type="button" onClick={() => { setOpen((v) => !v); setSeen(poll.id); }} aria-expanded={open}
+        className={cn('flex max-w-full items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur', fresh && 'animate-pulse ring-2 ring-primary')}>
+        <BarChart3 className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 truncate">{poll.question}</span>
+        <span className="shrink-0 opacity-80">· {poll.total}</span>
+        {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1.5">
+          <PollCard poll={poll} myVote={myVote} className="p-2.5" onVote={onVote && ((i) => { onVote(i); setTimeout(() => setOpen(false), 1500); })} />
+          {onManage && <button type="button" onClick={onManage} className="flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white"><Settings2 className="h-3.5 w-3.5" /> Manage poll</button>}
+        </div>
+      )}
     </div>
   );
 }

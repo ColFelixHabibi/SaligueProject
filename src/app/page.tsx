@@ -137,7 +137,7 @@ export default function ForYouPage() {
   ].filter((t) => t.value !== 'learn' || on('lessons')) as { value: 'following' | 'local' | 'foryou' | 'learn'; label: string }[];
 
   return (
-    <div className="relative mx-auto h-[calc(100dvh-4rem-4rem)] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
+    <div className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
       {/* What to watch: chosen by the viewer, not only by the algorithm. */}
       <div className="pointer-events-none sticky top-0 z-50 flex h-0 items-start justify-center">

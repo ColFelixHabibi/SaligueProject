@@ -202,7 +202,7 @@ function SearchContent() {
   return (
     <div className="container mx-auto space-y-4 px-4 pb-6 pt-2 md:space-y-6 md:py-8">
       <PageIntro icon={Compass} title="Explore" subtitle="Every item on Saligue. Search, filter and compare." />
-      <div className="sticky top-16 z-30 -mx-4 bg-background/95 px-4 py-2 backdrop-blur md:static md:mx-0 md:bg-transparent md:p-0">
+      <div className="sticky top-[calc(4rem+var(--sat))] z-30 -mx-4 bg-background/95 px-4 py-2 backdrop-blur md:static md:mx-0 md:bg-transparent md:p-0">
           <form
             onSubmit={(e) => {
               e.preventDefault();

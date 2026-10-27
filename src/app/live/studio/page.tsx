@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { CoverPicker, HeartGoal, Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, PollCard, snapFrame, useVideoShape } from '@/components/live/live-parts';
+import { CoverPicker, HeartGoal, Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, PollBubble, PollCard, snapFrame, useVideoShape } from '@/components/live/live-parts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -142,7 +142,7 @@ function Setup() {
   }
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-5 px-3 py-4 min-[360px]:px-4 md:grid-cols-[minmax(0,360px)_1fr] md:gap-6 md:p-8">
+    <div className="mx-auto grid max-w-5xl gap-5 px-3 py-4 pb-[calc(1rem+var(--sab))] pt-[calc(1rem+var(--sat))] min-[360px]:px-4 md:grid-cols-[minmax(0,360px)_1fr] md:gap-6 md:p-8">
       <div className="relative mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-[360px] overflow-hidden rounded-3xl bg-neutral-900 shadow-xl md:max-h-none">
         {previewWide && !fill && <video ref={previewBackdrop} autoPlay playsInline muted aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl" />}
         <video ref={video} autoPlay playsInline muted className={cn('relative h-full w-full', fill ? 'object-cover' : 'object-contain')}
@@ -477,6 +477,7 @@ function Studio({ id }: { id: string }) {
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
+        {live.poll && <PollBubble poll={live.poll} onManage={() => setPanel('poll')} lower={!!live.heartGoal} />}
         <Hearts bursts={bursts} />
         {roomError && (
           <div className="absolute inset-x-3 top-1/3 z-20 space-y-3 rounded-2xl bg-background/95 p-4 text-center text-sm shadow-xl">
@@ -485,12 +486,11 @@ function Studio({ id }: { id: string }) {
           </div>
         )}
         {requests.length > 0 && (
-          <button type="button" onClick={() => setPanel('guests')} className="absolute left-3 top-16 z-10 flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-lg">
+          <button type="button" onClick={() => setPanel('guests')} className={cn('absolute left-3 z-10 flex items-center gap-2 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-white shadow-lg', live.poll ? (live.heartGoal ? 'top-[calc(128px+var(--sat))]' : 'top-[calc(98px+var(--sat))]') : live.heartGoal ? 'top-[calc(92px+var(--sat))]' : 'top-[calc(4rem+var(--sat))]')}>
             <Users className="h-4 w-4" /> {requests[0].name}{requests.length > 1 ? ` +${requests.length - 1}` : ''} wants to join
           </button>
         )}
-        <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pt-16">
-          {live.poll && <button type="button" className="block w-full text-left" onClick={() => setPanel('poll')}><PollCard poll={live.poll} /></button>}
+        <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+var(--sab))] pt-16">
           <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={(c) => c.kind !== 'join' && setSelected(c)} />
           {pinned && <PinnedProduct product={pinned} compact />}
           <form className="flex gap-2" onSubmit={(e) => {

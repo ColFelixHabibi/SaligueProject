@@ -215,7 +215,7 @@ function Inbox() {
   const open = (id: string | null) => router.replace(id ? `/messages?c=${id}` : '/messages', { scroll: false });
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] max-w-6xl flex-col px-0 md:h-[100dvh] md:px-6 md:py-6">
+    <div className="mx-auto flex h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-6xl flex-col px-0 md:h-[100dvh] md:px-6 md:py-6">
       <div className="flex min-h-0 flex-1 overflow-hidden border-y bg-background md:rounded-2xl md:border md:shadow-sm">
         <aside className={cn('flex w-full min-w-0 flex-col border-r md:w-80 lg:w-96', openId && 'hidden md:flex')}>
           <div className="space-y-3 border-b p-4">

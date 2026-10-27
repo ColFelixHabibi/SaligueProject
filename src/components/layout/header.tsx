@@ -73,7 +73,7 @@ export default function Header() {
   if (/\/live\/(studio|watch)/.test(pathname)) return null;
   return (
     // Phones only; tablets and computers use the side menu (sidebar.tsx), like TikTok.
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 pt-[var(--sat)] backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4">
         {/* Brand only: "For You" is the way home, so the menu never repeats a link. */}
         <Logo />

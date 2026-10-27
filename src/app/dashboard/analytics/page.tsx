@@ -41,7 +41,7 @@ export default function AnalyticsPage() {
     <div className="grid gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Analytics</h2>
+          <h2 className="hidden text-2xl font-bold tracking-tight md:block">Analytics</h2>
           <p className="text-sm text-muted-foreground">How shoppers find and buy your items.</p>
         </div>
         <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>

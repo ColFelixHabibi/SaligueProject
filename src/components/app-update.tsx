@@ -33,7 +33,7 @@ export function AppUpdate() {
     setLatest(null);
   };
   return (
-    <div className="fixed inset-x-3 top-[calc(0.75rem+env(safe-area-inset-top))] z-[70] mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-foreground p-3 text-background shadow-xl">
+    <div className="fixed inset-x-3 top-[calc(0.75rem+var(--sat))] z-[70] mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-foreground p-3 text-background shadow-xl">
       <Download className="h-5 w-5 shrink-0 text-primary" />
       <span className="min-w-0 flex-1 text-sm"><b>Saligue {latest.versionName}</b> is ready</span>
       <a href={latest.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-sm font-bold text-primary-foreground">Update</a>

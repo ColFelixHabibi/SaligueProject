@@ -61,7 +61,7 @@ export default function ReviewsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight"><ShieldCheck className="h-6 w-6 text-primary" /> Reviews</h1>
+        <h1 className="hidden items-center gap-2 text-2xl md:flex font-bold tracking-tight"><ShieldCheck className="h-6 w-6 text-primary" /> Reviews</h1>
         <p className="text-muted-foreground">Items shoppers reported. Items with 3 or more reports are hidden until you decide. Each decision teaches Saligue&apos;s AI.</p>
       </div>
       {!items ? (

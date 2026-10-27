@@ -10,6 +10,13 @@ body {
 }
 
 @layer base {
+  /* The phone's status bar (top) and gesture/navigation bar (bottom). The Android app is drawn edge to edge
+     (Android 15+): Capacitor reports the bars as --safe-area-inset-*, newer WebViews and iPhones as env().
+     Whichever is larger; 0 on websites and computers. */
+  :root {
+    --sat: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px), var(--cap-sat, 0px));
+    --sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px), var(--cap-sab, 0px));
+  }
   :root {
     --background: 0 0% 100%; /* white */
     --foreground: 0 0% 3.9%; /* black */

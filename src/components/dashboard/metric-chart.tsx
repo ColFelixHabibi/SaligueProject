@@ -66,7 +66,6 @@ export function MetricTiles({ stats, selected, onToggle }: { stats: SellerStats;
 /** Daily lines for the selected metrics. One or two metrics get labelled axes; more share a hidden scale each. */
 export function MetricChart({ series, selected, height = 300 }: { series: DayStats[]; selected: Metric[]; height?: number }) {
   const shown = METRICS.filter((m) => selected.includes(m.key));
-  const ticks = Math.max(1, Math.floor(series.length / 6));
   return (
     <div style={{ height }} className="w-full">
       {shown.length === 0 ? (
@@ -75,7 +74,7 @@ export function MetricChart({ series, selected, height = 300 }: { series: DaySta
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={series} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="date" tickLine={false} axisLine={false} interval={ticks - 1} tickMargin={8} fontSize={12}
+            <XAxis dataKey="date" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={28} tickMargin={8} fontSize={12}
               tickFormatter={(d) => format(new Date(`${d}T00:00:00`), 'd MMM')} />
             {shown.map((m, i) => (
               <YAxis key={m.key} yAxisId={m.key} orientation={i === 1 ? 'right' : 'left'} hide={shown.length > 2 || i > 1}

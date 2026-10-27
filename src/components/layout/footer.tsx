@@ -18,7 +18,7 @@ export default function Footer() {
   return (
     <>
       {/* Phones: the app's main destinations, each once. */}
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 pb-[var(--sab)] backdrop-blur md:hidden">
         <div className="flex h-16 items-stretch justify-around">
           {navFor(role, !!user).map(({ href, label, icon: Icon }) => {
             const active = isActive(href, pathname);

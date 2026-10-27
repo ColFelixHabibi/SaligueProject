@@ -10,11 +10,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import { HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollCard, ProductStrip } from '@/components/live/live-parts';
+import { HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip } from '@/components/live/live-parts';
 import ProductCard from '@/components/product-card';
 import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
@@ -203,7 +202,7 @@ function Watch() {
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
-          <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
+          <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
         ) : (
         <>
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
@@ -212,10 +211,10 @@ function Watch() {
           <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close"><X className="h-4 w-4" /></button>
         </LiveTopBar>
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
+        {live.poll && <PollBubble poll={live.poll} myVote={myVote} onVote={live.poll.open ? vote : undefined} lower={!!live.heartGoal} />}
         <Hearts bursts={bursts} />
 
-        <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-16">
-          {live.poll && <PollCard poll={live.poll} myVote={myVote} onVote={live.poll.open ? vote : undefined} />}
+        <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+var(--sab))] pt-16">
           <div className="flex items-end gap-2">
             <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} onAction={isMod ? (c) => c.kind !== 'join' && c.uid !== live.sellerId && setSelected(c) : undefined} className="min-w-0 flex-1" />
             {/* Actions on the right, like TikTok and Instagram lives. */}
@@ -284,7 +283,6 @@ function Watch() {
               <button type="button" onClick={pictureInPicture} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold"><PictureInPicture2 className="h-6 w-6 text-primary" /> Small window</button>
             )}
             <button type="button" onClick={() => { setClear(true); setMore(false); }} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold"><EyeOff className="h-6 w-6 text-primary" /> Clear screen</button>
-            <button type="button" onClick={() => { setBagOpen(true); setMore(false); }} disabled={!featured.length} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold disabled:opacity-40"><ShoppingBag className="h-6 w-6 text-primary" /> Items</button>
           </div>
           <div className="space-y-2">
             <p className="flex items-center gap-2 text-sm font-bold"><Radio className="h-4 w-4 text-primary" /> More lives</p>
