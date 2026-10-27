@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n';
 
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 
-import { trackAd } from '@/lib/ads';
+import { adClicked, adOnScreen } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -103,13 +103,16 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
   const slideRef = useRef<HTMLElement>(null);
   useSlideSound(product, slideRef);
   useWatchTime(product, slideRef);
-  // A sponsored slide counts as seen once it fills most of the screen.
+  // A sponsored slide counts as seen after filling most of the screen for a second.
   useEffect(() => {
     const element = slideRef.current;
     if (!element || !sponsoredBy) return;
-    const observer = new IntersectionObserver(([entry]) => entry.intersectionRatio >= 0.6 && trackAd(sponsoredBy, 'impression'), { threshold: [0.6] });
+    const observer = new IntersectionObserver(([entry]) => adOnScreen(sponsoredBy, entry.intersectionRatio >= 0.6), { threshold: [0, 0.6] });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      adOnScreen(sponsoredBy, false);
+    };
   }, [sponsoredBy]);
   const image = product.videoPoster ?? product.image;
   // The item's video plays while its slide fills the screen (silent unless sound is on), like TikTok.
@@ -211,7 +214,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
               </span>
             )}
             {sponsoredBy && <p className="mb-1 inline-flex items-center rounded bg-foreground/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-background">Sponsored</p>}
-            <Link href={productHref(product)} onClick={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
+            <Link href={productHref(product)} onClick={() => sponsoredBy && adClicked(sponsoredBy)} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
             {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}
             {product.shop && (
               <Link href={product.sellerId ? profileHref(product.sellerId) : productHref(product)} className="mt-1.5 flex w-fit max-w-full items-center gap-1.5 text-sm font-semibold text-foreground/80 hover:underline">

@@ -5,7 +5,9 @@ import { api } from './api';
 
 // Saligue Ads in the app: sponsored items to show, and their views and clicks (server: /api/ads, ads.mjs).
 
-export type Sponsored = { campaignId: string; productId: string; headline: string };
+// Each ad comes with a one-time code (serveId); the server bills a view only for that code, once, after the ad
+// was on screen for at least a second.
+export type Sponsored = { serveId: string; campaignId: string; productId: string; headline: string };
 
 /** A few sponsored items for this place in the app, picked once per visit. */
 export function useSponsored(placement: 'feed' | 'explore', count: number) {
@@ -16,24 +18,50 @@ export function useSponsored(placement: 'feed' | 'explore', count: number) {
   return ads;
 }
 
-// Views and clicks are sent in small batches; each view is counted once per ad per page visit.
-let queue: { campaignId: string; kind: 'impression' | 'click' }[] = [];
+const MIN_VIEW_MS = 1000;
+let queue: { serveId: string; kind: 'impression' | 'click'; ms?: number }[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 const viewed = new Set<string>();
+const visibleSince = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
 
-export function trackAd(campaignId: string, kind: 'impression' | 'click') {
-  if (kind === 'impression') {
-    if (viewed.has(campaignId)) return;
-    viewed.add(campaignId);
-  }
-  queue.push({ campaignId, kind });
+function send(event: (typeof queue)[number]) {
+  queue.push(event);
   if (!timer) {
     timer = setTimeout(() => {
       const events = queue.splice(0);
       timer = null;
       api('/ads/events', { body: { events } }).catch(() => {});
-    }, 2000);
+    }, 1500);
   }
+}
+
+/**
+ * Call when an ad comes on screen (true) or leaves it (false). It counts as a view only after staying on screen
+ * a full second; a quick scroll past is not a view.
+ */
+export function adOnScreen(serveId: string, onScreen: boolean) {
+  if (viewed.has(serveId)) return;
+  const current = visibleSince.get(serveId);
+  if (!onScreen) {
+    if (current) clearTimeout(current.timer);
+    visibleSince.delete(serveId);
+    return;
+  }
+  if (current) return;
+  const at = Date.now();
+  visibleSince.set(serveId, {
+    at,
+    timer: setTimeout(() => {
+      visibleSince.delete(serveId);
+      viewed.add(serveId);
+      send({ serveId, kind: 'impression', ms: Date.now() - at });
+    }, MIN_VIEW_MS),
+  });
+}
+
+/** A tap on the ad (counted once, and only after a real view). */
+export function adClicked(serveId: string) {
+  send({ serveId, kind: 'click' });
 }
 
 /** Places sponsored items into a list: the first after `first` items, then every `every` items. */

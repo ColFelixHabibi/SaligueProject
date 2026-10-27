@@ -15,7 +15,7 @@ import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck 
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
-import { adIncome, adSettings, campaignOut, closeMonth, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, requirements, startCampaign } from './ads.mjs';
+import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -823,6 +823,14 @@ route('POST', '/api/orders', ({ user, body }) => {
       return { id, sellerId, group };
     });
   });
+  // Sales from ads: items this buyer clicked or saw in an ad shortly before.
+  for (const { id } of ids) {
+    try {
+      recordConversions(db.prepare('select id, items from orders where id = ?').get(id), user.id);
+    } catch (error) {
+      console.error('Ad sales not counted:', error);
+    }
+  }
   const payment = PAYMENT_LABELS[body.paymentMethod];
   for (const { id, sellerId, group } of ids) {
     const shopName = parse(group.shop)?.name || 'the shop';
@@ -2934,6 +2942,24 @@ route('GET', '/api/me/following', ({ user }) => (user ? db.prepare('select selle
 // Saligue Ads (ads.mjs): sellers promote items; shown as "Sponsored"; paid per 1,000 views.
 // ---------------------------------------------------------------------------
 
+// Who is looking at ads: their account, or for visitors without one, their own network + browser (each visitor
+// has their own daily limit). Network addresses are only kept as a hash. Behind Caddy the last
+// X-Forwarded-For entry is the one Caddy saw (earlier ones can be made up by the visitor).
+const clientIp = (req) => String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean).pop() || req.socket.remoteAddress || '';
+const hashed = (value) => createHash('sha256').update(`saligue-ads|${value}`).digest('hex').slice(0, 32);
+const adViewer = (req, user) => ({ viewer: user?.id ?? `v:${hashed(`${clientIp(req)}|${req.headers['user-agent'] ?? ''}`)}`, ip: hashed(clientIp(req)) });
+
+// Unused budget back in the shop's ad balance: tell them.
+whenCredited((c, amount) => notify(c.seller_id, { type: 'sale', title: `${money(amount)} added to your ad balance`, body: 'Your ad finished without using its whole budget. The rest pays for your next ad.', link: '/dashboard/ads' }));
+// Ads end on time (and give back unused money) even when nobody is browsing.
+setInterval(() => {
+  try {
+    expireCampaigns();
+  } catch (error) {
+    console.error('Ad expiry failed:', error);
+  }
+}, 10 * 60_000).unref();
+
 function adPaid(campaignId) {
   const c = db.prepare('select * from ad_campaigns where id = ?').get(campaignId);
   if (!c) return;
@@ -2979,20 +3005,60 @@ route('POST', '/api/ads/campaigns/([\\w-]+)/pay', async ({ req, user, params, bo
   if (!c) fail(404, 'not_found', 'Ad not found.');
   if (c.status !== 'pending_payment') fail(400, 'paid', 'This ad is already paid.');
   const reference = `AD-${c.id.slice(0, 6).toUpperCase()}`;
+  // The ad balance pays first: all of it (the ad goes straight to review), or part (the rest is paid as usual).
+  const balance = adBalance(user.id);
+  if (balance > 0 && !(c.credit_used > 0)) {
+    const use = Math.min(balance, c.budget);
+    transaction(() => {
+      db.prepare('update ad_campaigns set credit_used = ? where id = ?').run(use, c.id);
+      addCredit(user.id, -use, use >= c.budget ? 'Paid an ad' : 'Part of an ad', c.id);
+      if (use >= c.budget) db.prepare("update ad_campaigns set status = 'in_review', payment_ref = 'credit' where id = ?").run(c.id);
+    });
+    if (use >= c.budget) {
+      adPaid(c.id);
+      return { paidWithCredit: true, reference, amount: 0 };
+    }
+    c.credit_used = use;
+  }
+  const due = Math.round((c.budget - (c.credit_used ?? 0)) * 100) / 100;
   if (!paymentsEnabled()) {
     const a = adSettings();
-    return { manual: true, reference, amount: c.budget, momoNumber: a.momoNumber, momoName: a.momoName };
+    return { manual: true, reference, amount: due, creditUsed: c.credit_used ?? 0, momoNumber: a.momoNumber, momoName: a.momoName };
   }
   const email = String(user.email || body.email || '').trim().toLowerCase();
   if (!EMAIL.test(email)) fail(400, 'email_required', 'Enter your email address for the receipt.');
   const { currency } = paymentSettings();
-  const amount = toCharge(c.budget);
+  const amount = toCharge(due);
   const txRef = `SAL-AD-${randomBytes(8).toString('base64url')}`;
   db.prepare('insert into payments (id, user_id, order_ids, amount, currency, campaign_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', amount, currency, c.id, now());
   const configured = siteUrl();
   const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
   const link = await startCheckout({ txRef, amount, currency, redirectUrl: `${base}/payment`, customer: { email, name: shopNameOf(user), phone: parse(user.shop)?.phone }, title: 'Saligue Ads', logo: `${configured}/icons/icon-192.png` });
   return { link, reference };
+});
+
+// An ad not paid yet can be removed; balance it already used comes back.
+route('DELETE', '/api/ads/campaigns/([\\w-]+)', ({ user, params }) => {
+  const c = db.prepare('select * from ad_campaigns where id = ? and seller_id = ?').get(params[0], user?.id ?? '');
+  if (!c) return { ok: true };
+  if (c.status !== 'pending_payment') fail(400, 'paid', 'Only an ad that is not paid yet can be removed. Pause it instead.');
+  transaction(() => {
+    if (c.credit_used > 0) addCredit(c.seller_id, c.credit_used, 'Ad removed before payment', c.id);
+    db.prepare("delete from payments where campaign_id = ? and status != 'paid'").run(c.id);
+    db.prepare('delete from ad_campaigns where id = ?').run(c.id);
+  });
+  return { ok: true };
+});
+
+// The shop's ad balance and every line of it.
+route('GET', '/api/ads/balance', ({ user }) => {
+  if (!user) return { balance: 0, history: [] };
+  expireCampaigns();
+  return {
+    balance: adBalance(user.id),
+    history: db.prepare('select amount, reason, campaign_id, created_at from ad_credits where user_id = ? order by created_at desc limit 50').all(user.id)
+      .map((r) => ({ amount: r.amount, reason: r.reason, campaignId: r.campaign_id, createdAt: r.created_at })),
+  };
 });
 
 route('POST', '/api/ads/campaigns/([\\w-]+)/(pause|resume)', ({ user, params }) => {
@@ -3006,17 +3072,25 @@ route('POST', '/api/ads/campaigns/([\\w-]+)/(pause|resume)', ({ user, params }) 
 route('GET', '/api/ads/campaigns/([\\w-]+)/stats', ({ user, params }) => {
   const c = db.prepare('select * from ad_campaigns where id = ? and seller_id = ?').get(params[0], user?.id ?? '');
   if (!c) fail(404, 'not_found', 'Ad not found.');
-  return { campaign: campaignOut(c), days: db.prepare('select day, impressions, clicks, spent from ad_stats where campaign_id = ? order by day').all(c.id) };
+  const sales = new Map(adSales(c.id).days.map((d) => [d.day, d]));
+  const days = db.prepare('select day, impressions, clicks, spent from ad_stats where campaign_id = ? order by day').all(c.id);
+  for (const d of sales.keys()) if (!days.some((x) => x.day === d)) days.push({ day: d, impressions: 0, clicks: 0, spent: 0 });
+  days.sort((a, b) => a.day.localeCompare(b.day));
+  return { campaign: campaignOut(c), days: days.map((d) => ({ ...d, spent: Math.round(d.spent * 1000) / 1000, orders: sales.get(d.day)?.orders ?? 0, sales: Math.round((sales.get(d.day)?.sales ?? 0) * 100) / 100 })) };
 });
 
 // Ads to show, and their views/clicks (views are billed).
-route('GET', '/api/ads', ({ user, url }) => {
+route('GET', '/api/ads', ({ req, user, url }) => {
   const placement = url.searchParams.get('placement') === 'explore' ? 'explore' : 'feed';
   const count = Math.min(5, Math.max(1, Number(url.searchParams.get('count')) || 2));
   if (!featureOn('ads')) return [];
-  return pickAds(user?.id ?? null, count, placement);
+  const { viewer, ip } = adViewer(req, user);
+  return pickAds(viewer, ip, user?.id ?? null, count, placement);
 });
-route('POST', '/api/ads/events', ({ user, body }) => ({ recorded: recordAdEvents(user?.id ?? null, Array.isArray(body.events) ? body.events : []) }));
+route('POST', '/api/ads/events', ({ req, user, body }) => {
+  const { viewer, ip } = adViewer(req, user);
+  return { recorded: recordAdEvents(viewer, ip, user?.id ?? null, Array.isArray(body.events) ? body.events : []) };
+});
 
 // ---------------------------------------------------------------------------
 // Creator monetization (ads.mjs): strict eligibility, application, monthly earnings paid by Mobile Money.
@@ -3091,8 +3165,9 @@ route('POST', '/api/admin/ads/([\\w-]+)', ({ user, params, body }) => {
     notify(c.seller_id, { type: 'product', title: 'Your ad is live', body: `It runs for ${c.days} days or until ${money(c.budget)} is used.`, link: '/dashboard/ads' });
   } else if (body.decision === 'reject' && ['in_review', 'pending_payment', 'active', 'paused'].includes(c.status)) {
     db.prepare("update ad_campaigns set status = 'rejected', review_note = ? where id = ?").run(note ?? 'Does not follow the Ads Policy.', c.id);
-    const refund = c.payment_ref ? Math.max(0, c.budget - c.spent) : 0;
-    notify(c.seller_id, { type: 'product', title: 'Your ad was not approved', body: `${note ?? 'It does not follow the Saligue Ads Policy.'}${refund ? ` ${money(refund)} will be refunded.` : ''}`, link: '/dashboard/ads' });
+    // What it didn't use goes straight back to the shop's ad balance.
+    const refund = creditUnused(c, c.status === 'in_review' ? 'Ad not approved' : 'Ad stopped by Saligue');
+    notify(c.seller_id, { type: 'product', title: c.status === 'in_review' ? 'Your ad was not approved' : 'Your ad was stopped', body: `${note ?? 'It does not follow the Saligue Ads Policy.'}${refund ? ` ${money(refund)} is back in your ad balance.` : ''}`, link: '/dashboard/ads' });
   } else fail(400, 'invalid', 'This action is not possible for this ad now.');
   return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(c.id));
 });

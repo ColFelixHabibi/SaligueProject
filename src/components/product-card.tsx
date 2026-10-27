@@ -1,7 +1,7 @@
 
 'use client';
 
-import { trackAd } from '@/lib/ads';
+import { adClicked, adOnScreen } from '@/lib/ads';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Heart, Play, Star, Wand2 } from 'lucide-react';
@@ -34,14 +34,18 @@ function ShopTile({ product, className, sponsoredBy }: { product: Product; class
   useEffect(() => {
     const element = tile.current;
     if (!element || !sponsoredBy) return;
-    const observer = new IntersectionObserver(([entry]) => entry.intersectionRatio >= 0.5 && trackAd(sponsoredBy, 'impression'), { threshold: [0.5] });
+    // Counts as seen after being at least half on screen for a second.
+    const observer = new IntersectionObserver(([entry]) => adOnScreen(sponsoredBy, entry.intersectionRatio >= 0.5), { threshold: [0, 0.5] });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      adOnScreen(sponsoredBy, false);
+    };
   }, [sponsoredBy]);
   const liked = useLiked(product.id);
   const shopName = product.official ? 'INDECIANA' : product.shop?.name ?? product.seller;
   return (
-    <div ref={tile} onClickCapture={() => sponsoredBy && trackAd(sponsoredBy, 'click')} className={cn('group flex flex-col', className)}>
+    <div ref={tile} onClickCapture={() => sponsoredBy && adClicked(sponsoredBy)} className={cn('group flex flex-col', className)}>
       <div className="relative overflow-hidden rounded-2xl bg-muted">
         <Link href={href} className="block aspect-[4/5]">
           {/* eslint-disable-next-line @next/next/no-img-element */}

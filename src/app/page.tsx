@@ -213,7 +213,7 @@ export default function ForYouPage() {
         mixSponsored(
           shown,
           // Ads only in For You: Following and Local show exactly what the viewer chose.
-          (mode === 'foryou' ? sponsored : []).map((a) => ({ item: byId.get(a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
+          (mode === 'foryou' ? sponsored : []).map((a) => ({ item: byId.get(a.productId)!, campaignId: a.serveId })).filter((a) => a.item?.status === 'active'),
           3,
           7
         ).map((p) => (

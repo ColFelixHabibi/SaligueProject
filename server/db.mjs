@@ -426,6 +426,45 @@ db.exec(`
   );
   create index if not exists ad_campaigns_status on ad_campaigns(status);
 
+  -- Every time an ad is handed to someone: a one-time code. A view is billed only when the same viewer reports this
+  -- code back after the ad was on screen for at least a second, within the daily limits (person and network).
+  create table if not exists ad_serves (
+    id text primary key,
+    campaign_id text not null references ad_campaigns(id) on delete cascade,
+    viewer text not null,               -- account id, or a hash of network + browser for visitors without one
+    ip text not null,                   -- hash of the network address (never the address itself)
+    placement text not null,
+    created_at text not null,
+    viewed_at text,                     -- a real view (on screen at least a second)
+    billed integer not null default 0,  -- the view was charged to the budget (within the limits)
+    clicked_at text
+  );
+  create index if not exists ad_serves_viewer on ad_serves(campaign_id, viewer, viewed_at);
+  create index if not exists ad_serves_ip on ad_serves(campaign_id, ip, viewed_at);
+  create index if not exists ad_serves_buyer on ad_serves(viewer, viewed_at);
+
+  -- Orders that came from an ad: placed within 7 days of a click, or 1 day of a view, on the advertised item.
+  create table if not exists ad_conversions (
+    campaign_id text not null references ad_campaigns(id) on delete cascade,
+    order_id text not null references orders(id) on delete cascade,
+    quantity integer not null,
+    amount real not null,
+    via text not null check (via in ('click', 'view')),
+    created_at text not null,
+    primary key (campaign_id, order_id)
+  );
+
+  -- A shop's ad balance, line by line: unused budget comes back here and pays for later ads.
+  create table if not exists ad_credits (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    campaign_id text,
+    amount real not null,               -- + added, − used
+    reason text not null,
+    created_at text not null
+  );
+  create index if not exists ad_credits_user on ad_credits(user_id, created_at desc);
+
   create table if not exists ad_stats (
     campaign_id text not null references ad_campaigns(id) on delete cascade,
     day text not null,
@@ -474,7 +513,7 @@ for (const [table, column, type] of [
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
-  ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
+  ['ad_campaigns', 'credit_used', 'real not null default 0'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);

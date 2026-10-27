@@ -292,7 +292,7 @@ function SearchContent() {
             <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 md:gap-x-6 xl:grid-cols-4">
               {mixSponsored(
                 shown,
-                sponsored.map((a) => ({ item: products.find((p) => p.id === a.productId)!, campaignId: a.campaignId })).filter((a) => a.item?.status === 'active'),
+                sponsored.map((a) => ({ item: products.find((p) => p.id === a.productId)!, campaignId: a.serveId })).filter((a) => a.item?.status === 'active'),
                 3,
                 8
               ).map((product) => <ProductCard key={`${product.id}${product.sponsoredBy ?? ''}`} product={product} variant="shop" sponsoredBy={product.sponsoredBy} />)}

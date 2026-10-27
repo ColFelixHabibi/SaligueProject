@@ -12,7 +12,7 @@ import { api, mediaUrl } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { formatPrice } from '@/lib/orders';
 
-type AdRow = { id: string; shop: string; reference: string; status: string; budget: number; spent: number; days: number; impressions: number; product: { name: string; image: string } | null; headline: string };
+type AdRow = { id: string; shop: string; reference: string; status: string; budget: number; spent: number; days: number; impressions: number; product: { name: string; image: string } | null; headline: string; creditUsed: number; toPay: number };
 type CreatorRow = { userId: string; shop: string; email: string; status: string; momoNumber: string; momoName: string; followers: number; eligible: boolean; checks: { key: string; label: string; value: number; target: number; met: boolean }[] };
 type Payouts = { period: string; adIncome: number; estimate: { pool: number } | null; payouts: { id: string; shop: string; amount: number; status: string; momoNumber: string | null; momoName: string | null }[] };
 
@@ -74,6 +74,7 @@ export function MonetizationAdmin() {
               <div className="min-w-0 flex-1 text-sm">
                 <p className="font-semibold">{a.product?.name ?? 'Item removed'} · {a.shop}</p>
                 <p className="text-muted-foreground">{formatPrice(a.budget)} · {a.days} days · ref <b className="select-all text-foreground">{a.reference}</b></p>
+                {a.status === 'pending_payment' && <p className="text-muted-foreground">Expect <b className="text-foreground">{formatPrice(a.toPay)}</b> by Mobile Money{a.creditUsed ? ` (${formatPrice(a.creditUsed)} paid from their ad balance)` : ''}</p>}
                 {a.headline && <p className="italic">“{a.headline}”</p>}
               </div>
               <div className="flex w-full gap-2 sm:w-auto">
