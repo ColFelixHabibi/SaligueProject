@@ -31,6 +31,7 @@ export function MonetizationAdmin() {
   const [payouts, setPayouts] = useState<Payouts | null>(null);
   const [period, setPeriod] = useState(lastMonth());
   // Where sellers send ad money while online payment is off. Prices and shares are in Rules & policies.
+  const [payback, setPayback] = useState({ email: '', amount: '', reference: '' });
   const [momo, setMomo] = useState<{ momoNumber: string; momoName: string } | null>(null);
   useEffect(() => void api<{ momoNumber: string | null; momoName: string }>('/admin/platform/ads').then((d) => setMomo({ momoNumber: d.momoNumber ?? '', momoName: d.momoName })).catch(() => {}), []);
 
@@ -133,6 +134,24 @@ export function MonetizationAdmin() {
               )}
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Pay back an ad balance</CardTitle>
+          <CardDescription>When a shop asks for its unused ad money by Mobile Money: send it, then record it here so their balance goes down.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="grid gap-3 sm:grid-cols-3" onSubmit={(e) => {
+            e.preventDefault();
+            void act(() => api('/admin/ad-balance', { body: { ...payback, amount: Number(payback.amount) } }), 'Recorded').then(() => setPayback({ email: '', amount: '', reference: '' }));
+          }}>
+            <div className="space-y-1.5"><Label htmlFor="pb-email">Shop email</Label><Input id="pb-email" type="email" required value={payback.email} onChange={(e) => setPayback({ ...payback, email: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label htmlFor="pb-amount">Amount ($)</Label><Input id="pb-amount" type="number" min="0.01" step="0.01" required value={payback.amount} onChange={(e) => setPayback({ ...payback, amount: e.target.value })} /></div>
+            <div className="space-y-1.5"><Label htmlFor="pb-ref">MoMo reference</Label><Input id="pb-ref" value={payback.reference} onChange={(e) => setPayback({ ...payback, reference: e.target.value })} /></div>
+            <Button type="submit" variant="outline" className="sm:col-span-3">Record payment</Button>
+          </form>
         </CardContent>
       </Card>
 

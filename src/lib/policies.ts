@@ -83,7 +83,9 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: [
               'You choose one of your items on sale, a budget (from the minimum shown in Seller Center) and a number of days. Your ad appears as “Sponsored” in For You and Explore.',
               'You pay once, up front. Each view of your ad uses a small part of the budget (the price per 1,000 views shown when you create the ad). The ad stops when the budget is used or the days are over. You can pause it at any time.',
-              'A view is counted only when your ad is actually on the shopper’s screen, at most three times a day per shopper. Views by your own account are not counted.',
+              'A view is counted only when your ad stays on the shopper’s screen for at least one second (half of it in Explore, most of the screen in For You). Each ad shown carries a one-time code checked by Saligue’s server, so views can’t be repeated or made up. At most three views a day per shopper and six per network (phone or Wi-Fi) are counted, so many accounts on one device can’t use up your budget. Views by your own account are never counted.',
+              'Money your ad does not use when its days are over goes back to your ad balance automatically, and pays for your next ad. Seller Center → Ads shows your balance and every line of it.',
+              'Seller Center → Ads shows, day by day, the views, clicks, orders and sales from each ad, and what it cost: spent = views × the price per view. An order counts as coming from your ad when the buyer clicked it in the last 7 days, or saw it in the last day; cancelled orders are left out.',
             ],
           },
           {
@@ -105,7 +107,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Review, refusal and refunds',
             paragraphs: [
-              'INDECIANA reviews each ad after payment, usually within one working day. If an ad is refused before it runs, the full budget is refunded. If an ad is stopped while running because it breaks this policy, the unused budget is refunded, unless the ad was clearly fraudulent.',
+              'INDECIANA reviews each ad after payment, usually within one working day. If an ad is refused before it runs, the full budget goes back to your ad balance at once. If an ad is stopped while running because it breaks this policy, the unused budget goes back to your ad balance. To have your balance paid back by Mobile Money instead, ask through Help & Support.',
               'Shops that repeatedly break this policy may lose the right to advertise and to be monetized.',
             ],
           },

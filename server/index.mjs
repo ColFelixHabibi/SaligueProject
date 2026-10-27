@@ -3172,6 +3172,20 @@ route('POST', '/api/admin/ads/([\\w-]+)', ({ user, params, body }) => {
   return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(c.id));
 });
 
+// A shop asked for its ad balance back by Mobile Money: the admin sends it, then records it here (the balance drops).
+route('POST', '/api/admin/ad-balance', ({ user, body }) => {
+  requireAdmin(user, 'ads');
+  const shop = db.prepare('select id from users where email = ?').get(String(body.email ?? '').trim().toLowerCase());
+  if (!shop) fail(404, 'not_found', 'No account with this email.');
+  const balance = adBalance(shop.id);
+  const amount = Math.round(Number(body.amount) * 100) / 100;
+  if (!(amount > 0 && amount <= balance + 1e-9)) fail(400, 'invalid', `Their ad balance is ${money(balance)}.`);
+  addCredit(shop.id, -amount, `Paid back by Mobile Money${body.reference ? ` (${String(body.reference).slice(0, 40)})` : ''}`);
+  logAdmin(user, 'ad balance paid back', `${body.email} ${money(amount)}`);
+  notify(shop.id, { type: 'sale', title: `${money(amount)} of your ad balance was sent to you`, body: 'By Mobile Money, as you asked.', link: '/dashboard/ads' });
+  return { balance: adBalance(shop.id) };
+});
+
 route('GET', '/api/admin/creators', ({ user }) => {
   requireAdmin(user, 'money');
   return db.prepare("select c.*, u.display_name, u.email, u.shop from creators c join users u on u.id = c.user_id order by case c.status when 'applied' then 0 else 1 end, c.applied_at desc").all()
