@@ -1,5 +1,7 @@
 'use client';
 
+import { absoluteUrl } from '@/lib/paths';
+import { shareLink } from '@/components/share-sheet';
 import { useBlockedIds } from '@/lib/blocks';
 
 import { ExpandableText } from '@/components/expandable-text';
@@ -122,16 +124,8 @@ function Watch() {
   };
 
   const share = async () => {
-    const url = window.location.href;
-    try {
-      if (navigator.share) await navigator.share({ title: live?.title, text: `${live?.sellerName} is live on Saligue`, url });
-      else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'Link copied', description: 'Share it so friends can watch.' });
-      }
-    } catch {
-      // Cancelled.
-    }
+    if (!id) return;
+    await shareLink({ title: live?.title ?? 'Saligue Live', text: `${live?.sellerName} is live on Saligue`, url: absoluteUrl(`/live/watch?id=${id}`) });
   };
 
   const vote = async (option: number) => {
@@ -198,7 +192,7 @@ function Watch() {
   const rail = 'flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur active:scale-90 min-[360px]:h-11 min-[360px]:w-11';
 
   return (
-    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
+    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 bg-black md:h-dvh md:bg-transparent md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (

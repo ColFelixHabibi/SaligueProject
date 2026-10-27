@@ -6,27 +6,15 @@ import { useFeatures } from '@/lib/features';
 import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { CircleUserRound, LogOut, MessageCircle, Radio, Search, ShoppingBag, User } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { usePathname } from 'next/navigation';
+import { CircleUserRound, MessageCircle, Radio, Search, ShoppingBag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
 import { useUnreadMessages } from '@/lib/messages';
-import { useToast } from '@/hooks/use-toast';
-import { friendlyError } from '@/lib/errors';
-import { logout } from '@/lib/auth-actions';
 import { cn } from '@/lib/utils';
 
 export function Logo({ light, compact }: { light?: boolean; compact?: boolean }) {
@@ -42,8 +30,6 @@ export function Logo({ light, compact }: { light?: boolean; compact?: boolean })
 }
 
 export default function Header() {
-  const { toast } = useToast();
-  const router = useRouter();
   const pathname = usePathname();
   const { user, role } = useAuth();
   const on = useFeatures();
@@ -59,15 +45,6 @@ export default function Header() {
     setTimeout(() => open(true), 150);
   };
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      toast({ title: 'Logged out' });
-      router.push('/');
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Logout failed', description: friendlyError(error) });
-    }
-  };
 
   // Lives fill the whole screen, like TikTok.
   if (/\/live\/(studio|watch)/.test(pathname)) return null;
@@ -109,31 +86,8 @@ export default function Header() {
             </Link>
           </Button>}
 
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-10 w-10 rounded-full p-0" aria-label="Account">
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={user.photoURL ?? undefined} alt="" />
-                    <AvatarFallback className="bg-primary/10 font-semibold text-primary">
-                      {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end">
-                <DropdownMenuLabel className="font-normal">
-                  <p className="text-sm font-medium">{user.displayName || 'My account'}</p>
-                  <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/me"><User className="mr-2 h-4 w-4" /> My account</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" /> Log out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
+          {/* Signed in: "Me" in the bottom bar has the account and Log out, so no second account menu here. */}
+          {user ? null : (
             <Button variant="ghost" size="icon" onClick={() => setLoginOpen(true)} aria-label="Log in">
               <CircleUserRound className="h-6 w-6 text-primary" />
             </Button>

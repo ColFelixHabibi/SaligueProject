@@ -29,24 +29,24 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
   }, [startAt, lessons?.length]);
 
-  const chip = 'flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-2 py-1 text-[10px] font-semibold';
+  const chip = 'flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
   return (
     <div className={cn('relative h-full', className)}>
-      <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1 overflow-x-auto bg-gradient-to-b from-black/70 to-transparent p-2 pb-6 text-white [scrollbar-width:none]">
+      <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1.5 overflow-x-auto border-b bg-background/95 p-2 backdrop-blur [mask-image:linear-gradient(to_right,black_92%,transparent)] [scrollbar-width:none] md:flex-wrap md:overflow-visible md:[mask-image:none] [&::-webkit-scrollbar]:hidden">
         {!challenge && on('challenges') && (
           <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
             <Trophy className="h-5 w-5" /> {tr('Challenges')}
           </Link>
         )}
-        <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-white text-foreground' : 'bg-black/30')} aria-pressed={!topic}>
+        <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic}>
           <LayoutGrid className="h-5 w-5" /> {tr('All')}
         </button>
         {LESSON_TOPICS.map((t) => (
-          <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-white text-foreground' : 'bg-black/30')} aria-pressed={topic === t.value}>
+          <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value}>
             <t.icon className="h-5 w-5" /> {tr(t.label)}
           </button>
         ))}
-        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'ml-auto bg-primary text-primary-foreground')} aria-label="Teach a lesson">
+        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'ml-auto border border-primary text-primary')} aria-label="Teach a lesson">
           <Plus className="h-5 w-5" /> {tr('Teach')}
         </Link>
       </div>

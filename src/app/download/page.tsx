@@ -7,6 +7,7 @@ import { AppVersion } from '@/components/app-update';
 export const metadata: Metadata = { title: 'Get the Saligue app' };
 
 const APK = '/download/saligue.apk';
+const apkUrl = `${(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '')}${APK}`;
 
 /** Download page for the Android app, with the steps Android asks for when installing from outside the Play Store. */
 export default function DownloadPage() {
@@ -18,7 +19,8 @@ export default function DownloadPage() {
         <p className="text-muted-foreground"><AppVersion /> · about 33 MB · Android 7 or newer</p>
       </div>
       <Button size="lg" className="h-14 w-full text-lg" asChild>
-        <a href={APK} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>
+        {/* A full link: inside the app, a relative one would point at the app itself. */}
+        <a href={apkUrl} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>
       </Button>
       <ol className="space-y-3 rounded-2xl border bg-card p-5 text-sm leading-relaxed">
         <li><b>1. Open this page on your Android phone</b> (not a computer) and tap <b>Download the app</b>.</li>

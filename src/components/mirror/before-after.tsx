@@ -29,7 +29,8 @@ export function BeforeAfter({ before, after, className, labels = ['You now', 'We
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={before} alt={labels[0]} className="absolute inset-0 h-full w-full object-contain p-2" draggable={false} />
       </div>
-      <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-primary shadow" style={{ left: `${split}%` }}>
+      {/* The handle stays fully on screen even when dragged to an edge. */}
+      <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-primary shadow" style={{ left: `clamp(20px, ${split}%, calc(100% - 20px))` }}>
         <span className="absolute top-1/2 left-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-2 ring-background">
           <ChevronsLeftRight className="h-5 w-5" />
         </span>

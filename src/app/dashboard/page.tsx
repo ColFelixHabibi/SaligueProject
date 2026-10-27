@@ -28,8 +28,8 @@ function ActionCard({ href, icon: Icon, label, value, hint, tone }: { href: stri
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-2xl font-bold leading-none">{value}</span>
-        <span className="block truncate text-sm font-medium">{label}</span>
-        <span className="block truncate text-xs text-muted-foreground">{hint}</span>
+        <span className="block text-sm font-medium leading-tight">{label}</span>
+        <span className="line-clamp-2 block text-xs text-muted-foreground">{hint}</span>
       </span>
       <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
     </Link>
@@ -59,7 +59,7 @@ export default function DashboardPage() {
   if (!stats) {
     return (
       <div className="grid gap-6">
-        <div className="grid gap-4 md:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
         <Skeleton className="h-[420px] rounded-2xl" />
       </div>
     );
@@ -81,10 +81,10 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
         <ActionCard href="/dashboard/orders?status=placed" icon={Clock} label="Orders to confirm" value={toHandle} hint="New orders waiting for you" tone="warn" />
         <ActionCard href="/dashboard/orders?payment=unpaid" icon={CircleDollarSign} label="Not paid yet" value={stats.unpaid} hint="Open orders without payment" />
-        <ActionCard href="/messages" icon={MessageCircle} label="Unread messages" value={stats.unreadMessages} hint="Customers waiting for a reply" tone="warn" />
+        <ActionCard href="/dashboard/messages" icon={MessageCircle} label="Unread messages" value={stats.unreadMessages} hint="Customers waiting for a reply" tone="warn" />
         <ActionCard href="/dashboard/products?filter=low" icon={AlertTriangle} label="Low on stock" value={stats.lowStock.length} hint="3 or fewer left" tone="warn" />
       </div>
 

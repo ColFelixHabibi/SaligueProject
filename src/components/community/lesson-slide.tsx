@@ -1,5 +1,6 @@
 'use client';
 
+import { shareLink } from '@/components/share-sheet';
 import { ask } from '@/components/confirm-dialog';
 import { VerifiedBadge } from '@/components/verified-badge';
 
@@ -104,16 +105,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
     }
   };
   const share = async () => {
-    const url = absoluteUrl(`/learn?lesson=${lesson.id}`);
-    try {
-      if (navigator.share) await navigator.share({ title: lesson.title, text: `${lesson.title} · a fashion lesson on Saligue`, url });
-      else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'Link copied' });
-      }
-    } catch {
-      // Cancelled.
-    }
+    await shareLink({ title: lesson.title, text: `${lesson.title} · a fashion lesson on Saligue`, url: absoluteUrl(`/learn?lesson=${lesson.id}`) });
   };
   const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition active:scale-90';
 

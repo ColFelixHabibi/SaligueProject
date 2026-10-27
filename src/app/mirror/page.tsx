@@ -1,6 +1,7 @@
 
 'use client';
 
+import { SaveImageButton } from '@/components/save-image-button';
 import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
@@ -389,9 +390,7 @@ function Mirror() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={outfitUrl} alt="You in the described outfit" className="mx-auto max-h-[70vh] rounded-lg border object-contain" />
                     <div className="flex justify-center gap-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={outfitUrl} download="saligue-outfit.jpg"><Download className="mr-2 h-4 w-4" /> Save</a>
-                      </Button>
+                      <SaveImageButton variant="outline" size="sm" url={outfitUrl} name="saligue-outfit.jpg"><Download className="mr-2 h-4 w-4" /> Save</SaveImageButton>
                       <Button variant="outline" size="sm" onClick={() => { setWearForm(outfitForm); runSearch(outfitForm); }}>
                         <Search className="mr-2 h-4 w-4" /> Find similar items to buy
                       </Button>

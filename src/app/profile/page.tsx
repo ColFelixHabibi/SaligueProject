@@ -1,5 +1,6 @@
 'use client';
 
+import { shareLink } from '@/components/share-sheet';
 import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useFeatures } from '@/lib/features';
@@ -95,16 +96,7 @@ function ProfileView({ id }: { id: string }) {
     }
   };
   const share = async () => {
-    const url = absoluteUrl(profileHref(id));
-    try {
-      if (navigator.share) await navigator.share({ title: profile?.name, text: `${profile?.name} on Saligue`, url });
-      else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'Link copied' });
-      }
-    } catch {
-      // Cancelled.
-    }
+    await shareLink({ title: profile?.name ?? 'Saligue', text: `${profile?.name} on Saligue`, url: absoluteUrl(profileHref(id)) });
   };
 
   if (error) return <p className="p-10 text-center text-muted-foreground">{error}</p>;

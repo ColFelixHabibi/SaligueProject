@@ -1,5 +1,7 @@
 'use client';
 
+import { absoluteUrl } from '@/lib/paths';
+import { shareLink } from '@/components/share-sheet';
 import { ExpandableText } from '@/components/expandable-text';
 import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirrorFor, onDevicesChange, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraDevice, type MicDevice } from '@/lib/camera';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
@@ -308,16 +310,7 @@ function Studio({ id }: { id: string }) {
   };
 
   const share = async () => {
-    const url = `${window.location.origin}/live/watch?id=${id}`;
-    try {
-      if (navigator.share) await navigator.share({ title: live?.title, url });
-      else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'Link copied', description: 'Share it on WhatsApp, Instagram or anywhere.' });
-      }
-    } catch {
-      // Cancelled.
-    }
+    await shareLink({ title: live?.title ?? 'Saligue Live', text: 'I’m live on Saligue: come and watch', url: absoluteUrl(`/live/watch?id=${id}`) });
   };
 
   if (error) return <p className="p-10 text-center text-muted-foreground">{error}</p>;
@@ -470,7 +463,7 @@ function Studio({ id }: { id: string }) {
   );
 
   return (
-    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 md:h-dvh md:p-6">
+    <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 bg-black md:h-dvh md:bg-transparent md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onViewers={() => setPanel('viewers')}>

@@ -171,7 +171,8 @@ async function fashn(person, garment, category, variant = 0) {
       model_image: person,
       garment_image: garment,
       category: FAL_CATEGORY[category] ?? 'auto',
-      mode: 'balanced',
+      // The Fitting Room is Saligue's signature: the best quality FASHN offers (a few seconds slower).
+      mode: 'quality',
       garment_photo_type: 'auto',
       output_format: 'jpeg',
       num_samples: 1,
@@ -181,7 +182,8 @@ async function fashn(person, garment, category, variant = 0) {
   });
   const queued = await submit.json().catch(() => null);
   if (!submit.ok || !queued?.request_id) throw new Error(`FASHN refused the request (${submit.status}): ${queued?.detail ?? queued?.message ?? ''}`);
-  const base = `${FAL_QUEUE}/fal-ai/fashn/tryon/v1.6/requests/${queued.request_id}`;
+  // fal's status and result live under the app's root id (fal-ai/fashn), not the model's full path.
+  const base = `${FAL_QUEUE}/fal-ai/fashn/requests/${queued.request_id}`;
   const statusUrl = queued.status_url || `${base}/status`;
   const resultUrl = queued.response_url || base;
   const until = Date.now() + 120_000;
@@ -204,7 +206,9 @@ async function fashn(person, garment, category, variant = 0) {
 const CACHE_DIR = join(DATA_DIR, 'tryon-cache');
 const CACHE_MAX = 3000;
 mkdirSync(CACHE_DIR, { recursive: true });
-const cacheKey = (person, garment, category, variant) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}`).digest('hex').slice(0, 40);
+// Which AI makes the looks now: a look made by the free models is never reused once a better one is connected.
+const engine = () => (ownAi() ? 'own' : falKey() ? 'fashn' : 'free');
+const cacheKey = (person, garment, category, variant) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}|${engine()}`).digest('hex').slice(0, 40);
 
 function fromCache(key) {
   const file = join(CACHE_DIR, `${key}.txt`);
@@ -264,10 +268,12 @@ async function makeLook(person, garment, category, description, variant) {
       console.error('Own AI server failed, trying the backups:', String(error?.message ?? error).slice(0, 200));
     }
   }
+  let paidError = null;
   if (falKey()) {
     try {
       return await fashn(person, garment, category, variant);
     } catch (error) {
+      paidError = error;
       console.error('FASHN try-on failed, trying the free models:', error.message);
     }
   }
@@ -303,6 +309,8 @@ async function makeLook(person, garment, category, description, variant) {
     }
   }
   const message = String(first?.message ?? first);
+  // With fal.ai connected, "daily limit" would be misleading: the paid try-on itself failed (reason in the log).
+  if (paidError) throw Object.assign(new Error('The try-on AI is busy right now. Try again in a minute.'), { status: 503, cause: paidError });
   if (isBusy(message) || !available(SPACE)) {
     const back = resting.get(SPACE);
     const when = back ? new Date(back).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Kigali' }) : null;

@@ -44,7 +44,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard', icon: Home, label: 'Overview' },
     { href: '/dashboard/products', icon: Package, label: 'Products' },
     { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
-    { href: '/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
+    { href: '/dashboard/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
     { href: '/dashboard/ads', icon: Megaphone, label: 'Ads' },
     { href: '/dashboard/earnings', icon: Coins, label: 'Earnings' },
     { href: '/dashboard/analytics', icon: BarChart3, label: 'Analytics' },

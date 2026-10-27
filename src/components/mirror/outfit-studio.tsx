@@ -1,5 +1,6 @@
 'use client';
 
+import { SaveImageButton } from '@/components/save-image-button';
 import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -305,8 +306,9 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
           {slotButtons.map(slotButton)}
         </div>
 
-        {/* The mirror */}
-        <div className="relative order-1 aspect-[3/4] max-h-[78vh] w-full bg-[radial-gradient(ellipse_at_center,_#ffffff_0%,_#fde7f1_100%)] md:order-2 md:aspect-auto md:min-h-[560px]">
+        {/* The mirror, with its buttons underneath (never on top of the picture). */}
+        <div className="order-1 flex min-w-0 flex-col md:order-2">
+        <div className="relative aspect-[3/4] max-h-[78vh] w-full bg-[radial-gradient(ellipse_at_center,_#ffffff_0%,_#fde7f1_100%)] md:aspect-auto md:min-h-[560px] md:flex-1">
           {realisticUrl && personUrl ? (
             <BeforeAfter before={photoUrl ?? personUrl} after={realisticUrl} labels={['You now', 'In this outfit']} className="absolute inset-0 bg-transparent" />
           ) : shownUrl ? (
@@ -334,25 +336,26 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
             </div>
           )}
           {skipped.length > 0 && realisticUrl && !realisticBusy && (
-            <p className="absolute bottom-16 left-3 right-3 z-10 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
+            <p className="absolute bottom-3 left-3 right-3 z-10 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
               Not drawn: <b className="text-foreground">{skipped.join(', ')}</b>. Tap a piece to try it again, or use a head-to-feet photo.
             </p>
           )}
           {missing.length > 0 && lookUrl && !realisticUrl && (
-            <p className="absolute bottom-16 left-3 right-3 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
+            <p className="absolute bottom-3 left-3 right-3 rounded-lg bg-background/90 px-2 py-1.5 text-center text-xs text-muted-foreground shadow">
               Not in your photo, so not shown: <b className="text-foreground">{missing.map(categoryLabel).join(', ')}</b>. Use a head-to-feet photo to wear them.
             </p>
           )}
+        </div>
           {personUrl && !photoBusy && (
-            <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-background p-2.5">
               <PhotoInputs onFile={onPhoto} compact />
-              <div className="flex gap-1">
-                {shownUrl && (
-                  <Button size="icon" variant="secondary" className="h-9 w-9" asChild>
-                    <a href={shownUrl} download="saligue-outfit.png" aria-label="Save image"><Download className="h-4 w-4" /></a>
-                  </Button>
+              <div className="flex gap-1.5">
+                {(realisticUrl ?? shownUrl) && (
+                  <SaveImageButton size="icon" variant="outline" className="h-9 w-9" url={(realisticUrl ?? shownUrl)!} name="saligue-outfit.jpg" aria-label="Save image">
+                    <Download className="h-4 w-4" />
+                  </SaveImageButton>
                 )}
-                <Button size="icon" variant="secondary" className="h-9 w-9" onClick={onRemovePhoto} aria-label="Remove my photo">
+                <Button size="icon" variant="outline" className="h-9 w-9 text-destructive" onClick={onRemovePhoto} aria-label="Remove my photo">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>

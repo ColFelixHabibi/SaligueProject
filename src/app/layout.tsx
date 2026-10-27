@@ -12,6 +12,8 @@ import { PwaRegister } from '@/components/pwa-register';
 import { CookieBanner } from '@/components/cookie-banner';
 import { AppUpdate } from '@/components/app-update';
 import { ConfirmHost } from '@/components/confirm-dialog';
+import { ShareHost } from '@/components/share-sheet';
+import { NativeLinks } from '@/components/native-links';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 
@@ -72,6 +74,8 @@ export default function RootLayout({
           <CookieBanner />
           <AppUpdate />
           <ConfirmHost />
+          <ShareHost />
+          <NativeLinks />
         </AuthProvider>
       </body>
     </html>

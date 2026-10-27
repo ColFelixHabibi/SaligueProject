@@ -16,6 +16,13 @@ body {
   :root {
     --sat: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px), var(--cap-sat, 0px));
     --sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px), var(--cap-sab, 0px));
+    /* Card padding: tighter on small phones. One value, so a card's own padding (e.g. p-5) still overrides it. */
+    --card-pad: 1rem;
+  }
+  @media (min-width: 640px) {
+    :root {
+      --card-pad: 1.5rem;
+    }
   }
   :root {
     --background: 0 0% 100%; /* white */

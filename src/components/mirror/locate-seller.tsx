@@ -1,6 +1,7 @@
 
 'use client';
 
+import { SaveImageButton } from '@/components/save-image-button';
 import Link from 'next/link';
 import { Download, Navigation, ShoppingCart, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,11 +43,9 @@ export function LocateSellerDialog({ product, image, onClose }: { product: Produ
           <div className="relative bg-gradient-to-b from-muted to-background">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={image} alt={`You wearing ${product.name}`} className="mx-auto max-h-[55vh] w-full object-contain p-3 md:max-h-[80vh]" />
-            <Button variant="outline" size="sm" className="absolute bottom-3 left-3" asChild>
-              <a href={image} download={`saligue-${product.name.replace(/\W+/g, '-').toLowerCase()}.png`}>
-                <Download className="mr-1.5 h-4 w-4" /> Save look
-              </a>
-            </Button>
+            <SaveImageButton variant="outline" size="sm" className="absolute bottom-3 left-3" url={image} name={`saligue-${product.name.replace(/\W+/g, '-').toLowerCase()}.png`}>
+              <Download className="mr-1.5 h-4 w-4" /> Save look
+            </SaveImageButton>
           </div>
 
           <div className="space-y-4 p-5">

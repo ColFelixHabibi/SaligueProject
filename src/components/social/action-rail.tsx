@@ -1,6 +1,7 @@
 
 'use client';
 
+import { shareLink } from '@/components/share-sheet';
 import { useFeatures } from '@/lib/features';
 
 import Link from 'next/link';
@@ -43,17 +44,7 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
   const run = (action: () => Promise<unknown>) => action().catch((error) => toast({ variant: 'destructive', title: 'Try again', description: friendlyError(error) }));
 
   const share = async () => {
-    const url = absoluteUrl(productHref(product));
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: product.name, text: `${product.name} on Saligue`, url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      toast({ title: 'Link copied' });
-    } catch (error) {
-      if ((error as DOMException)?.name !== 'AbortError') toast({ variant: 'destructive', title: 'Could not share', description: friendlyError(error) });
-    }
+    await shareLink({ title: product.name, text: `${product.name} on Saligue`, url: absoluteUrl(productHref(product)) });
   };
 
   const overlay = variant === 'overlay';

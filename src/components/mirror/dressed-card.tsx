@@ -1,6 +1,7 @@
 
 'use client';
 
+import { SaveImageButton } from '@/components/save-image-button';
 import { friendlyError } from '@/lib/errors';
 
 import { useEffect, useState } from 'react';
@@ -211,12 +212,9 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
             </Button>
           )}
           {shownUrl && (
-            <Button variant="outline" size="sm" asChild>
-              <a href={shownUrl} download={`saligue-${product.name.replace(/\W+/g, '-').toLowerCase()}.png`}>
-                <Download className="h-4 w-4" />
-                <span className="sr-only">Save image</span>
-              </a>
-            </Button>
+            <SaveImageButton variant="outline" size="sm" url={shownUrl} name={`saligue-${product.name.replace(/\W+/g, '-').toLowerCase()}.png`} aria-label="Save image">
+              <Download className="h-4 w-4" />
+            </SaveImageButton>
           )}
         </div>
       </CardContent>

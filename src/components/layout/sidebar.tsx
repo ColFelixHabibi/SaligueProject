@@ -8,26 +8,14 @@ import { useT } from '@/lib/i18n';
 import { useLives } from '@/lib/lives';
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { LogIn, LogOut, MessageCircle, Radio, ShoppingBag, User } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { usePathname } from 'next/navigation';
+import { LogIn, MessageCircle, Radio, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useCart } from '@/hooks/use-cart-store';
 import { useUnreadMessages } from '@/lib/messages';
-import { useToast } from '@/hooks/use-toast';
-import { friendlyError } from '@/lib/errors';
-import { logout } from '@/lib/auth-actions';
 import { cn } from '@/lib/utils';
 import { Logo } from './header';
 import { navFor, isActive } from './nav';
@@ -37,8 +25,6 @@ const row = 'flex items-center gap-4 rounded-lg px-3 py-3 text-base font-semibol
 
 /** TikTok-style side menu for tablets and computers. Phones use the top bar and bottom bar instead. */
 export default function Sidebar() {
-  const { toast } = useToast();
-  const router = useRouter();
   const pathname = usePathname();
   const { user, role } = useAuth();
   const t = useT();
@@ -58,15 +44,6 @@ export default function Sidebar() {
     setTimeout(() => open(true), 150);
   };
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      toast({ title: 'Logged out' });
-      router.push('/');
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Logout failed', description: friendlyError(error) });
-    }
-  };
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[72px] flex-col border-r bg-background py-5 md:flex lg:w-60">
@@ -137,35 +114,8 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-auto space-y-4 px-2 lg:px-3">
-        {user ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button type="button" className={cn(row, 'w-full text-left')} aria-label="Account">
-                <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={user.photoURL ?? undefined} alt="" />
-                  <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
-                    {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="hidden min-w-0 lg:block">
-                  <span className="block truncate text-sm">{user.displayName || 'My account'}</span>
-                  <span className="block truncate text-xs font-normal text-muted-foreground">{user.email}</span>
-                </span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" side="right" align="end">
-              <DropdownMenuLabel className="font-normal">
-                <p className="text-sm font-medium">{user.displayName || 'My account'}</p>
-                <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/me"><User className="mr-2 h-4 w-4" /> My account</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" /> Log out</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
+        {/* Signed in: "Me" in the menu above has the account and Log out, so no second account menu here. */}
+          {user ? null : (
           <>
             <Button className="hidden h-11 w-full rounded-lg text-base lg:flex" onClick={() => setLoginOpen(true)}>
               {t('Log in')}
