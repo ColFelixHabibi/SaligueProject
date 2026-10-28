@@ -16,7 +16,8 @@
     "ios": "npx cap open ios",
     "server": "node --no-warnings server/index.mjs",
     "start": "next build && node --no-warnings server/index.mjs",
-    "admin": "node --no-warnings server/admin.mjs"
+    "admin": "node --no-warnings server/admin.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
