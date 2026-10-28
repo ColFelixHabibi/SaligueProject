@@ -1252,6 +1252,15 @@ function markPaid(payment, providerRef) {
     return;
   }
   // A tip: paid → the receiver is told and it counts toward their next payout.
+  if (payment.coin_order_id) {
+    const changed = transaction(() => {
+      if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
+      db.prepare("update payments set status = 'paid', provider_ref = ? where id = ?").run(providerRef, payment.id);
+      return coinsPaid(payment.coin_order_id);
+    });
+    if (changed) coinsArrived(payment.coin_order_id);
+    return;
+  }
   if (payment.tip_id) {
     const changed = transaction(() => {
       if (db.prepare('select status from payments where id = ?').get(payment.id)?.status === 'paid') return false;
@@ -1449,7 +1458,7 @@ const blockedWordIn = (live, text) => {
   return words.some((w) => w && lower.includes(w));
 };
 
-const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.kind, createdAt: c.created_at });
+const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.kind, replyTo: parse(c.reply_to ?? null), gift: parse(c.gift ?? null), createdAt: c.created_at });
 
 function getLive(id) {
   const live = db.prepare('select * from lives where id = ?').get(id);
@@ -1618,9 +1627,11 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   // "joined" is shown once per person per live.
   if (kind === 'join' && db.prepare("select 1 from live_comments where live_id = ? and user_id = ? and kind = 'join'").get(live.id, user.id)) return { ok: true };
   const name = live.seller_id === user.id ? shopNameOf(user) : personNameOf(user);
-  const comment = { id: randomUUID(), live_id: live.id, user_id: user.id, name: name.slice(0, 60), text, kind, created_at: now() };
-  db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, created_at) values (?, ?, ?, ?, ?, ?, ?)')
-    .run(comment.id, comment.live_id, comment.user_id, comment.name, comment.text, comment.kind, comment.created_at);
+  // A reply quotes the comment it answers (same live only).
+  const answered = kind !== 'join' && body.replyToId ? db.prepare('select id, name, text from live_comments where id = ? and live_id = ?').get(String(body.replyToId), live.id) : null;
+  const comment = { id: randomUUID(), live_id: live.id, user_id: user.id, name: name.slice(0, 60), text, kind, reply_to: answered ? json({ id: answered.id, name: answered.name, text: answered.text.slice(0, 80) }) : null, created_at: now() };
+  db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, reply_to, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(comment.id, comment.live_id, comment.user_id, comment.name, comment.text, comment.kind, comment.reply_to, comment.created_at);
   liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
   return liveCommentOut(comment);
 });
@@ -1667,6 +1678,33 @@ route('POST', '/api/lives/([\\w-]+)/poll', ({ user, params, body }) => {
     }, 800));
   }
   return { myVote: option, poll: pollOut(json(p)) };
+});
+
+// A gift in a live: coins from the viewer, a paid tip to the host, a line in the chat and an animation for all.
+route('POST', '/api/lives/([\\w-]+)/gift', ({ user, params, body }) => {
+  needFeature('tips');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to send gifts.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  if (live.seller_id === user.id) fail(400, 'host', 'You can’t send gifts to yourself.');
+  if (blockedBetween(user.id, live.seller_id)) fail(403, 'blocked', 'You can’t send gifts here.');
+  const gift = GIFTS.find((g) => g.id === body.gift);
+  if (!gift) fail(400, 'invalid', 'Choose a gift.');
+  const name = personNameOf(user).slice(0, 60);
+  const comment = transaction(() => {
+    if (coinBalance(user.id) < gift.coins) fail(402, 'not_enough_coins', 'Not enough coins. Get more coins to send this gift.');
+    addCoins(user.id, -gift.coins, `${gift.emoji} ${gift.name} in a live`, live.id);
+    const dollars = gift.coins / 100;
+    const tipId = randomUUID();
+    db.prepare("insert into tips (id, from_user, to_user, live_id, amount, share, message, status, reference, created_at, paid_at) values (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)")
+      .run(tipId, user.id, live.seller_id, live.id, dollars, Math.round(dollars * tipRules().share * 100) / 100, `${gift.emoji} ${gift.name} in your live`, `GIFT-${tipId.slice(0, 6).toUpperCase()}`, now(), now());
+    const c = { id: randomUUID(), live_id: live.id, user_id: user.id, name, text: `sent ${gift.emoji} ${gift.name}`, kind: 'comment', gift: json({ id: gift.id, emoji: gift.emoji, name: gift.name, coins: gift.coins }), created_at: now() };
+    db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, gift, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, c.live_id, c.user_id, c.name, c.text, c.kind, c.gift, c.created_at);
+    return c;
+  });
+  liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
+  liveEvent(live.id, { type: 'gift', from: name, emoji: gift.emoji, name: gift.name, coins: gift.coins });
+  return { balance: coinBalance(user.id) };
 });
 
 // Joining on camera: a viewer asks, the host accepts (the guest then gets a pass with camera rights) or declines.
@@ -2292,6 +2330,89 @@ function tipPaid(tipId) {
   notify(tip.to_user, { type: 'account', title: `${personNameOf(from)} sent you a tip of ${money(tip.amount)}`, body: tip.message || 'Thank you for teaching and sharing!', link: '/tips' });
 }
 
+// ---------------------------------------------------------------------------
+// Coins and live gifts (like TikTok): coins are bought in packs (online, or Mobile Money confirmed by an admin)
+// and sent as gifts during a live. A gift is a paid tip to the host (they get the tip share, paid out with tips).
+// 100 coins = $1.
+// ---------------------------------------------------------------------------
+const COIN_PACKS = [{ coins: 100, price: 1 }, { coins: 500, price: 5 }, { coins: 1000, price: 10 }, { coins: 2500, price: 25 }];
+const GIFTS = [
+  { id: 'rose', emoji: '🌹', name: 'Rose', coins: 10 },
+  { id: 'heart', emoji: '💖', name: 'Big heart', coins: 50 },
+  { id: 'dress', emoji: '👗', name: 'Dress', coins: 100 },
+  { id: 'heels', emoji: '👠', name: 'Heels', coins: 200 },
+  { id: 'bag', emoji: '👜', name: 'Designer bag', coins: 500 },
+  { id: 'crown', emoji: '👑', name: 'Crown', coins: 1000 },
+];
+const coinBalance = (userId) => db.prepare('select coalesce(sum(amount), 0) as n from coins where user_id = ?').get(userId).n;
+const addCoins = (userId, amount, reason, liveId = null) =>
+  db.prepare('insert into coins (id, user_id, amount, reason, live_id, created_at) values (?, ?, ?, ?, ?, ?)').run(randomUUID(), userId, amount, reason, liveId, now());
+/** Marks a coin order paid and adds the coins, once. True when it changed. */
+function coinsPaid(orderId) {
+  const o = db.prepare("select * from coin_orders where id = ? and status = 'pending_payment'").get(orderId);
+  if (!o) return false;
+  db.prepare("update coin_orders set status = 'paid', paid_at = ? where id = ?").run(now(), o.id);
+  addCoins(o.user_id, o.coins, `Bought ${o.coins} coins`);
+  return true;
+}
+function coinsArrived(orderId) {
+  const o = db.prepare('select * from coin_orders where id = ?').get(orderId);
+  if (o) notify(o.user_id, { type: 'account', title: `${o.coins.toLocaleString()} coins added`, body: 'Send gifts to the shops you watch live.', link: '/live', email: false });
+}
+
+route('GET', '/api/coins', ({ user }) => {
+  const a = adSettings();
+  return {
+    balance: user ? coinBalance(user.id) : 0,
+    packs: COIN_PACKS,
+    gifts: GIFTS,
+    onlinePayment: paymentsEnabled(),
+    momoNumber: a.momoNumber,
+    momoName: a.momoName,
+    pending: user ? db.prepare("select coins, amount, reference, created_at from coin_orders where user_id = ? and status = 'pending_payment' and created_at > ? order by created_at desc").all(user.id, new Date(Date.now() - 3 * 86_400_000).toISOString())
+      .map((o) => ({ coins: o.coins, amount: o.amount, reference: o.reference, createdAt: o.created_at })) : [],
+  };
+});
+
+route('POST', '/api/coins/buy', async ({ req, user, body }) => {
+  needFeature('tips');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to get coins.');
+  const pack = COIN_PACKS.find((p) => p.coins === Number(body.coins));
+  if (!pack) fail(400, 'invalid', 'Choose a pack.');
+  const id = randomUUID();
+  const reference = `COIN-${id.slice(0, 6).toUpperCase()}`;
+  db.prepare('insert into coin_orders (id, user_id, coins, amount, reference, created_at) values (?, ?, ?, ?, ?, ?)').run(id, user.id, pack.coins, pack.price, reference, now());
+  if (!paymentsEnabled()) {
+    const a = adSettings();
+    for (const { id: admin } of db.prepare('select id from users where admin = 1').all()) notify(admin, { type: 'product', title: 'Coins waiting for payment', body: `${reference} · ${money(pack.price)}`, link: '/admin', email: false });
+    return { manual: true, reference, amount: pack.price, momoNumber: a.momoNumber, momoName: a.momoName };
+  }
+  const { currency } = paymentSettings();
+  const amount = toCharge(pack.price);
+  const txRef = `SAL-COIN-${randomBytes(8).toString('base64url')}`;
+  db.prepare('insert into payments (id, user_id, order_ids, amount, currency, coin_order_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(txRef, user.id, '[]', amount, currency, id, now());
+  const configured = siteUrl();
+  const base = /localhost|127\.0\.0\.1/.test(configured) && /^https?:\/\/[\w.:-]+$/.test(req.headers.origin || '') ? req.headers.origin : configured;
+  const link = await startCheckout({ txRef, amount, currency, redirectUrl: `${base}/payment`, customer: { email: user.email, name: personNameOf(user) }, title: 'Saligue coins', logo: `${configured}/icons/icon-192.png` });
+  return { link, reference };
+});
+
+route('GET', '/api/admin/coins', ({ user }) => {
+  requireAdmin(user, 'money');
+  return db.prepare("select o.*, u.display_name, u.email from coin_orders o join users u on u.id = o.user_id where o.status = 'pending_payment' and o.created_at > ? order by o.created_at desc").all(new Date(Date.now() - 14 * 86_400_000).toISOString())
+    .map((o) => ({ id: o.id, reference: o.reference, coins: o.coins, amount: o.amount, name: o.display_name, email: o.email, createdAt: o.created_at }));
+});
+route('POST', '/api/admin/coins/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  if (body.decision === 'confirm') {
+    if (transaction(() => coinsPaid(params[0]))) coinsArrived(params[0]);
+    logAdmin(user, 'coins payment confirmed', params[0]);
+  } else if (body.decision === 'cancel') {
+    db.prepare("update coin_orders set status = 'cancelled' where id = ? and status = 'pending_payment'").run(params[0]);
+  } else fail(400, 'invalid', 'Choose an action.');
+  return { ok: true };
+});
+
 route('GET', '/api/tips/settings', () => {
   const a = adSettings();
   return { amounts: tipRules().amounts, share: tipRules().share, onlinePayment: paymentsEnabled(), momoNumber: a.momoNumber, momoName: a.momoName };
@@ -2416,6 +2537,7 @@ route('GET', '/api/admin/overview', ({ user }) => {
   if (can(user, 'money')) {
     waiting.push({ key: 'creators', tab: 'money', count: n("select count(*) as n from creators where status = 'applied'") });
     waiting.push({ key: 'tips', tab: 'money', count: n("select count(*) as n from tips where status = 'pending_payment' and created_at > ?", new Date(Date.now() - 14 * 86_400_000).toISOString()) });
+    waiting.push({ key: 'coins', tab: 'money', count: n("select count(*) as n from coin_orders where status = 'pending_payment' and created_at > ?", new Date(Date.now() - 14 * 86_400_000).toISOString()) });
   }
   return {
     stats: {

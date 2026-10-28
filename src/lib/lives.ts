@@ -35,7 +35,13 @@ export type Live = {
 };
 
 export type LivePoll = { id: string; question: string; open: boolean; total: number; options: { text: string; votes: number }[] };
-export type LiveComment = { id: string; uid: string; name: string; text: string; kind: 'comment' | 'question' | 'join'; createdAt: string };
+export type LiveGift = { id: string; emoji: string; name: string; coins: number };
+export type LiveComment = {
+  id: string; uid: string; name: string; text: string; kind: 'comment' | 'question' | 'join'; createdAt: string;
+  // The comment this one answers, and the gift it announces.
+  replyTo?: { id: string; name: string; text: string } | null;
+  gift?: LiveGift | null;
+};
 export type LiveGuest = { uid: string; name: string; status: 'requested' | 'accepted' };
 export type Burst = { id: number; emoji: string; x: number };
 

@@ -11,7 +11,7 @@ import { useT } from '@/lib/i18n';
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
-import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, MoreHorizontal, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { LessonComments } from '@/components/community/lesson-comments';
@@ -45,6 +45,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [captionsOpen, setCaptionsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Captions: on unless the viewer turned them off; in the app's language when there is one, else the lesson's.
   const lang = useLang();
   const [cc, setCc] = useState(true);
@@ -107,7 +108,9 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const share = async () => {
     await shareLink({ title: lesson.title, text: `${lesson.title} · a fashion lesson on Saligue`, url: absoluteUrl(`/learn?lesson=${lesson.id}`) });
   };
-  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition active:scale-90';
+  // Short phones: slightly smaller buttons, so the column never reaches the topic bar.
+  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition active:scale-90 [@media(max-height:680px)]:h-9 [@media(max-height:680px)]:w-9';
+  const moreTile = 'flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center text-xs font-semibold transition hover:bg-muted';
 
   return (
     <section ref={slide} id={`lesson-${lesson.id}`} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-black text-white">
@@ -145,11 +148,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </button>
       )}
 
-      <button type="button" onClick={toggle} className="absolute right-3 top-28 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+      <button type="button" onClick={toggle} className="absolute right-3 top-[84px] z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
         {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
       </button>
 
-      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-4 text-foreground">
+      {/* Five everyday actions; the rest are under More, so the column always fits a phone screen. */}
+      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-3 text-foreground [@media(max-height:680px)]:bottom-3 [@media(max-height:680px)]:gap-1.5">
         <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
         <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
@@ -161,25 +165,33 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
         </button>}
         {!lesson.mine && on('tips') && <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
-        {!lesson.mine && !lesson.duetOf && on('duets') && (
-          <Link href={`/learn/new?duet=${lesson.id}`} className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Duet: answer with your video" title="Duet">
-            <span className={round}><Columns2 className="h-5 w-5 text-foreground" /></span>
-            {(lesson.duetCount ?? 0) > 0 && lesson.duetCount}
-          </Link>
-        )}
-        {(tracks.length > 0 || lesson.mine) && (
-          <button type="button" className={cn(round, cc && tracks.length > 0 && 'bg-primary text-primary-foreground')} onClick={lesson.mine ? () => setCaptionsOpen(true) : toggleCc}
-            aria-label={lesson.mine ? 'Captions' : cc ? 'Captions off' : 'Captions on'} aria-pressed={cc} title="Captions">
-            <Captions className="h-5 w-5" />
-          </button>
-        )}
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
-        {lesson.mine || user?.uid === lesson.authorId ? (
-          <button type="button" className={round} aria-label="Delete lesson" title="Delete" onClick={async () => (await ask({ title: 'Delete this lesson?', description: 'It is removed for everyone. This can’t be undone.', confirm: 'Delete', destructive: true })) && run(() => deleteLesson(lesson.id), 'Lesson deleted')}><Trash2 className="h-5 w-5 text-destructive" /></button>
-        ) : (
-          <button type="button" className={round} aria-label="Report: not fashion or not OK" title="Report" onClick={() => run(() => reportLesson(lesson.id, 'not_fashion'), 'Thank you for reporting')}><Flag className="h-5 w-5" /></button>
-        )}
+        <button type="button" className={round} onClick={() => setMoreOpen(true)} aria-label="More" title="More"><MoreHorizontal className="h-5 w-5" /></button>
       </div>
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="mx-auto max-w-lg rounded-t-3xl px-4 min-[360px]:px-6">
+          <SheetHeader><SheetTitle className="line-clamp-1 text-left">{lesson.title}</SheetTitle></SheetHeader>
+          <div className="mt-4 grid grid-cols-3 gap-2 text-foreground">
+            {!lesson.mine && !lesson.duetOf && on('duets') && (
+              <Link href={`/learn/new?duet=${lesson.id}`} className={moreTile}><Columns2 className="h-6 w-6 text-primary" /> Duet{(lesson.duetCount ?? 0) > 0 ? ` · ${lesson.duetCount}` : ''}</Link>
+            )}
+            {(tracks.length > 0 || lesson.mine) && (
+              <button type="button" className={cn(moreTile, cc && tracks.length > 0 && 'border-primary bg-primary/10')} onClick={() => { setMoreOpen(false); if (lesson.mine) setCaptionsOpen(true); else toggleCc(); }} aria-pressed={cc}>
+                <Captions className="h-6 w-6 text-primary" /> {lesson.mine ? 'Captions' : cc ? 'Captions off' : 'Captions on'}
+              </button>
+            )}
+            {lesson.mine || user?.uid === lesson.authorId ? (
+              <button type="button" className={moreTile} onClick={async () => { setMoreOpen(false); if (await ask({ title: 'Delete this lesson?', description: 'It is removed for everyone. This can’t be undone.', confirm: 'Delete', destructive: true })) run(() => deleteLesson(lesson.id), 'Lesson deleted'); }}>
+                <Trash2 className="h-6 w-6 text-destructive" /> Delete
+              </button>
+            ) : (
+              <button type="button" className={moreTile} onClick={() => { setMoreOpen(false); run(() => reportLesson(lesson.id, 'not_fashion'), 'Thank you for reporting'); }}>
+                <Flag className="h-6 w-6 text-destructive" /> Report
+              </button>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-4 pr-20 pt-20">
         <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold">

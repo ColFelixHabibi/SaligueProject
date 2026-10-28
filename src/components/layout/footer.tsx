@@ -30,7 +30,7 @@ export default function Footer() {
                 aria-current={active ? 'page' : undefined}
               >
                 <Icon className={cn('h-6 w-6 shrink-0', active && 'stroke-[2.5]')} />
-                <span className="w-full truncate">{t(label)}</span>
+                <span className="line-clamp-2 w-full leading-[1.1]">{t(label)}</span>
               </Link>
             );
           })}

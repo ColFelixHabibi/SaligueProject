@@ -7,7 +7,7 @@ import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirro
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BarChart3, Camera, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { CoverPicker, HeartGoal, Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, PollBubble, PollCard, snapFrame, useVideoShape } from '@/components/live/live-parts';
+import { CoverPicker, GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveStage, LiveTopBar, PinnedProduct, PollBubble, PollCard, snapFrame, useVideoShape } from '@/components/live/live-parts';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
@@ -262,7 +262,8 @@ function Studio({ id }: { id: string }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
   const { products } = useProductStore();
-  const { live, comments, guests, bursts, error, blockedWords, setBlockedWords } = useLive(id, authUid);
+  const { live, comments, guests, bursts, error, blockedWords, setBlockedWords, gift } = useLive(id, authUid);
+  const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
@@ -472,6 +473,7 @@ function Studio({ id }: { id: string }) {
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
         {live.poll && <PollBubble poll={live.poll} onManage={() => setPanel('poll')} lower={!!live.heartGoal} />}
         <Hearts bursts={bursts} />
+        <GiftBanner gift={gift} />
         {roomError && (
           <div className="absolute inset-x-3 top-1/3 z-20 space-y-3 rounded-2xl bg-background/95 p-4 text-center text-sm shadow-xl">
             <p>{roomError}</p>
@@ -489,9 +491,10 @@ function Studio({ id }: { id: string }) {
           <form className="flex gap-2" onSubmit={(e) => {
             e.preventDefault();
             if (!say.trim()) return;
-            void act(() => sendLiveComment(id, say.trim())).then(() => setSay(''));
+            void act(() => sendLiveComment(id, say.trim(), 'comment', replyTo?.id)).then(() => { setSay(''); setReplyTo(null); });
           }}>
-            <LiveInput value={say} onChange={setSay} placeholder="Write to your viewers…" />
+            <LiveInput value={say} onChange={setSay} placeholder={replyTo ? `Reply to ${replyTo.name}…` : 'Write to your viewers…'} />
+            {replyTo && <button type="button" onClick={() => setReplyTo(null)} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/40 text-white" aria-label="Cancel reply"><X className="h-5 w-5" /></button>}
           </form>
           {controls}
         </div>
@@ -530,6 +533,7 @@ function Studio({ id }: { id: string }) {
             <div className="space-y-3">
               <p className="text-sm"><b>{selected.name}</b>: {selected.text}</p>
               <div className="grid gap-2">
+                <Button onClick={() => { setReplyTo(selected); setSelected(null); }}><Reply className="mr-2 h-4 w-4" /> Reply</Button>
                 <Button variant="outline" onClick={() => act(() => updateLive(id, { pinnedCommentId: live.pinnedCommentId === selected.id ? null : selected.id })).then(() => setSelected(null))}>
                   {live.pinnedCommentId === selected.id ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />} {live.pinnedCommentId === selected.id ? 'Unpin' : 'Pin for everyone'}
                 </Button>

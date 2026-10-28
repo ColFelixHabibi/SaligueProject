@@ -25,6 +25,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Tips (open to everyone)',
             paragraphs: [
               'Anyone with an account can receive tips: shops and Community teachers, with no minimum number of clients or views.',
+              'Gifts in lives: viewers buy coins in packs (100 coins = $1, online or by Mobile Money) and send gifts while a shop is live. Each gift counts as a tip to the shop, with the same share and the same payouts. Coins can’t be turned back into money and don’t expire.',
               'Supporters choose $1, $2, $5, $10 or $20. You receive 90%; Saligue keeps 10% to run the service.',
               'Add your Mobile Money number in Me → My tips. Saligue sends what you are owed to it, and you see every tip and payout there.',
               'Asking for tips in exchange for fake reviews, follows or views is not allowed and leads to removal from Saligue.',

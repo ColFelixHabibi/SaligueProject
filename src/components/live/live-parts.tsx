@@ -122,40 +122,101 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
   );
 }
 
-/** Chat over the video, newest at the bottom; questions and the pinned comment stand out. */
+/**
+ * Chat over the video, newest at the bottom. You can scroll back freely: new messages don't pull you down,
+ * a "new" pill does. Questions, replies, gifts and the pinned comment stand out. Tap a comment to act on it.
+ */
 export function LiveChat({ comments, pinned, onAction, roles, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; roles?: Record<string, 'Host' | 'Mod'>; className?: string }) {
-  const end = useRef<HTMLDivElement>(null);
-  // Braces matter: newer Chrome returns a Promise from scrollIntoView, and React would call it as a cleanup (crash).
+  const list = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  const [unseen, setUnseen] = useState(0);
+  const seenCount = useRef(comments.length);
+  const toBottom = () => {
+    const el = list.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setUnseen(0);
+  };
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
+    const added = comments.length - seenCount.current;
+    seenCount.current = comments.length;
+    if (atBottom.current) toBottom();
+    else if (added > 0) setUnseen((n) => n + added);
   }, [comments.length]);
   return (
-    <div className={cn('flex max-h-[38vh] flex-col gap-1.5', className)}>
+    <div className={cn('relative flex max-h-[34vh] flex-col gap-1.5', className)}>
       {pinned && (
-        <div className="rounded-xl bg-white/90 px-3 py-2 text-sm text-foreground shadow">
+        <button type="button" onClick={() => onAction?.(pinned)} disabled={!onAction} className="rounded-xl bg-white/90 px-3 py-1.5 text-left text-sm text-foreground shadow">
           <span className="text-[10px] font-bold uppercase tracking-wide text-primary">📌 Pinned</span>
-          <p><b>{pinned.name}</b> {pinned.text}</p>
-        </div>
+          <span className="line-clamp-2 block"><b>{pinned.name}</b> {pinned.text}</span>
+        </button>
       )}
-      <div className="flex flex-col gap-1 overflow-y-auto [mask-image:linear-gradient(to_bottom,transparent,black_25%)]">
+      <div ref={list} onScroll={(e) => {
+        const el = e.currentTarget;
+        atBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+        if (atBottom.current) setUnseen(0);
+      }} className="flex flex-col gap-1 overflow-y-auto overscroll-contain [mask-image:linear-gradient(to_bottom,transparent,black_18%)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="min-h-6 shrink-0" />
         {comments.map((c) => (
           <button
             type="button"
             key={c.id}
             onClick={() => onAction?.(c)}
-            disabled={!onAction}
-            className={cn('w-fit max-w-full rounded-2xl px-3 py-1.5 text-left text-sm text-white', c.kind === 'question' ? 'bg-primary/85' : c.kind === 'join' ? 'bg-transparent py-0.5 text-xs text-white/70' : 'bg-black/40 backdrop-blur-sm')}
+            disabled={!onAction || c.kind === 'join'}
+            className={cn('w-fit max-w-full shrink-0 rounded-2xl px-3 py-1.5 text-left text-sm text-white',
+              c.gift ? 'bg-gradient-to-r from-amber-500/90 to-pink-500/90 font-semibold' : c.kind === 'question' ? 'bg-primary/85' : c.kind === 'join' ? 'bg-transparent py-0.5 text-xs text-white/70' : 'bg-black/40 backdrop-blur-sm')}
           >
+            {c.replyTo && <span className="mb-0.5 block truncate border-l-2 border-white/60 pl-1.5 text-[11px] text-white/80">↪ <b>{c.replyTo.name}</b> {c.replyTo.text}</span>}
             {c.kind === 'question' && <HelpCircle className="mr-1 inline h-3.5 w-3.5" />}
             {roles?.[c.uid] && <span className={cn('mr-1 rounded px-1 py-px text-[10px] font-extrabold uppercase', roles[c.uid] === 'Host' ? 'bg-primary text-white' : 'bg-sky-500 text-white')}>{roles[c.uid]}</span>}
             <b className="mr-1.5">{c.name}</b>
-            <span className="line-clamp-3 break-words">{c.text}</span>
+            <span className="line-clamp-3 break-words">{c.gift ? <>sent <span className="text-base">{c.gift.emoji}</span> {c.gift.name}</> : c.text}</span>
           </button>
         ))}
-        <div ref={end} />
       </div>
+      {unseen > 0 && (
+        <button type="button" onClick={toBottom} className="absolute bottom-1 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-bold text-foreground shadow-lg">
+          <ChevronDown className="h-3.5 w-3.5" /> {unseen} new
+        </button>
+      )}
     </div>
   );
+}
+
+/** A gift, big, for everyone (a few seconds). */
+export function GiftBanner({ gift }: { gift: { key: number; from: string; emoji: string; name: string } | null }) {
+  if (!gift) return null;
+  return (
+    <div key={gift.key} className="pointer-events-none absolute left-3 top-1/3 z-20 flex animate-[gift-in_0.4s_ease-out] items-center gap-2 rounded-full bg-gradient-to-r from-amber-500 to-pink-500 py-1.5 pl-1.5 pr-4 text-white shadow-xl">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/25 text-3xl">{gift.emoji}</span>
+      <span className="leading-tight"><b className="block max-w-[11rem] truncate text-sm">{gift.from}</b><span className="text-xs">sent {gift.name}</span></span>
+    </div>
+  );
+}
+
+/** Double-tap anywhere on the video: a heart pops where you tapped (and one is sent, like TikTok). */
+export function useDoubleTapHeart(onHeart: () => void) {
+  const last = useRef(0);
+  const [pops, setPops] = useState<{ id: number; x: number; y: number }[]>([]);
+  const onPointerUp = (e: React.PointerEvent<HTMLElement>) => {
+    if ((e.target as HTMLElement).closest('button, a, input, textarea, select, [role=dialog]')) return;
+    const now = Date.now();
+    if (now - last.current < 320) {
+      const box = e.currentTarget.getBoundingClientRect();
+      const id = now;
+      setPops((p) => [...p.slice(-5), { id, x: e.clientX - box.left, y: e.clientY - box.top }]);
+      setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 900);
+      onHeart();
+      last.current = 0;
+    } else last.current = now;
+  };
+  const layer = (
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+      {pops.map((p) => (
+        <Heart key={p.id} className="absolute h-24 w-24 -translate-x-1/2 -translate-y-1/2 animate-[tap-heart_0.9s_ease-out_forwards] fill-primary text-primary drop-shadow-xl" style={{ left: p.x, top: p.y }} />
+      ))}
+    </div>
+  );
+  return { onPointerUp, layer };
 }
 
 /** The item the host is showing right now, with Buy and Try on (live shopping). */

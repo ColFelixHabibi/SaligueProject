@@ -52,3 +52,34 @@ export function TipsAdmin() {
     </Card>
   );
 }
+
+type CoinOrder = { id: string; reference: string; coins: number; amount: number; name: string; email: string; createdAt: string };
+
+/** Coins bought by Mobile Money: check the reference arrived, then confirm (the coins are added at once). */
+export function CoinsAdmin() {
+  const { toast } = useToast();
+  const [orders, setOrders] = useState<CoinOrder[]>([]);
+  const load = useCallback(() => api<CoinOrder[]>('/admin/coins').then(setOrders).catch(() => {}), []);
+  useEffect(() => void load(), [load]);
+  const decide = (id: string, decision: 'confirm' | 'cancel') =>
+    api(`/admin/coins/${id}`, { body: { decision } }).then(() => { toast({ title: decision === 'confirm' ? 'Coins added' : 'Cancelled' }); void load(); })
+      .catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }));
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Coins className="h-5 w-5 text-amber-500" /> Coins waiting for payment {orders.length > 0 && <Badge>{orders.length}</Badge>}</CardTitle>
+        <CardDescription>Shoppers buying coins by Mobile Money. Confirm once the money with that reference has arrived.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {orders.length === 0 && <p className="text-muted-foreground">Nothing waiting.</p>}
+        {orders.map((o) => (
+          <div key={o.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
+            <span className="min-w-0 flex-1 break-words"><b>{o.name || o.email}</b> · {o.coins.toLocaleString()} coins · {formatPrice(o.amount)} · ref <b className="select-all">{o.reference}</b></span>
+            <Button size="sm" onClick={() => decide(o.id, 'confirm')}>Payment received</Button>
+            <Button size="sm" variant="ghost" onClick={() => decide(o.id, 'cancel')}>Cancel</Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}

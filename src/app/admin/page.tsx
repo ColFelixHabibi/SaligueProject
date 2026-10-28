@@ -1,6 +1,6 @@
 'use client';
 
-import { TipsAdmin } from '@/components/admin/tips-admin';
+import { CoinsAdmin, TipsAdmin } from '@/components/admin/tips-admin';
 
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
@@ -406,6 +406,7 @@ const WAITING: Record<string, { label: string; icon: LucideIcon }> = {
   ads: { label: 'Ads to review', icon: Megaphone },
   creators: { label: 'Monetization applications', icon: Wallet },
   tips: { label: 'Tips waiting for payment', icon: Coins },
+  coins: { label: 'Coins waiting for payment', icon: Coins },
 };
 
 /** The platform at a glance and what is waiting for this admin; each waiting line opens its tab. */
@@ -484,7 +485,7 @@ export default function AdminPage() {
     { value: 'overview', label: 'Overview', icon: LayoutDashboard, show: true, body: <OverviewAdmin open={open} /> },
     { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <AppealsAdmin /> },
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
-    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
     { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },

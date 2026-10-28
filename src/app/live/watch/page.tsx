@@ -9,13 +9,14 @@ import { FollowButton } from '@/components/follow-button';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Eye, EyeOff, Gift, Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Reply, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import { HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip } from '@/components/live/live-parts';
+import { GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip, useDoubleTapHeart } from '@/components/live/live-parts';
+import { GiftSheet } from '@/components/live/gift-sheet';
 import ProductCard from '@/components/product-card';
 import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
@@ -35,10 +36,15 @@ function Watch() {
   const { authUid, user } = useAuth();
   const { products } = useProductStore();
   const { addToCart } = useCart();
-  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote, addMine } = useLive(id, authUid);
+  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote, addMine, gift } = useLive(id, authUid);
+  // Replying to a comment, and the gift sheet.
+  const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
+  const [giftsOpen, setGiftsOpen] = useState(false);
   const isGuest = myGuestStatus === 'accepted';
   const { tiles, viewers, status, toggleCam, toggleMic, camOn, micOn, flipCamera } = useLiveRoom(id, live?.status === 'live', isGuest);
   const heart = useHearts(id, burst);
+  // Double-tap the video for a heart, like TikTok.
+  const tap = useDoubleTapHeart(() => heart('❤️'));
   const elapsed = useElapsed(live?.startedAt);
   const [text, setText] = useState('');
   const [question, setQuestion] = useState(false);
@@ -102,8 +108,9 @@ function Watch() {
     if (!id || !text.trim()) return;
     setSending(true);
     try {
-      addMine(await sendLiveComment(id, text.trim(), question ? 'question' : 'comment'));
+      addMine(await sendLiveComment(id, text.trim(), question ? 'question' : 'comment', replyTo?.id));
       setText('');
+      setReplyTo(null);
       setQuestion(false);
     } catch (err) {
       toast({ variant: 'destructive', title: 'Not sent', description: friendlyError(err) });
@@ -193,7 +200,9 @@ function Watch() {
 
   return (
     <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 bg-black md:h-dvh md:bg-transparent md:p-6">
-      <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
+      <div onPointerUp={tap.onPointerUp} className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
+        {tap.layer}
+        <GiftBanner gift={gift} />
         <LiveStage tiles={tiles} fill={live.videoFit === 'fill'} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
           <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
@@ -210,7 +219,7 @@ function Watch() {
 
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+var(--sab))] pt-16">
           <div className="flex items-end gap-2">
-            <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} onAction={isMod ? (c) => c.kind !== 'join' && c.uid !== live.sellerId && setSelected(c) : undefined} className="min-w-0 flex-1" />
+            <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} onAction={user ? (c) => c.kind !== 'join' && setSelected(c) : undefined} className="min-w-0 flex-1" />
             {/* Actions on the right, like TikTok and Instagram lives. */}
             <div className="relative flex shrink-0 flex-col items-center gap-2 pb-1">
               {featured.length > 0 && (
@@ -231,6 +240,7 @@ function Watch() {
                   ))}
                 </div>
               )}
+              <button type="button" onClick={() => setGiftsOpen(true)} className={cn(rail, 'bg-gradient-to-br from-amber-400/80 to-pink-500/80')} aria-label="Send a gift"><Gift className="h-5 w-5" /></button>
               <button type="button" onClick={() => setReactions((v) => !v)} aria-pressed={reactions} className={cn(rail, reactions && 'bg-white/30')} aria-label="Reactions"><Smile className="h-5 w-5" /></button>
               <button type="button" onClick={() => heart('❤️')} className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg active:scale-90" aria-label="Send a heart">
                 <Heart className="h-6 w-6 fill-current" />
@@ -253,6 +263,13 @@ function Watch() {
               <button type="button" onClick={toggleMic} className="rounded-full bg-black/45 p-2 text-white">{micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}</button>
               <button type="button" onClick={toggleCam} className="rounded-full bg-black/45 p-2 text-white">{camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}</button>
               <button type="button" onClick={flipCamera} className="rounded-full bg-black/45 px-3 py-2 text-xs font-semibold text-white">Flip</button>
+            </div>
+          )}
+          {replyTo && (
+            <div className="flex items-center gap-2 rounded-xl bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur">
+              <Reply className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Replying to <b>{replyTo.name}</b>: {replyTo.text}</span>
+              <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply"><X className="h-4 w-4" /></button>
             </div>
           )}
           <form onSubmit={send} className="flex items-end gap-1.5 min-[360px]:gap-2">
@@ -285,12 +302,18 @@ function Watch() {
         </SheetContent>
       </Sheet>
 
+      {id && <GiftSheet liveId={id} open={giftsOpen} onOpenChange={setGiftsOpen} signedIn={!!user} />}
+
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
         <SheetContent side="bottom" className="rounded-t-3xl">
           {selected && id && (
             <div className="space-y-3">
               <p className="text-sm"><b>{selected.name}</b>: {selected.text}</p>
               <div className="grid gap-2">
+                {!muted && live.chatMode !== 'off' && (
+                  <Button onClick={() => { setReplyTo(selected); setSelected(null); }}><Reply className="mr-2 h-4 w-4" /> Reply</Button>
+                )}
+                {isMod && selected.uid !== live.sellerId && <>
                 <Button variant="outline" onClick={() => modAct(() => updateLive(id, { pinnedCommentId: live.pinnedCommentId === selected.id ? null : selected.id }), live.pinnedCommentId === selected.id ? 'Unpinned' : 'Pinned')}>
                   {live.pinnedCommentId === selected.id ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />} {live.pinnedCommentId === selected.id ? 'Unpin' : 'Pin for everyone'}
                 </Button>
@@ -298,6 +321,7 @@ function Watch() {
                 {selected.uid !== authUid && !roles[selected.uid] && (
                   <Button variant="outline" className="text-destructive" onClick={() => modAct(() => muteInLive(id, selected.uid), `${selected.name} can no longer comment`)}><VolumeX className="mr-2 h-4 w-4" /> Mute {selected.name}</Button>
                 )}
+                </>}
               </div>
             </div>
           )}

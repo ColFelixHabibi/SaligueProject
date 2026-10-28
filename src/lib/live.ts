@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack } from 'livekit-client';
 import { DIGITAL_ZOOM_MAX, digitalZoom, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraChoice } from './camera';
 import { api, onServerEvent } from './api';
-import { withMedia, type Burst, type Live, type LiveComment, type LiveGuest, type LivePoll } from './lives';
+import { withMedia, type Burst, type Live, type LiveComment, type LiveGift, type LiveGuest, type LivePoll } from './lives';
 
-export { useLives, useElapsed, type Burst, type Live, type LiveComment, type LiveGuest, type LivePoll } from './lives';
+export { useLives, useElapsed, type Burst, type Live, type LiveComment, type LiveGift, type LiveGuest, type LivePoll } from './lives';
 
 // Saligue Live (server: /api/lives…). Video through LiveKit; chat, hearts, pins and guests through Saligue's server.
 
@@ -24,6 +24,8 @@ export function useLive(id: string | null, me: string | null) {
   // My answer in the current poll, and (host and moderators) the words filtered out of the chat.
   const [myVote, setMyVote] = useState<number | null>(null);
   const [blockedWords, setBlockedWords] = useState<string[]>([]);
+  // The newest gift, shown big for a few seconds to everyone.
+  const [gift, setGift] = useState<{ key: number; from: string; emoji: string; name: string } | null>(null);
   const burstId = useRef(0);
 
   const burst = useCallback((emoji: string, count = 1) => {
@@ -69,6 +71,12 @@ export function useLive(id: string | null, me: string | null) {
       }
       if (d.type === 'ended') setLive((l) => (l ? { ...l, status: 'ended' } : l));
       if (d.type === 'guest_invite') setInvited(true);
+      if (d.type === 'gift') {
+        const key = Date.now();
+        setGift({ key, from: d.from, emoji: d.emoji, name: d.name });
+        burst(d.emoji, 6);
+        setTimeout(() => setGift((g) => (g?.key === key ? null : g)), 3500);
+      }
       if (['guests_changed', 'guest_request', 'guest_decision', 'invite_answer', 'moderator'].includes(d.type)) void load();
     });
   }, [id, me, load, burst]);
@@ -76,7 +84,7 @@ export function useLive(id: string | null, me: string | null) {
   // My own comment shows at once (also when the host's word filter keeps it from everyone else).
   const addMine = useCallback((c: LiveComment) => setComments((list) => (list.some((x) => x.id === c.id) ? list : [...list.slice(-150), c])), []);
 
-  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords, addMine };
+  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords, addMine, gift };
 }
 
 // Actions
@@ -85,7 +93,12 @@ export const endLive = (id: string) => api<Live>(`/lives/${id}/end`, { body: {} 
 export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill'; thumbnail: string | null; heartGoal: number; blockedWords: string[]; poll: { question: string; options: string[] } | null; pollOpen: boolean }>) =>
   api<Live>(`/lives/${id}`, { method: 'PATCH', body }).then(withMedia);
 export const votePoll = (id: string, option: number) => api<{ myVote: number; poll: LivePoll }>(`/lives/${id}/poll`, { body: { option } });
-export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment') => api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind } });
+export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment', replyToId?: string | null) =>
+  api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind, replyToId: replyToId ?? undefined } });
+export const sendGift = (id: string, gift: string) => api<{ balance: number }>(`/lives/${id}/gift`, { body: { gift } });
+export type Coins = { balance: number; packs: { coins: number; price: number }[]; gifts: LiveGift[]; onlinePayment: boolean; momoNumber: string | null; momoName: string; pending: { coins: number; amount: number; reference: string }[] };
+export const getCoins = () => api<Coins>('/coins');
+export const buyCoins = (coins: number) => api<{ link?: string; manual?: boolean; reference: string; amount: number; momoNumber?: string | null; momoName?: string }>('/coins/buy', { body: { coins } });
 export const removeLiveComment = (id: string, commentId: string) => api(`/lives/${id}/comments/${commentId}`, { method: 'DELETE' });
 export const askToJoin = (id: string) => api<{ status: string }>(`/lives/${id}/guests`, { body: {} });
 export const decideGuest = (id: string, uid: string, decision: 'accept' | 'decline' | 'remove') => api(`/lives/${id}/guests/${uid}`, { body: { decision } });

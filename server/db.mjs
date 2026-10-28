@@ -465,6 +465,27 @@ db.exec(`
   );
   create index if not exists ad_credits_user on ad_credits(user_id, created_at desc);
 
+  -- Coins (like TikTok): bought in packs, spent on gifts in lives. Each line + bought / − spent.
+  create table if not exists coin_orders (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    coins integer not null,
+    amount real not null,               -- dollars
+    status text not null default 'pending_payment' check (status in ('pending_payment', 'paid', 'cancelled')),
+    reference text not null,
+    created_at text not null,
+    paid_at text
+  );
+  create table if not exists coins (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    amount integer not null,
+    reason text not null,
+    live_id text,
+    created_at text not null
+  );
+  create index if not exists coins_user on coins(user_id, created_at desc);
+
   create table if not exists ad_stats (
     campaign_id text not null references ad_campaigns(id) on delete cascade,
     day text not null,
@@ -513,7 +534,7 @@ for (const [table, column, type] of [
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
-  ['ad_campaigns', 'credit_used', 'real not null default 0'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
+  ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
