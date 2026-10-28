@@ -12,7 +12,7 @@ export type SearchQuery = {
   category?: string;
 };
 
-const MAX_RESULTS = 24;
+const MAX_RESULTS = 40;
 
 function keywordScore(product: Product, words: string[]) {
   const haystack = [

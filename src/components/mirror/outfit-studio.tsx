@@ -164,25 +164,6 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   // then shoes, hats, glasses and bags are put on the redrawn photo on the device.
   const [realisticUrl, setRealisticUrl] = useState<string | null>(null);
   const [realisticBusy, setRealisticBusy] = useState<string | null>(null);
-  // "Compare on me": the best matches for the open part of the body, each drawn on the shopper's photo, so they
-  // can see which one looks best before wearing it. Cached per item and photo (paid AI: only on a tap).
-  const [trials, setTrials] = useState<Record<string, string | 'busy' | 'failed'>>({});
-  useEffect(() => setTrials({}), [personUrl, photoUrl]);
-  const compareOnMe = async (items: Product[]) => {
-    const base = photoUrl ?? personUrl;
-    if (!base) return;
-    for (const item of items) {
-      if (trials[item.id] && trials[item.id] !== 'failed') continue;
-      setTrials((t) => ({ ...t, [item.id]: 'busy' }));
-      try {
-        const url = await realisticTryOn(base, item.image, outfitSlot(item), [item.color, item.type ?? item.name].filter(Boolean).join(' '));
-        setTrials((t) => ({ ...t, [item.id]: url }));
-      } catch (error) {
-        setTrials((t) => ({ ...t, [item.id]: 'failed' }));
-        if (/daily limit|back at/i.test(String((error as Error)?.message))) break;
-      }
-    }
-  };
   const [realisticFailed, setRealisticFailed] = useState(false);
   const [realisticError, setRealisticError] = useState<string | null>(null);
   const runId = useRef(0);
@@ -453,13 +434,6 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
             <h3 className="text-sm font-semibold">
               {SLOTS.find((s) => s.category === activeSlot)?.label}
             </h3>
-            {studio && personUrl && REALISTIC_CATEGORIES.includes(activeSlot) && choices.length > 1 && (
-              <Button type="button" size="sm" variant="secondary" className="ml-auto mr-2 h-8 rounded-full"
-                disabled={choices.slice(0, 4).some((p) => trials[p.id] === 'busy')}
-                onClick={() => compareOnMe(choices.slice(0, 4))}>
-                <Wand2 className="mr-1.5 h-4 w-4" /> Compare {Math.min(4, choices.length)} on me
-              </Button>
-            )}
             {wornIn(activeSlot) && (
               <button type="button" onClick={() => takeOff(activeSlot)} className="text-xs text-muted-foreground hover:text-foreground">Take off</button>
             )}
@@ -469,22 +443,16 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
           ) : (
             <div className="flex snap-x gap-3 overflow-x-auto pb-1">
               {choices.map((p, i) => {
-                const trial = trials[p.id];
-                const onMe = trial && trial !== 'busy' && trial !== 'failed' ? trial : null;
                 return (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => wear(p)}
-                  className={cn('group flex shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-background text-left ring-primary transition hover:ring-2', onMe ? 'w-40' : 'w-32', wornIn(activeSlot)?.id === p.id && 'ring-2')}
+                  className={cn('group flex w-32 shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-background text-left ring-primary transition hover:ring-2', wornIn(activeSlot)?.id === p.id && 'ring-2')}
                 >
-                  <span className={cn('relative block bg-muted', onMe ? 'aspect-[3/4]' : 'aspect-square')}>
-                    {/* On the shopper (after Compare on me), with the item small in the corner; else the item. */}
+                  <span className="relative block aspect-square bg-muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={onMe ?? p.cutout ?? p.image} alt={p.name} loading="lazy" className={cn('h-full w-full', onMe ? 'object-cover' : 'object-contain p-1.5')} />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {onMe && <img src={p.cutout || p.image} alt="" className="absolute right-1 top-1 h-10 w-10 rounded-lg border bg-white object-contain p-0.5 shadow" />}
-                    {trial === 'busy' && <span className="absolute inset-0 flex items-center justify-center bg-background/60"><Loader2 className="h-6 w-6 animate-spin text-primary" /></span>}
+                    <img src={p.cutout || p.image} alt={p.name} loading="lazy" className="h-full w-full object-contain p-1.5" />
                     {i === 0 && <span className="absolute left-1 top-1 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-black">Best match</span>}
                     {p.official && <BadgeCheck className={cn("absolute left-1 h-4 w-4 text-foreground", i === 0 ? "top-6" : "top-1")} aria-label="INDECIANA" />}
                     <span className="absolute inset-x-1 bottom-1 rounded-full bg-primary py-1 text-center text-[11px] font-bold text-primary-foreground shadow">

@@ -37,6 +37,15 @@ const checkerboard =
 // How many search results the realistic AI dresses the shopper in automatically: all of them with the paid
 // try-on (no limit), otherwise the first few (the free AI has a daily limit).
 const autoRealistic = () => (isUnlimited() ? Infinity : 4);
+const PAGE = 10;
+/** Keeps the ranking but alternates shops: the best item of each shop first, then each shop's second best… */
+function byShops(list: Product[]) {
+  const queues = new Map<string, Product[]>();
+  for (const p of list) queues.set(p.sellerId ?? p.seller, [...(queues.get(p.sellerId ?? p.seller) ?? []), p]);
+  const out: Product[] = [];
+  while (out.length < list.length) for (const q of queues.values()) if (q.length) out.push(q.shift()!);
+  return out;
+}
 
 function Mirror() {
   const { toast } = useToast();
@@ -164,7 +173,12 @@ function Mirror() {
   const [searchBusy, setSearchBusy] = useState<string | null>(null);
   const searchId = useRef(0);
 
-  const shown = results ?? [];
+  // Ten at a time, best matches first but taken in turn from different shops, so the shopper sees themselves in
+  // choices from across Saligue (each one dressed on their photo) and picks what suits them best.
+  const [pages, setPages] = useState(1);
+  useEffect(() => setPages(1), [results]);
+  const mixed = useMemo(() => byShops(results ?? []), [results]);
+  const shown = mixed.slice(0, PAGE * pages);
   const [chosen, setChosen] = useState<{ product: Product; image: string } | null>(null);
 
   // Comparison area: the shopper's own photo next to the looks they picked (up to four).
@@ -292,7 +306,7 @@ function Mirror() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold">
-                  3. Compare {results ? `${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'your choices'} on you
+                  3. {results ? `${shown.length} of ${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'Your choices'} on you
                 </h2>
                 {person && parseBusy && <p className="text-xs text-muted-foreground">{parseBusy}</p>}
               </div>
@@ -361,6 +375,11 @@ function Mirror() {
                   <DressedCard key={product.id} auto={index < autoRealistic()} product={product} person={person} landmarks={landmarks} parsing={parsing} personUrl={personUrl!} photoUrl={photoUrl} studio={realistic} onChoose={(image) => setChosen({ product, image })} onWear={() => wear(product)} worn={wornIds.has(product.id)} onCompare={(image) => toggleCompare(product, image)} compared={compare.some((c) => c.product.id === product.id)} />
                 ))}
               </div>
+              {shown.length < mixed.length && (
+                <Button variant="outline" className="mt-4 w-full" onClick={() => setPages((n) => n + 1)}>
+                  <Wand2 className="mr-2 h-4 w-4" /> Show {Math.min(PAGE, mixed.length - shown.length)} more on me
+                </Button>
+              )}
               </>
             ) : (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
