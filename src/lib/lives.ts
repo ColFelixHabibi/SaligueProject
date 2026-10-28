@@ -49,13 +49,13 @@ export const withMedia = (l: Live): Live => ({ ...l, sellerAvatar: mediaUrl(l.se
 
 /** Lives happening now, kept up to date. */
 export function useLives() {
-  const [state, setState] = useState<{ enabled: boolean; lives: Live[] } | null>(null);
+  const [state, setState] = useState<{ enabled: boolean; lives: Live[]; recent: Live[] } | null>(null);
   useEffect(() => {
     let active = true;
     const load = () =>
-      api<{ enabled: boolean; lives: Live[] }>('/lives')
-        .then((d) => active && setState({ enabled: d.enabled, lives: d.lives.map(withMedia) }))
-        .catch(() => active && setState({ enabled: false, lives: [] }));
+      api<{ enabled: boolean; lives: Live[]; recent?: Live[] }>('/lives')
+        .then((d) => active && setState({ enabled: d.enabled, lives: d.lives.map(withMedia), recent: (d.recent ?? []).map(withMedia) }))
+        .catch(() => active && setState({ enabled: false, lives: [], recent: [] }));
     void load();
     const stops = [onServerEvent('lives', () => void load()), onServerEvent('live', (d: { type?: string }) => d?.type === 'ended' && void load())];
     return () => {

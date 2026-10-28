@@ -24,6 +24,16 @@ export function Welcome() {
   const pathname = usePathname().replace(/\/+$/, '') || '/';
   const { user, isAuthLoading } = useAuth();
   const [open, setOpen] = useState(false);
+  // Opened from an invite link (…?ref=<inviter>): remembered until this person creates an account.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (!ref || !/^[\w-]{8,64}$/.test(ref)) return;
+    try {
+      if (!localStorage.getItem('saligue-ref')) localStorage.setItem('saligue-ref', ref);
+    } catch {
+      // Storage blocked.
+    }
+  }, []);
   useEffect(() => {
     if (isAuthLoading || pathname !== '/' || user) return;
     try {

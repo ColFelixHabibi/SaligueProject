@@ -9,8 +9,9 @@ import { PageIntro } from '@/components/layout/page-intro';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useElapsed, useLives, type Live } from '@/lib/lives';
+import { SuggestedShops } from '@/components/suggested-shops';
 
-function LiveCard({ live }: { live: Live }) {
+function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
   const elapsed = useElapsed(live.startedAt);
   const products = useProductStore((s) => s.products);
   const cover = products.find((p) => p.id === (live.pinnedProductId ?? live.productIds[0]));
@@ -25,8 +26,14 @@ function LiveCard({ live }: { live: Live }) {
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40" />
       <div className="absolute left-2 top-2 flex items-center gap-1.5">
-        <span className="flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] font-extrabold text-white"><Radio className="h-3 w-3" /> LIVE</span>
-        <span className="rounded-md bg-black/50 px-2 py-0.5 text-[11px] font-semibold text-white">{elapsed}</span>
+        {ended ? (
+          <span className="rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">{new Date(live.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+        ) : (
+          <>
+            <span className="flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] font-extrabold text-white"><Radio className="h-3 w-3" /> LIVE</span>
+            <span className="rounded-md bg-black/50 px-2 py-0.5 text-[11px] font-semibold text-white">{elapsed}</span>
+          </>
+        )}
       </div>
       <div className="absolute inset-x-0 bottom-0 space-y-1.5 p-3 text-white">
         <p className="line-clamp-2 font-bold leading-snug">{live.title}</p>
@@ -55,10 +62,22 @@ export default function LivesPage() {
       {!lives ? (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="aspect-[9/14] rounded-2xl" />)}</div>
       ) : lives.lives.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed py-20 text-center text-muted-foreground">
-          <Eye className="mx-auto mb-3 h-10 w-10 text-primary" />
-          <p className="font-semibold text-foreground">No one is live right now</p>
-          <p className="mt-1 text-sm">{role === 'seller' ? 'Be the first: show your items on camera.' : 'You’ll get a notification when a shop you bought from goes live.'}</p>
+        // No one live: say so briefly, then fill the page with recent lives and shops to follow.
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 rounded-2xl bg-muted p-4 text-sm text-muted-foreground">
+            <Eye className="h-8 w-8 shrink-0 text-primary" />
+            <div>
+              <p className="font-semibold text-foreground">No one is live right now</p>
+              <p>{role === 'seller' ? 'Be the first: show your items on camera.' : 'Follow shops to get a notification when they go live.'}</p>
+            </div>
+          </div>
+          <SuggestedShops />
+          {lives.recent.length > 0 && (
+            <section className="space-y-2">
+              <p className="font-bold">Recent lives</p>
+              <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">{lives.recent.map((l) => <LiveCard key={l.id} live={l} ended />)}</div>
+            </section>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">{lives.lives.map((l) => <LiveCard key={l.id} live={l} />)}</div>

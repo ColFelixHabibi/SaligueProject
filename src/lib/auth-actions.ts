@@ -44,7 +44,10 @@ export async function currentAccount() {
 
 /** Creates an account. A guest keeps everything they liked, saved and ordered. */
 export async function registerWithEmail(name: string, email: string, password: string, role: 'buyer' | 'seller', acceptTerms: boolean) {
-  const session = await api<Session>('/auth/register', { body: { name, email, password, role, acceptTerms } });
+  // Invited with a link (?ref=…, remembered by InviteCatcher): tells Saligue who brought this person.
+  let ref: string | null = null;
+  try { ref = localStorage.getItem('saligue-ref'); } catch { /* storage blocked */ }
+  const session = await api<Session>('/auth/register', { body: { name, email, password, role, acceptTerms, ref } });
   setToken(session.token);
   emit(session.user, 'registered');
 }

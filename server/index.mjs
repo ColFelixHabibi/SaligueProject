@@ -337,6 +337,9 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
     db.prepare('insert into users (id, email, password_hash, display_name, role, terms_accepted_at, created_at) values (?, ?, ?, ?, ?, ?, ?)')
       .run(id, email, hashPassword(password), name, role, now(), now());
   }
+  // Invited by someone (their link /register?ref=…): they get coins when this shop makes its first real sale.
+  const ref = String(body.ref ?? '');
+  if (ref && ref !== id && db.prepare('select 1 from users where id = ? and is_guest = 0').get(ref)) db.prepare('update users set referred_by = ? where id = ? and referred_by is null').run(ref, id);
   welcome(id, name, role);
   return { token: id === user?.id ? tokenOf(req) : createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
@@ -1047,6 +1050,7 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
         .run(body.status ?? null, body.paymentStatus ?? null, body.paymentStatus ?? null, now(), body.paymentStatus ?? null, order.id);
       if (body.status === 'cancelled' && order.status !== 'cancelled') restock(order);
     });
+    if (body.status === 'delivered' && order.status !== 'delivered') rewardReferral(order);
     const code = order.id.slice(0, 6).toUpperCase();
     if (body.status && body.status !== order.status && ORDER_STATUS_TEXT[body.status]) {
       notify(order.buyer_id, { type: 'order', title: `Your order #${code} ${ORDER_STATUS_TEXT[body.status]}`, body: `Total ${money(order.total)}.`, link: '/orders' });
@@ -2967,6 +2971,28 @@ route('PUT', '/api/admin/rules', ({ user, body }) => {
   logAdmin(user, 'rules changed', JSON.stringify(body).slice(0, 250));
   const a = adSettings();
   return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays };
+});
+
+// "Bring a shop, get coins": whoever invited a shop gets coins when that shop's first order is delivered
+// (to someone other than them), so empty or fake shops earn nothing.
+const referralCoins = () => Number(parse(db.prepare("select value from app_config where key = 'referral'").get()?.value)?.coins ?? 500);
+function rewardReferral(order) {
+  const shop = db.prepare('select id, referred_by, referral_rewarded, shop, display_name, email, is_guest, role from users where id = ?').get(order.seller_id);
+  if (!shop?.referred_by || shop.referral_rewarded || order.buyer_id === shop.referred_by) return;
+  const coins = referralCoins();
+  if (!db.prepare('update users set referral_rewarded = 1 where id = ? and referral_rewarded = 0').run(shop.id).changes) return;
+  addCoins(shop.referred_by, coins, 'Brought a shop to Saligue');
+  notify(shop.referred_by, { type: 'account', title: `+${coins} coins: ${shopNameOf(shop)} made its first sale`, body: 'Thank you for bringing a shop to Saligue.', link: '/invite', email: false });
+}
+route('GET', '/api/me/referrals', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to invite people.');
+  const people = db.prepare('select id, role, referral_rewarded, shop, display_name, email, is_guest, created_at from users where referred_by = ? order by created_at desc limit 100').all(user.id);
+  return {
+    coinsPerShop: referralCoins(),
+    joined: people.length,
+    shops: people.filter((p) => p.role === 'seller').map((p) => ({ name: shopNameOf(p), rewarded: !!p.referral_rewarded, joinedAt: p.created_at })),
+    earned: db.prepare("select coalesce(sum(amount), 0) as n from coins where user_id = ? and reason = 'Brought a shop to Saligue'").get(user.id).n,
+  };
 });
 
 // Saligue's fee on each sale (Admin → Rules): a share of the order, nothing during a new shop's first days,

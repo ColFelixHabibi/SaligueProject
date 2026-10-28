@@ -37,7 +37,7 @@ function NewLesson() {
   const [video, setVideo] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(() => (['styling', 'sewing', 'traditional', 'business', 'general'].includes(params.get('topic') ?? '') ? params.get('topic')! : ''));
   const [language, setLanguage] = useState('rw');
   const [uploading, setUploading] = useState<number | null>(null);
   // A video longer than the new topic allows is dropped (General studies allow 10 min, the others 4 min 30 s).

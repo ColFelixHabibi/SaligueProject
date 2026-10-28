@@ -15,6 +15,14 @@ import { LessonSlide } from '@/components/community/lesson-slide';
 import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
 import { LESSON_TOPICS, useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
+import { SuggestedShops } from '@/components/suggested-shops';
+
+const LESSON_IDEAS = [
+  { emoji: '🧣', title: '3 ways to tie a headwrap', topic: 'styling' },
+  { emoji: '🪡', title: 'Fix a loose button', topic: 'sewing' },
+  { emoji: '👘', title: 'How to wear umushanana', topic: 'traditional' },
+  { emoji: '📸', title: 'Photograph clothes with a phone', topic: 'business' },
+];
 
 /** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
 export function LessonFeed({ startAt, following, challenge, className, breakReminder = true }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean }) {
@@ -58,11 +66,20 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
         {lessons === null ? (
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4 bg-muted p-8 pt-24 text-center">
-            <GraduationCap className="h-14 w-14 text-primary" />
-            <p className="text-xl font-bold">{following ? 'No lessons from people you follow yet' : 'No lessons here yet'}</p>
-            <p className="max-w-xs text-sm text-muted-foreground">Teach styling, sewing, traditional wear or fashion business in a video up to 4 min 30 s, or a General studies lesson up to 10 min.</p>
-            <Button asChild><Link href="/learn/new"><Plus className="mr-2 h-4 w-4" /> Teach a lesson</Link></Button>
+          // No lessons yet: invite people to be the first teacher, with ideas, and suggest shops/teachers to follow.
+          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-20 text-center">
+            <GraduationCap className="h-12 w-12 text-primary" />
+            <p className="text-xl font-bold">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
+            <p className="max-w-xs text-sm text-muted-foreground">A phone video up to 4 min 30 s. Ideas:</p>
+            <div className="grid w-full max-w-sm grid-cols-2 gap-2 text-left text-sm">
+              {LESSON_IDEAS.map((idea) => (
+                <Link key={idea.title} href={`/learn/new?topic=${idea.topic}`} className="flex items-center gap-2 rounded-2xl bg-background p-3 font-semibold shadow-sm hover:ring-2 hover:ring-primary">
+                  <span className="text-xl">{idea.emoji}</span> <span className="leading-tight">{tr(idea.title)}</span>
+                </Link>
+              ))}
+            </div>
+            <Button asChild className="h-12 rounded-full px-6"><Link href="/learn/new"><Plus className="mr-2 h-5 w-5" /> {tr('Teach a lesson')}</Link></Button>
+            <SuggestedShops title="Follow shops and teachers" className="w-full max-w-lg text-left" />
           </div>
         ) : (
           [...lessons.map((l) => <LessonSlide key={l.id} lesson={l} />), <CaughtUp key="caught-up" />]

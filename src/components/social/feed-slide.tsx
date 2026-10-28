@@ -152,7 +152,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
   };
 
   return (
-    <section ref={slideRef} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-muted text-foreground">
+    <section ref={slideRef} data-feed-product={product.id} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-muted text-foreground">
       <div className={cn('relative min-h-0 transition-[height] duration-300', commentsOpen ? 'h-[46%]' : 'h-full')}>
         {/* Blurred copy fills the screen; the item itself is shown whole. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}

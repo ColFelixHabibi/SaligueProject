@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, Coins, Layers, FileText, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp } from 'lucide-react';
+import { Bookmark, ChevronRight, Coins, Layers, UserPlus, FileText, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { BadgeCheck, CircleUserRound, GraduationCap, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
@@ -165,6 +165,7 @@ export default function MePage() {
           </>
         )}
         {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
+        {user && <Tile href="/invite" icon={UserPlus} label="Bring a shop" />}
         {user && <Tile href={`/profile?id=${user.uid}`} icon={CircleUserRound} label={role === 'seller' ? 'My shop profile' : 'My profile'} />}
         {user && role !== 'seller' && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
         {user && <Tile href="/verify" icon={BadgeCheck} label="Get verified" />}

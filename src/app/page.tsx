@@ -21,6 +21,7 @@ import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { FeedSlide } from '@/components/social/feed-slide';
+import { FeedSidePanel } from '@/components/social/feed-side-panel';
 import { retryProducts, useProductStore } from '@/hooks/use-product-store';
 import { useLikesStore } from '@/hooks/use-likes';
 import { useWishlistStore } from '@/hooks/use-wishlist';
@@ -129,6 +130,33 @@ export default function ForYouPage() {
     if (mode === 'local') return city ? active.filter((p) => p.shop?.city?.trim().toLowerCase() === city.toLowerCase()) : [];
     return active;
   }, [feed, byId, hidden, mode, followingIds, city, blocked]);
+  // Which item is on screen, for the panel beside the feed on computers.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [current, setCurrent] = useState<string | null>(null);
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => setWide(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  useEffect(() => {
+    const root = scroller.current;
+    if (!wide || !root) return;
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) setCurrent((e.target as HTMLElement).dataset.feedProduct ?? null);
+    }, { root, threshold: 0.6 });
+    const watch = () => root.querySelectorAll('[data-feed-product]').forEach((el) => io.observe(el));
+    watch();
+    const mo = new MutationObserver(watch);
+    mo.observe(root, { childList: true, subtree: true });
+    return () => {
+      io.disconnect();
+      mo.disconnect();
+    };
+  }, [wide, mode]);
+
   const tabs = [
     { value: 'following', label: 'Following' },
     { value: 'local', label: 'Local' },
@@ -137,7 +165,9 @@ export default function ForYouPage() {
   ].filter((t) => t.value !== 'learn' || on('lessons')) as { value: 'following' | 'local' | 'foryou' | 'learn'; label: string }[];
 
   return (
-    <div className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh">
+    // Computers (lg): the feed column with a panel beside it about the item on screen; phones: the feed only.
+    <div className="lg:flex lg:h-dvh lg:justify-center lg:gap-6 lg:bg-muted/50 lg:px-6">
+    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
       {/* What to watch: chosen by the viewer, not only by the algorithm. */}
       <div className="pointer-events-none sticky top-0 z-50 flex h-0 items-start justify-center">
@@ -222,6 +252,12 @@ export default function ForYouPage() {
         )).concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
       )}
       <BreakReminder />
+    </div>
+    {wide && mode !== 'learn' && (
+      <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto py-6 lg:block xl:w-[26rem]">
+        <FeedSidePanel product={byId.get(current ?? '') ?? shown[0] ?? null} />
+      </aside>
+    )}
     </div>
   );
 }
