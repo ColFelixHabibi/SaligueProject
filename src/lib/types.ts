@@ -49,6 +49,8 @@ export type Product = {
   // Average star rating (0 when not rated yet) and number of reviews.
   rating?: number;
   ratingCount?: number;
+  // Bought so far (orders not cancelled).
+  sold?: number;
 };
 
 export type Review = { id: string; uid: string; name: string; rating: number; text: string; createdAt: string };

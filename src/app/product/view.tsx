@@ -198,7 +198,8 @@ export default function ProductView({ id }: { id: string | null }) {
               </div>
               <p className={`mb-4 flex items-center gap-1.5 text-sm font-semibold ${soldOut ? 'text-destructive' : product.stock != null && product.stock <= 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
-                {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : 'In stock'}
+                {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : product.stock != null ? `${product.stock} left` : 'In stock'}
+                <span className="ml-2 font-normal text-muted-foreground">· {product.sold ?? 0} sold</span>
               </p>
               {product.description && <ExpandableText text={product.description} lines={3} className="text-sm text-muted-foreground" />}
 

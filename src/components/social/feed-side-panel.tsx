@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { HelpCircle, MapPin, MessageCircle, PackageCheck, ShoppingCart, Sparkles, Store, Wand2 } from 'lucide-react';
+import { HelpCircle, MapPin, MessageCircle, PackageCheck, PackageX, ShoppingBag, ShoppingCart, Sparkles, Store, Wand2 } from 'lucide-react';
+import { Stars } from '@/components/stars';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { FollowButton } from '@/components/follow-button';
 import { MessageSellerButton } from '@/components/message-seller-button';
@@ -51,7 +53,19 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
         <Link href={productHref(product)} className="block text-lg font-bold leading-tight hover:underline">{product.name}</Link>
         <div className="flex items-center justify-between">
           <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
-          {product.stock !== 0 && <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600"><PackageCheck className="h-4 w-4" /> {t('In stock')}</span>}
+          <Link href={`${productHref(product)}#reviews`} className="flex items-center gap-1.5 text-sm hover:underline" aria-label={t('Reviews')}>
+            <Stars rating={product.rating ?? 0} size="h-4 w-4" />
+            {(product.ratingCount ?? 0) > 0 ? <><b>{(product.rating ?? 0).toFixed(1)}</b> <span className="text-muted-foreground">({product.ratingCount})</span></> : <span className="text-xs text-muted-foreground">{t('No reviews yet')}</span>}
+          </Link>
+        </div>
+        {/* Sold so far and what is left (the stock the shop sets). */}
+        <div className="flex items-center gap-4 text-sm">
+          <span className="flex items-center gap-1.5 font-semibold"><ShoppingBag className="h-4 w-4 text-primary" /> {product.sold ?? 0} {t('sold')}</span>
+          {product.stock === 0
+            ? <span className="flex items-center gap-1.5 font-semibold text-destructive"><PackageX className="h-4 w-4" /> {t('Sold out')}</span>
+            : product.stock != null
+              ? <span className={cn('flex items-center gap-1.5 font-semibold', product.stock <= 3 ? 'text-amber-600' : 'text-emerald-600')}><PackageCheck className="h-4 w-4" /> {product.stock} {t('left')}</span>
+              : <span className="flex items-center gap-1.5 font-semibold text-emerald-600"><PackageCheck className="h-4 w-4" /> {t('In stock')}</span>}
         </div>
         {details.length > 0 && (
           <dl className="grid grid-cols-2 gap-2 text-sm">
