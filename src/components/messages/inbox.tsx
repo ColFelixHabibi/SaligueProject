@@ -227,7 +227,7 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
       <div className="flex min-h-0 flex-1 overflow-hidden border-y bg-background md:rounded-2xl md:border md:shadow-sm">
         {/* No conversations at all: one message across the whole box, not an empty list beside an empty thread. */}
         <aside className={cn('flex w-full min-w-0 flex-col', !none && 'border-r md:w-80 lg:w-96', openId && 'hidden md:flex')}>
-          <div className="space-y-3 border-b p-4">
+          <div className={cn('space-y-3 border-b p-4', none && embedded && 'hidden md:block')}>
             <h1 className={cn('text-2xl font-extrabold tracking-tight', embedded && 'hidden md:block')}>Messages</h1>
             <div className={cn('relative', none && 'hidden')}>
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />

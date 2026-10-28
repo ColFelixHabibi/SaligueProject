@@ -33,10 +33,10 @@ export default function InvitePage() {
         <p className="mt-1 text-2xl font-extrabold leading-tight">+{coins} {t('coins')} {t('for each shop you bring')}</p>
         <p className="mt-1 text-sm opacity-90">{t('When the shop makes its first sale on Saligue.')}</p>
         <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
-          <Button variant="secondary" className="h-12 text-base" onClick={() => shareLink({ title: 'Saligue', text: t('Sell your clothes on Saligue: free to start, customers near you, Mobile Money.'), url: link })}>
+          <Button className="h-12 bg-white text-base font-bold text-primary hover:bg-white/90" onClick={() => shareLink({ title: 'Saligue', text: t('Sell your clothes on Saligue: free to start, customers near you, Mobile Money.'), url: link })}>
             <Share2 className="mr-2 h-5 w-5" /> {t('Share invite')}
           </Button>
-          <Button variant="secondary" size="icon" className="h-12 w-12" aria-label={t('Copy link')} title={t('Copy link')}
+          <Button size="icon" className="h-12 w-12 bg-white/20 text-white hover:bg-white/30" aria-label={t('Copy link')} title={t('Copy link')}
             onClick={() => navigator.clipboard.writeText(link).then(() => toast({ title: t('Link copied') })).catch(() => {})}>
             <Copy className="h-5 w-5" />
           </Button>
