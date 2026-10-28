@@ -173,8 +173,9 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   const feetVisible = seen([27, 28]);
   const fitsPhoto = (slot: Category) => (slot === 'bottom' ? legsVisible : slot === 'shoes' ? feetVisible : true);
   const redrawable = outfit.filter((p) => REALISTIC_CATEGORIES.includes(outfitSlot(p)) && fitsPhoto(outfitSlot(p)));
+  // The AI only needs the photo: it never waits for the on-device cut-out (a slow first download on phones).
   const makeRealistic = async () => {
-    if (!personUrl || !person) return;
+    if (!personUrl) return;
     const id = ++runId.current;
     const stale = () => id !== runId.current;
     setRealisticFailed(false);
@@ -199,7 +200,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
       }
       if (clothes.length && !drawn) throw lastError ?? new Error('The realistic AI could not dress you this time.');
       const others = outfit.filter((p) => !REALISTIC_CATEGORIES.includes(outfitSlot(p)) && fitsPhoto(outfitSlot(p)));
-      if (others.length) {
+      if (others.length && person) {
         setRealisticBusy('Adding shoes and accessories…');
         // On the photo itself (no cut-out); the redrawn photo keeps the pose, so the landmarks are scaled to it.
         const base = await loadImage(current);
@@ -227,11 +228,11 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     setRealisticFailed(false);
     runId.current++;
     setRealisticBusy(null);
-    if (!studio || !person || !personUrl || !redrawable.length) return;
+    if (!studio || !personUrl || !redrawable.length) return;
     const timer = setTimeout(makeRealistic, 1500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outfitKey, personUrl, studio, person]);
+  }, [outfitKey, personUrl, studio]);
 
   // One tap: wear the best match for every essential piece still missing (top, trousers, shoes).
   const completeAutomatically = () => {
@@ -257,9 +258,10 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
     }
   };
 
-  // Until the AI has dressed the person in the clothes, show their own photo rather than clothes pasted on top.
-  const waitingForAi = studio && !!person && redrawable.length > 0 && !realisticUrl && !realisticFailed;
-  const shownUrl = realisticUrl ?? (waitingForAi ? personUrl : lookUrl ?? personUrl);
+  // Clothes are only ever shown drawn by the AI: while it works, or if it fails, the shopper sees their own
+  // photo (and a message), never clothes pasted on top. The on-device look is only for shoes, hats and bags.
+  const waitingForAi = studio && redrawable.length > 0 && !realisticUrl && !realisticFailed;
+  const shownUrl = realisticUrl ?? (studio && redrawable.length > 0 ? photoUrl ?? personUrl : lookUrl ?? personUrl);
   const busy = photoBusy ?? realisticBusy ?? (waitingForAi ? 'Saligue AI is getting ready to dress you…' : dressing && person ? 'Dressing you…' : null);
 
   // A real item from the shop pictures each part of the body (faded until something is worn there).

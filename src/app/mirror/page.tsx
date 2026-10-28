@@ -133,16 +133,23 @@ function Mirror() {
   }, [person]);
 
   const [personBusy, setPersonBusy] = useState<string | null>(null);
+  const photoRun = useRef(0);
   const handlePersonFile = async (file: File) => {
+    const run = ++photoRun.current;
     setPersonBusy('Reading your photo…');
     try {
       const working = fitWithin(await fileToImage(file), 1600);
-      // The photo stays exactly as taken: no background removal, which could cut holes into skin or clothes.
-      const pose = await detectPose(working, setPersonBusy);
-      setPerson(working, pose, working);
-      if (!pose) {
-        toast({ title: 'Body not found', description: 'We could not see your body clearly. Use a photo of you standing, facing the camera, in good light.' });
-      }
+      // The photo stays exactly as taken (no background removal), and is ready at once: the try-on AI only needs
+      // the photo. Finding the body (for shoes, hats and bags) runs after, and its first download can be slow.
+      setPerson(working, null, working);
+      setPersonBusy(null);
+      void detectPose(working)
+        .then((pose) => {
+          if (run !== photoRun.current) return; // a newer photo was chosen meanwhile
+          if (pose) setPerson(working, pose, working);
+          else toast({ title: 'Body not found', description: 'Clothes still work. For shoes and accessories, use a photo of you standing, facing the camera, in good light.' });
+        })
+        .catch((error) => console.error('Finding the body failed:', error));
     } catch (error: any) {
       console.error('Processing photo failed:', error);
       toast({ variant: 'destructive', title: 'Could not process photo', description: friendlyError(error) });

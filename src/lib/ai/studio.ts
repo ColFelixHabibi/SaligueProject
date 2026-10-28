@@ -146,6 +146,9 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
       for (let tries = 0; tries < 2; tries++) {
         const variant = attempts.get(key) ?? 0;
         const image = (await getStudio()) ? await call('/api/tryon', { ...body, variant }) : (await api<{ image: string }>('/ai/tryon', { body: { ...body, variant } })).image;
+        // The paid try-on (fal.ai FASHN) returns a finished, clean photo: shown as it is. Cutting out "only what
+        // changed" was made for the free models, and on a good picture it leaves halos around the garment.
+        if (isUnlimited()) return image;
         try {
           return await keepOnlyChanged(body.person, image, category);
         } catch (error) {
