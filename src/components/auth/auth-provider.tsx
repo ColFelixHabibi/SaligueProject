@@ -18,6 +18,7 @@ export type AppUser = {
   uid: string;
   email: string | null;
   displayName: string | null;
+  username?: string | null;
   photoURL: string | null;
 };
 
@@ -80,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       useUserRoleStore.setState({ role: account.role, official: account.official, admin: !!account.admin, shop: account.shop, avatar: mediaUrl(account.avatar ?? undefined) ?? null, pendingRole: null, isInitialized: true });
       setAuthUid(account.id);
-      setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
+      setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, username: account.username ?? null, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);
       if (change === 'registered' || change === 'signed-in') {
         // Straight to their own dashboard, unless they were in the middle of something (paying, starting a shop).

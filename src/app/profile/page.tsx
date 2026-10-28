@@ -12,7 +12,7 @@ import { TipButton } from '@/components/tip-button';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
+import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -34,6 +34,7 @@ import { api, mediaUrl } from '@/lib/api';
 import { updateAccount } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
 import { topicOf, useLessons } from '@/lib/lessons';
+import { withMedia, type Live } from '@/lib/lives';
 import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -63,7 +64,12 @@ function ProfileView({ id }: { id: string }) {
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'items' | 'videos' | 'lessons'>('items');
+  const [tab, setTab] = useState<'items' | 'videos' | 'lessons' | 'replays'>('items');
+  // Lives the shop recorded: a playlist to watch again.
+  const [replays, setReplays] = useState<Live[] | null>(null);
+  useEffect(() => {
+    api<Live[]>(`/profiles/${id}/replays`).then((l) => setReplays(l.map(withMedia))).catch(() => setReplays([]));
+  }, [id]);
   const [people, setPeople] = useState<{ title: string; list: Person[] | null } | null>(null);
   const [editing, setEditing] = useState(false);
   const { products } = useProductStore();
@@ -114,6 +120,7 @@ function ProfileView({ id }: { id: string }) {
     { value: 'items', icon: Grid3x3, label: 'Items', count: items.length, show: profile.isShop },
     { value: 'videos', icon: Play, label: 'Videos', count: videos.length, show: profile.isShop },
     { value: 'lessons', icon: GraduationCap, label: 'Lessons', count: lessons?.length ?? 0, show: true },
+    { value: 'replays', icon: History, label: 'Replays', count: replays?.length ?? 0, show: profile.isShop && !!replays?.length },
   ].filter((t) => t.show) as { value: typeof tab; icon: typeof Grid3x3; label: string; count: number }[];
   const current = tabs.some((t) => t.value === tab) ? tab : tabs[0].value;
 
@@ -209,6 +216,11 @@ function ProfileView({ id }: { id: string }) {
       <div className="mt-4">
         {current === 'items' && (items.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{items.map((p) => <ProductCard key={p.id} product={p} variant="shop" />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
         {current === 'videos' && (videos.length ? <div className="grid grid-cols-3 gap-1">{videos.map((p) => <PosterTile key={p.id} href={`/product?id=${p.id}`} poster={p.videoPoster ?? p.image} label={p.name} />)}</div> : <Empty icon={Play} text="No videos yet" />)}
+        {current === 'replays' && (
+          <div className="grid grid-cols-3 gap-1">
+            {(replays ?? []).map((l) => <PosterTile key={l.id} href={`/live/watch?id=${l.id}`} poster={l.replay?.poster ?? l.thumbnail ?? ''} label={l.title} />)}
+          </div>
+        )}
         {current === 'lessons' && (lessons === null ? <Skeleton className="h-40" /> : lessons.length ? (
           <div className="grid grid-cols-3 gap-1">
             {lessons.map((l) => {

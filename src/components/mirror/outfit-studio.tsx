@@ -53,11 +53,12 @@ export function PhotoInputs({ onFile, disabled, compact }: { onFile: (file: File
   };
   return (
     <div className="flex flex-wrap gap-2">
-      <Button type="button" size={compact ? 'sm' : 'lg'} onClick={() => cameraRef.current?.click()} disabled={disabled}>
-        <Camera className="mr-2 h-4 w-4" /> {compact ? 'Retake' : 'Camera'}
+      {/* Compact (a photo is already there): two round icons, retake or change. */}
+      <Button type="button" size={compact ? 'icon' : 'lg'} className={cn(compact && 'h-9 w-9 rounded-full')} onClick={() => cameraRef.current?.click()} disabled={disabled} aria-label="Retake photo" title="Retake photo">
+        <Camera className={cn('h-4 w-4', !compact && 'mr-2')} /> {!compact && 'Camera'}
       </Button>
-      <Button type="button" size={compact ? 'sm' : 'lg'} variant="secondary" onClick={() => galleryRef.current?.click()} disabled={disabled}>
-        <ImageUp className="mr-2 h-4 w-4" /> {compact ? 'Change' : 'Gallery'}
+      <Button type="button" size={compact ? 'icon' : 'lg'} className={cn(compact && 'h-9 w-9 rounded-full')} variant="secondary" onClick={() => galleryRef.current?.click()} disabled={disabled} aria-label="Change photo" title="Change photo">
+        <ImageUp className={cn('h-4 w-4', !compact && 'mr-2')} /> {!compact && 'Gallery'}
       </Button>
       <input ref={cameraRef} type="file" accept="image/*" capture="user" className="sr-only" onChange={handle} />
       <input ref={galleryRef} type="file" accept="image/*" className="sr-only" onChange={handle} />

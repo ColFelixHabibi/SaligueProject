@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { GraduationCap, Layers, Loader2, Pencil, Play, Plus, Share2, Trash2, X } from 'lucide-react';
+import { GraduationCap, Layers, Loader2, Pencil, Play, Plus, Share2, ShoppingCart, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -15,7 +15,7 @@ import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { getLesson, type Lesson } from '@/lib/lessons';
 import { productHref } from '@/lib/links';
-import { createLook, deleteLook, getLook, renameLook, togglePiece, useMyLooks, type Look } from '@/lib/looks';
+import { createLook, deleteLook, getLook, removeFromCartLook, renameLook, togglePiece, useMyLooks, type Look } from '@/lib/looks';
 import { formatPrice } from '@/lib/orders';
 import { absoluteUrl } from '@/lib/paths';
 
@@ -52,7 +52,7 @@ function MyLooks() {
           {looks.map((l) => (
             <Link key={l.id} href={`/looks?id=${l.id}`} className="space-y-1.5">
               <Cover look={l} />
-              <p className="truncate font-semibold">{l.name}</p>
+              <p className="flex items-center gap-1 truncate font-semibold">{l.auto && <ShoppingCart className="h-4 w-4 shrink-0 text-primary" />}{t(l.name)}</p>
               <p className="-mt-1 text-xs text-muted-foreground">{l.count}</p>
             </Link>
           ))}
@@ -89,7 +89,7 @@ function OneLook({ id }: { id: string }) {
   const taught = look.items.filter((i) => i.kind === 'lesson').map((i) => lessons[i.id]).filter(Boolean);
   const total = items.reduce((sum, p) => sum + Number(p.price), 0);
   const fail = (error: unknown) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(error) });
-  const remove = (kind: 'product' | 'lesson', pieceId: string) => togglePiece(look.id, { kind, id: pieceId }).then(() => getLook(id).then(setLook)).catch(fail);
+  const remove = (kind: 'product' | 'lesson', pieceId: string) => (look.auto ? removeFromCartLook(pieceId).then(setLook) : togglePiece(look.id, { kind, id: pieceId }).then(() => getLook(id).then(setLook))).catch(fail);
   const round = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background hover:bg-muted';
   const x = 'absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white';
 
@@ -103,13 +103,13 @@ function OneLook({ id }: { id: string }) {
           </form>
         ) : (
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-extrabold">{look.name}</h1>
+            <h1 className="truncate text-2xl font-extrabold">{t(look.name)}</h1>
             <p className="text-sm text-muted-foreground">{look.ownerName} · {look.count}{total > 0 && ` · ${formatPrice(total)}`}</p>
           </div>
         )}
-        {mine && editing === null && <button type="button" className={round} onClick={() => setEditing(look.name)} aria-label={t('Rename')} title={t('Rename')}><Pencil className="h-4 w-4" /></button>}
-        <button type="button" className={round} aria-label={t('Share')} title={t('Share')} onClick={() => shareLink({ title: look.name, text: `${look.name} · a look on Saligue`, url: absoluteUrl(`/looks?id=${look.id}`) })}><Share2 className="h-4 w-4" /></button>
-        {mine && (
+        {mine && !look.auto && editing === null && <button type="button" className={round} onClick={() => setEditing(look.name)} aria-label={t('Rename')} title={t('Rename')}><Pencil className="h-4 w-4" /></button>}
+        {!look.auto && <button type="button" className={round} aria-label={t('Share')} title={t('Share')} onClick={() => shareLink({ title: look.name, text: `${look.name} · a look on Saligue`, url: absoluteUrl(`/looks?id=${look.id}`) })}><Share2 className="h-4 w-4" /></button>}
+        {mine && !look.auto && (
           <button type="button" className={`${round} text-destructive`} aria-label={t('Delete')} title={t('Delete')}
             onClick={async () => { if (await ask({ title: `${t('Delete')} “${look.name}”?`, confirm: 'Delete', destructive: true })) deleteLook(look.id).then(() => router.push('/looks')).catch(fail); }}>
             <Trash2 className="h-4 w-4" />

@@ -1,5 +1,6 @@
 'use client';
 
+import { useLiveRecorder } from '@/lib/live-recorder';
 import { absoluteUrl } from '@/lib/paths';
 import { shareLink } from '@/components/share-sheet';
 import { ExpandableText } from '@/components/expandable-text';
@@ -264,7 +265,9 @@ function Studio({ id }: { id: string }) {
   const { products } = useProductStore();
   const { live, comments, guests, bursts, error, blockedWords, setBlockedWords, gift } = useLive(id, authUid);
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
-  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
+  const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, sentTracks, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
+  // Recorded on this phone for the replay (what viewers see and hear from the host).
+  const replay = useLiveRecorder(id, live?.status === 'live' && status === 'connected', sentTracks);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [mics, setMics] = useState<MicDevice[]>([]);
@@ -321,6 +324,8 @@ function Studio({ id }: { id: string }) {
       <div className="mx-auto max-w-md space-y-4 p-10 text-center">
         <Radio className="mx-auto h-12 w-12 text-primary" />
         <h1 className="text-2xl font-extrabold">Your live has ended</h1>
+        {live.replay ? <p className="text-sm font-semibold text-emerald-600">Replay saved on your profile.</p>
+          : (live.replayStatus === 'recording' || live.replayStatus === 'processing') && <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Saving your replay…</p>}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-xl bg-muted p-3"><p className="text-xl font-bold">{live.peakViewers}</p><p className="text-xs text-muted-foreground">Most viewers</p></div>
           <div className="rounded-xl bg-muted p-3"><p className="text-xl font-bold">{live.likeCount}</p><p className="text-xs text-muted-foreground">Hearts</p></div>
@@ -468,6 +473,7 @@ function Studio({ id }: { id: string }) {
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onViewers={() => setPanel('viewers')}>
+          {replay.recording && <span className="flex items-center gap-1 rounded-md bg-black/50 px-1.5 py-1 text-[10px] font-bold text-white" title="Recorded for the replay on your profile"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> REC</span>}
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
         </LiveTopBar>
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
@@ -560,7 +566,7 @@ function Studio({ id }: { id: string }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep going</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => act(() => endLive(id))}>End live</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => act(async () => { await replay.stop(); await endLive(id); })}>End live</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

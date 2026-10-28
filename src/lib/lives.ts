@@ -32,6 +32,9 @@ export type Live = {
   poll?: LivePoll | null;
   startedAt: string;
   endedAt: string | null;
+  // Watch again after the live: ready when the recording is saved.
+  replay?: { video: string; poster: string | null; duration: number | null } | null;
+  replayStatus?: 'recording' | 'processing' | 'ready' | 'none' | null;
 };
 
 export type LivePoll = { id: string; question: string; open: boolean; total: number; options: { text: string; votes: number }[] };
@@ -45,7 +48,12 @@ export type LiveComment = {
 export type LiveGuest = { uid: string; name: string; status: 'requested' | 'accepted' };
 export type Burst = { id: number; emoji: string; x: number };
 
-export const withMedia = (l: Live): Live => ({ ...l, sellerAvatar: mediaUrl(l.sellerAvatar ?? undefined) ?? null, thumbnail: mediaUrl(l.thumbnail ?? undefined) ?? null });
+export const withMedia = (l: Live): Live => ({
+  ...l,
+  sellerAvatar: mediaUrl(l.sellerAvatar ?? undefined) ?? null,
+  thumbnail: mediaUrl(l.thumbnail ?? undefined) ?? null,
+  replay: l.replay ? { ...l.replay, video: mediaUrl(l.replay.video) ?? l.replay.video, poster: mediaUrl(l.replay.poster ?? undefined) ?? null } : null,
+});
 
 /** Lives happening now, kept up to date. */
 export function useLives() {

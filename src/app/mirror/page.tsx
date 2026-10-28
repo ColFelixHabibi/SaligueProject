@@ -6,7 +6,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Download, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
+import { Check, Download, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
 import { dressAsDescribed, getRealistic, getStudio, isUnlimited } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
@@ -222,7 +222,16 @@ function Mirror() {
       <PageIntro icon={Wand2} title="Fitting Room" subtitle="See yourself wearing it before you buy." className="mb-6" />
 
       <div className="space-y-6">
-          {/* Step 1: a standing photo, so the AI can dress the person as they really are. */}
+          {/* Step 1: a standing photo, so the AI can dress the person as they really are. Once it is ready it shrinks
+              to a small strip (the photo and two icons), so the page is about what to wear. */}
+          {personUrl && photoUrl && !personBusy ? (
+            <div className="flex w-fit items-center gap-3 rounded-full border bg-card py-1 pl-1 pr-2 shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={personUrl} alt="Your photo" className="h-12 w-10 rounded-full border bg-muted object-cover" />
+              <span className="flex items-center gap-1 text-sm font-semibold text-emerald-600"><Check className="h-4 w-4" /> Your photo</span>
+              <PhotoInputs onFile={handlePersonFile} compact />
+            </div>
+          ) : (
           <Card className={cn(!personUrl && 'border-2 border-dashed border-primary/50')}>
             <CardContent className="flex flex-wrap items-center gap-3 p-3 min-[360px]:gap-4 min-[360px]:p-4">
               {personUrl ? (
@@ -245,6 +254,7 @@ function Mirror() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           <Card>
             <CardContent className="space-y-4 p-4">

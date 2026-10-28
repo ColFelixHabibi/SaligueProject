@@ -7,6 +7,7 @@ export type AccountUser = {
   id: string;
   email: string | null;
   displayName: string | null;
+  username?: string | null;
   role: 'buyer' | 'seller';
   official: boolean;
   // Can open Platform settings (email, payments, try-on).
@@ -76,7 +77,7 @@ export async function logout() {
   emit(null, 'signed-out');
 }
 
-export async function updateAccount(changes: { displayName?: string; role?: 'buyer' | 'seller'; shop?: Shop; avatar?: string | null; bio?: string; password?: string; currentPassword?: string }) {
+export async function updateAccount(changes: { displayName?: string; username?: string; role?: 'buyer' | 'seller'; shop?: Shop; avatar?: string | null; bio?: string; password?: string; currentPassword?: string }) {
   const { user } = await api<{ user: AccountUser }>('/auth/me', { method: 'PATCH', body: changes });
   emit(user, 'updated');
   return user;

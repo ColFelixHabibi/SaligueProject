@@ -11,7 +11,7 @@ import { adClicked, adOnScreen } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, EyeOff, HelpCircle, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
+import { BadgeCheck, Bookmark, EyeOff, HelpCircle, Layers, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useDataSaver } from '@/lib/data-saver';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,10 @@ import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/components/auth/auth-provider';
+import { useFeatures } from '@/lib/features';
+import { useWishlist } from '@/hooks/use-wishlist';
+import { addToLook } from '@/components/look-picker';
 import { ExpandableText } from '@/components/expandable-text';
 
 /** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
@@ -96,6 +100,10 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
 
 /** One full-screen item in the For You feed. Comments open below the image. */
 export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: Product; reason?: string | null; sponsoredBy?: string; onHide?: () => void }) {
+  const { user } = useAuth();
+  const on = useFeatures();
+  const { wishlistItems, addToWishlist, removeFromWishlist } = useWishlist();
+  const saved = wishlistItems.some((p) => p.id === product.id);
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { soundOn, unlocked, toggle } = useSoundStore();
@@ -185,6 +193,11 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
               <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <span><b className="block text-sm">{t('Why am I seeing this?')}</b><span className="text-xs text-muted-foreground">{sponsoredBy ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => (saved ? removeFromWishlist(product.id) : addToWishlist(product)).catch(() => {})}>
+              <Bookmark className={cn('mr-2 h-4 w-4', saved && 'fill-current')} /> {t(saved ? 'Saved' : 'Save')}
+            </DropdownMenuItem>
+            {user && on('looks') && <DropdownMenuItem onClick={() => addToLook({ kind: 'product', id: product.id })}><Layers className="mr-2 h-4 w-4" /> {t('Add to a look')}</DropdownMenuItem>}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> {t('Show less like this')}</DropdownMenuItem>
           </DropdownMenuContent>

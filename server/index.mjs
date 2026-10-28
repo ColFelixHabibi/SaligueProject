@@ -2,14 +2,14 @@
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
-import { moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
-import { processVideo, receiveUpload } from './video.mjs';
+import { MEDIA_DIR, moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
+import { MAX_REPLAY_BYTES, processReplay, processVideo, receiveUpload, replayFile } from './video.mjs';
 import { AUTO_LANGUAGES, captionMissing, captionsAvailable, cuesToVtt, enqueueCaptions, storeVtt, textToVtt } from './captions.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
@@ -121,6 +121,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function mergeGuestInto(guestId, accountId) {
   transaction(() => {
     db.prepare('update or ignore cart_items set user_id = ? where user_id = ?').run(accountId, guestId);
+    db.prepare('update or ignore cart_history set user_id = ? where user_id = ?').run(accountId, guestId);
     db.prepare('update or ignore wishlists set user_id = ? where user_id = ?').run(accountId, guestId);
     db.prepare('update or ignore likes set user_id = ? where user_id = ?').run(accountId, guestId);
     // Likes the account already had: drop the guest's duplicate and its count.
@@ -798,11 +799,25 @@ const ownLook = (user, id) => {
   if (!l || l.user_id !== user.id) fail(404, 'not_found', 'This look no longer exists.');
   return l;
 };
+// "Added to cart": a collection kept for each person automatically (only they see it).
+function cartLook(user) {
+  const rows = db.prepare("select h.product_id, h.added_at, coalesce(p.cutout, p.image) as img from cart_history h join products p on p.id = h.product_id where h.user_id = ? and p.status != 'deleted' order by h.added_at desc limit 200").all(user.id);
+  return { id: 'cart', name: 'Added to cart', ownerId: user.id, ownerName: personNameOf(user), count: rows.length, covers: rows.slice(0, 4).map((r) => r.img).filter(Boolean), items: rows.map((r) => ({ kind: 'product', id: r.product_id })), updatedAt: rows[0]?.added_at ?? null, auto: true };
+}
 route('GET', '/api/looks', ({ user }) => {
   if (!user || user.is_guest) return [];
-  return db.prepare('select * from looks where user_id = ? order by updated_at desc').all(user.id).map((l) => ({
-    ...lookOut(l, true),
-  }));
+  const mine = db.prepare('select * from looks where user_id = ? order by updated_at desc').all(user.id).map((l) => lookOut(l, true));
+  const cart = cartLook(user);
+  return cart.count ? [cart, ...mine] : mine;
+});
+route('GET', '/api/looks/cart', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to see what you added to your cart.');
+  return cartLook(user);
+});
+route('DELETE', '/api/looks/cart/items/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  db.prepare('delete from cart_history where user_id = ? and product_id = ?').run(user.id, params[0]);
+  return cartLook(user);
 });
 route('GET', '/api/looks/([\\w-]+)', ({ params }) => {
   const l = db.prepare('select * from looks where id = ?').get(params[0]);
@@ -972,6 +987,7 @@ route('PUT', '/api/me/cart/([\\w-]+)', ({ user, params, body }) => {
     if (!db.prepare('select 1 from products where id = ?').get(params[0])) fail(404, 'not_found', 'This item no longer exists.');
     db.prepare('insert into cart_items (user_id, product_id, quantity) values (?, ?, ?) on conflict(user_id, product_id) do update set quantity = excluded.quantity')
       .run(user.id, params[0], Math.min(99, quantity));
+    db.prepare('insert into cart_history (user_id, product_id, added_at) values (?, ?, ?) on conflict(user_id, product_id) do update set added_at = excluded.added_at').run(user.id, params[0], now());
   }
   return { ok: true };
 });
@@ -1645,6 +1661,9 @@ function liveOut(l) {
     moderators: (parse(l.moderators) ?? []).map((uid) => ({ uid, name: personNameOf(db.prepare('select display_name, email, is_guest from users where id = ?').get(uid)) })),
     // Cover picture shown in the list of lives (a photo, or a frame from the host's camera).
     thumbnail: l.thumbnail ?? null,
+    // The recording, to watch again after the live ('recording' → 'processing' → 'ready').
+    replay: l.replay_status === 'ready' ? { video: l.replay_video, poster: l.replay_poster, duration: l.replay_duration } : null,
+    replayStatus: l.replay_status ?? null,
     // Hearts the host hopes to reach (0 = no goal), shown as a bar to everyone.
     heartGoal: l.heart_goal ?? 0,
     poll: pollOut(l.poll),
@@ -1789,6 +1808,7 @@ route('POST', '/api/lives', ({ user, body }) => {
   // One live at a time per shop: an older one still marked live is closed.
   for (const old of db.prepare("select id from lives where seller_id = ? and status = 'live'").all(user.id)) {
     db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), old.id);
+    setTimeout(() => finishReplay(old.id), 10 * 60_000).unref();
     liveEvent(old.id, { type: 'ended' });
   }
   const id = randomUUID();
@@ -1875,9 +1895,52 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   return fresh;
 });
 
+// Live replays (see the recording upload in the HTTP handler below).
+const replaySeq = new Map();
+function finishReplay(liveId) {
+  const live = db.prepare('select * from lives where id = ?').get(liveId);
+  if (!live || live.replay_status !== 'recording') return;
+  db.prepare("update lives set replay_status = 'processing' where id = ?").run(liveId);
+  replaySeq.delete(liveId);
+  processReplay(liveId)
+    .then((r) => {
+      db.prepare('update lives set replay_status = ?, replay_video = ?, replay_poster = ?, replay_duration = ? where id = ?')
+        .run(r ? 'ready' : 'none', r?.video ?? null, r?.poster ?? null, r?.duration ?? null, liveId);
+      if (r) notify(live.seller_id, { type: 'account', title: `Your live "${live.title}" can be watched again`, body: 'It is on your profile under Replays.', link: `/live/watch?id=${liveId}`, email: false });
+      broadcast('lives');
+    })
+    .catch((error) => {
+      console.error('Live replay failed:', error.message);
+      db.prepare("update lives set replay_status = 'none' where id = ?").run(liveId);
+    });
+}
+// The host's app says the last piece is sent.
+route('POST', '/api/lives/([\\w-]+)/recording/done', ({ user, params }) => {
+  const live = db.prepare('select seller_id, status from lives where id = ?').get(params[0]);
+  if (!live || live.seller_id !== user?.id) fail(404, 'not_found', 'Live not found.');
+  if (live.status === 'ended') finishReplay(params[0]);
+  return { ok: true };
+});
+// The host deletes a replay (only the recording; the live's stats stay).
+route('DELETE', '/api/lives/([\\w-]+)/replay', ({ user, params }) => {
+  const live = db.prepare('select * from lives where id = ?').get(params[0]);
+  if (!live || (live.seller_id !== user?.id && !can(user, 'moderation'))) fail(404, 'not_found', 'Live not found.');
+  for (const f of [live.replay_video, live.replay_poster]) {
+    if (f) try { unlinkSync(join(MEDIA_DIR, f.replace('/media/', ''))); } catch { /* gone */ }
+  }
+  db.prepare("update lives set replay_status = 'none', replay_video = null, replay_poster = null, replay_duration = null where id = ?").run(live.id);
+  broadcast('lives');
+  return { ok: true };
+});
+// A shop's replays, newest first (profile → Replays).
+route('GET', '/api/profiles/([\\w-]+)/replays', ({ params }) =>
+  db.prepare("select * from lives where seller_id = ? and replay_status = 'ready' order by started_at desc limit 50").all(params[0]).map(liveOut));
+
 route('POST', '/api/lives/([\\w-]+)/end', async ({ user, params }) => {
   const live = ownLive(user, params[0]);
   db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), live.id);
+  // The host's app sends the last recording piece and says done; if it never does (closed, no network), save what arrived.
+  setTimeout(() => finishReplay(live.id), 10 * 60_000).unref();
   liveEvent(live.id, { type: 'ended' });
   broadcast('lives');
   await closeRoom(live.id);
@@ -4140,6 +4203,42 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Live recording: the host's phone sends its camera in pieces (?seq=0, 1, 2…) while live, appended in order.
+  const recording = req.method === 'PUT' && /^\/api\/lives\/([\w-]+)\/recording$/.exec(url.pathname);
+  if (recording) {
+    try {
+      const user = userOf(req);
+      const live = db.prepare('select * from lives where id = ?').get(recording[1]);
+      if (!live || !user || live.seller_id !== user.id) fail(404, 'not_found', 'Live not found.');
+      // Pieces may still arrive a little after the live ended.
+      if (live.status !== 'live' && (!live.ended_at || Date.now() - new Date(live.ended_at).getTime() > 15 * 60_000)) fail(409, 'ended', 'This live has ended.');
+      if (['processing', 'ready'].includes(live.replay_status)) fail(409, 'done', 'The recording is already saved.');
+      const seq = Number(url.searchParams.get('seq'));
+      const expected = replaySeq.get(live.id) ?? 0;
+      if (!Number.isInteger(seq) || seq !== expected) {
+        // A piece sent twice (after a network retry) is fine; a gap means the recording can't be joined.
+        if (seq < expected) return send(res, 200, { ok: true, next: expected });
+        fail(409, 'out_of_order', `Expected piece ${expected}.`);
+      }
+      const file = replayFile(live.id);
+      if (seq === 0) {
+        try { unlinkSync(file); } catch { /* none yet */ }
+        db.prepare("update lives set replay_status = 'recording' where id = ?").run(live.id);
+      }
+      const size = existsSync(file) ? statSync(file).size : 0;
+      const piece = await receiveUpload(req, Math.max(1, MAX_REPLAY_BYTES - size));
+      appendFileSync(file, readFileSync(piece));
+      unlinkSync(piece);
+      replaySeq.set(live.id, seq + 1);
+      return send(res, 200, { ok: true, next: seq + 1 });
+    } catch (error) {
+      if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
+      if (error.status) return send(res, error.status, { error: { code: 'too_large', message: error.message } });
+      console.error('Live recording piece failed:', error);
+      return send(res, 500, { error: { code: 'server_error', message: 'Recording piece not saved.' } });
+    }
+  }
+
   // Item video upload: the raw video streams to a file (too big for JSON), then ffmpeg prepares it (video.mjs).
   const videoUpload = req.method === 'PUT' && /^\/api\/products\/([\w-]+)\/video$/.exec(url.pathname);
   if (videoUpload) {
@@ -4209,6 +4308,8 @@ warmUpFashionCheck();
 })();
 const moved = moveImagesToFiles();
 if (moved) console.log(`Moved the photos of ${moved} products into files.`);
+// Recordings of lives that ended while the server was off: save them now.
+for (const { id } of db.prepare("select id from lives where status = 'ended' and replay_status = 'recording'").all()) finishReplay(id);
 cancelAbandonedOrders();
 setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
 setInterval(checkBadges, 60 * 60_000).unref();

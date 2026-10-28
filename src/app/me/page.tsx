@@ -84,6 +84,7 @@ export default function MePage() {
             <ProfilePhotoField name={shop?.name ?? user.displayName} required={role === 'seller'}>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xl font-bold">{user.displayName || 'My account'}</p>
+                {user.username && <p className="truncate text-sm font-semibold text-primary">@{user.username}</p>}
                 <p className="line-clamp-2 text-sm text-muted-foreground">{role === 'seller' ? `Seller${shop ? ` · ${shop.name}` : ''}` : user.email}</p>
                 {role === 'seller' && !photo && <p className="text-xs font-semibold text-primary">Tap the photo to add your face or shop logo</p>}
               </div>

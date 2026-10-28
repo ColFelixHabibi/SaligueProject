@@ -28,6 +28,7 @@ export default function SettingsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -38,6 +39,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (user) {
       setDisplayName(user.displayName || '');
+      setUsername(user.username || '');
       setEmail(user.email || '');
     }
   }, [user]);
@@ -47,7 +49,7 @@ export default function SettingsPage() {
     if (!user) return;
     
     try {
-      await updateAccount({ displayName });
+      await updateAccount({ displayName, ...(username && username !== user.username ? { username } : {}) });
       toast({
         title: 'Success',
         description: 'Your profile has been updated.',
@@ -129,6 +131,14 @@ export default function SettingsPage() {
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Your Store Name"
                 />
+              </div>
+              <div className="mt-4 space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                  <Input id="username" value={username} onChange={(e) => setUsername(e.target.value.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, ''))} maxLength={24} className="pl-7" placeholder="yourname" />
+                </div>
+                <p className="text-xs text-muted-foreground">People tag you with @{username || 'yourname'}. Letters, numbers, _ and . only.</p>
               </div>
           </CardContent>
           <CardFooter className="border-t px-6 py-4">

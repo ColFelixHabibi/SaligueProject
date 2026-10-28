@@ -104,3 +104,34 @@ export async function processVideo(upload, maxSeconds = MAX_VIDEO_SECONDS) {
 
 /** Size of a stored media file (for Range requests). */
 export const mediaSize = (file) => statSync(file).size;
+
+// Live replays: the host's phone records its own camera and microphone during the live and sends it in pieces
+// (MediaRecorder, WebM or MP4). The pieces are appended in order; after the live it becomes one MP4.
+const REPLAY_DIR = join(DATA_DIR, 'recordings');
+mkdirSync(REPLAY_DIR, { recursive: true });
+export const replayFile = (liveId) => join(REPLAY_DIR, `${liveId.replace(/[^\w-]/g, '')}.part`);
+export const MAX_REPLAY_BYTES = 1500 * 1024 * 1024;
+
+/** Turns a finished recording into /media/live-<id>.mp4 and a poster. Returns null when it has no video. */
+export async function processReplay(liveId) {
+  const src = replayFile(liveId);
+  if (!existsSync(src) || statSync(src).size < 50_000) return null;
+  const base = `live-${liveId.replace(/[^\w-]/g, '')}`;
+  const video = join(MEDIA_DIR, `${base}.mp4`);
+  const poster = join(MEDIA_DIR, `${base}.jpg`);
+  try {
+    // Recordings from browsers often have no length in their header: re-encode (720p, small) and read the length after.
+    await run('ffmpeg', [
+      '-y', '-fflags', '+genpts', '-i', src,
+      '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-pix_fmt', 'yuv420p', '-profile:v', 'main',
+      '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', video,
+    ], 3 * 60 * 60_000);
+    const seconds = await duration(video);
+    if (!seconds) return null;
+    await run('ffmpeg', ['-y', '-ss', String(Math.min(3, seconds / 2)), '-i', video, '-frames:v', '1', '-q:v', '4', poster], 60_000);
+    return { video: `/media/${base}.mp4`, poster: existsSync(poster) ? `/media/${base}.jpg` : null, duration: Math.round(seconds) };
+  } finally {
+    try { unlinkSync(src); } catch { /* already gone */ }
+  }
+}

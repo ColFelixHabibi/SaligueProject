@@ -77,7 +77,7 @@ export function LookPickerHost() {
         </form>
         <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
           {looks === null && <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
-          {looks?.map((l) => {
+          {looks?.filter((l) => !l.auto).map((l) => {
             const has = !!piece && inLook(l, piece);
             return (
               <button key={l.id} type="button" disabled={!!busy} onClick={() => piece && run(l.id, () => togglePiece(l.id, piece))}
@@ -96,7 +96,7 @@ export function LookPickerHost() {
               </button>
             );
           })}
-          {looks?.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t('Name your first look above.')}</p>}
+          {looks?.filter((l) => !l.auto).length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{t('Name your first look above.')}</p>}
         </div>
         {!!looks?.length && <Link href="/looks" onClick={() => setPiece(null)} className="pb-1 text-center text-sm font-semibold text-primary">{t('All my looks')}</Link>}
       </SheetContent>

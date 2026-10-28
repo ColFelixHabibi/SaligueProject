@@ -5,7 +5,7 @@ import { api, mediaUrl } from './api';
 
 // Looks: a person's named boards ("Wedding", "Office") of items and lessons. Only for people with an account.
 export type LookPiece = { kind: 'product' | 'lesson'; id: string };
-export type Look = { id: string; name: string; ownerId: string; ownerName: string; count: number; covers: string[]; items: LookPiece[]; updatedAt: string };
+export type Look = { id: string; name: string; ownerId: string; ownerName: string; count: number; covers: string[]; items: LookPiece[]; updatedAt: string | null; auto?: boolean };
 
 const withMedia = (l: Look): Look => ({ ...l, covers: l.covers.map((c) => mediaUrl(c) ?? c) });
 
@@ -54,6 +54,13 @@ export async function deleteLook(id: string) {
 }
 
 /** Puts a piece in a look, or takes it out if it is already there. */
+/** Takes an item out of the automatic "Added to cart" collection. */
+export async function removeFromCartLook(productId: string) {
+  const look = withMedia(await api<Look>(`/looks/cart/items/${productId}`, { method: 'DELETE' }));
+  set((mine ?? []).map((l) => (l.id === 'cart' ? look : l)).filter((l) => l.id !== 'cart' || l.count > 0));
+  return look;
+}
+
 export async function togglePiece(lookId: string, piece: LookPiece) {
   const r = await api<{ added: boolean; look: Look }>(`/looks/${lookId}/items`, { body: piece });
   const look = withMedia(r.look);

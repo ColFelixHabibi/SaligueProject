@@ -9,7 +9,9 @@ import { FollowButton } from '@/components/follow-button';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, Gift, Heart, HelpCircle, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Reply, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Eye, EyeOff, Gift, Heart, HelpCircle, History, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Reply, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { ask } from '@/components/confirm-dialog';
+import { api } from '@/lib/api';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -178,12 +180,29 @@ function Watch() {
   if (live.status === 'ended') {
     return (
       <div className="container mx-auto max-w-4xl space-y-6 px-4 py-10 text-center">
-        {live.thumbnail ? (
+        {live.replay ? (
+          // Watch again: the host's recording of this live.
+          <div className="mx-auto w-full max-w-sm space-y-2">
+            <video src={live.replay.video} poster={live.replay.poster ?? live.thumbnail ?? undefined} controls playsInline autoPlay className="aspect-[9/16] w-full rounded-2xl bg-black object-contain shadow-lg" />
+            <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
+              <History className="h-4 w-4" /> Replay · {new Date(live.startedAt).toLocaleDateString()}
+              {live.sellerId === authUid && (
+                <button type="button" aria-label="Delete replay" title="Delete replay" className="ml-2 flex h-8 w-8 items-center justify-center rounded-full text-destructive hover:bg-destructive/10"
+                  onClick={async () => { if (await ask({ title: 'Delete this replay?', description: 'People can no longer watch it again.', confirm: 'Delete', destructive: true })) await api(`/lives/${live.id}/replay`, { method: 'DELETE' }).catch(() => {}); }}>
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </p>
+          </div>
+        ) : live.replayStatus === 'recording' || live.replayStatus === 'processing' ? (
+          <p className="mx-auto flex w-fit items-center gap-2 rounded-full bg-muted px-4 py-2 text-sm font-semibold"><Loader2 className="h-4 w-4 animate-spin" /> The replay is being saved…</p>
+        ) : null}
+        {live.replay ? null : live.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={live.thumbnail} alt="" className="mx-auto aspect-[9/14] w-40 rounded-2xl object-cover opacity-80 shadow-md grayscale-[40%]" />
         ) : <Radio className="mx-auto h-12 w-12 text-muted-foreground" />}
-        <h1 className="text-2xl font-extrabold">This live has ended</h1>
-        <p className="text-muted-foreground">{live.sellerName} · {live.title}</p>
+        {!live.replay && <h1 className="text-2xl font-extrabold">This live has ended</h1>}
+        <p className={live.replay ? 'text-lg font-bold' : 'text-muted-foreground'}>{live.sellerName} · {live.title}</p>
         <div className="flex justify-center gap-2">
           <Button asChild><Link href="/live">Other lives</Link></Button>
           <MessageSellerButton product={featured[0] ?? ({ id: '', sellerId: live.sellerId, name: live.title, price: 0, image: '', category: '', seller: live.sellerName, status: 'active' } as any)} label={`Message ${live.sellerName}`} variant="outline" size="default" />

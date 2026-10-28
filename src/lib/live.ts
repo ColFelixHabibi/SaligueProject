@@ -51,6 +51,8 @@ export function useLive(id: string | null, me: string | null) {
     }
   }, [id]);
 
+  // A replay finishes saving after the live: refresh then.
+  useEffect(() => (id ? onServerEvent('lives', () => void load()) : undefined), [id, load]);
   useEffect(() => {
     void load();
     if (!id) return;
@@ -305,6 +307,8 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, []);
   // The camera itself (for zoom).
   const videoTrack = useCallback(() => rawVideo.current ?? (localTracks.current.find((t) => t.kind === Track.Kind.Video)?.mediaStreamTrack ?? null), []);
+  // What viewers see and hear from the host (zoom included), for the replay recording.
+  const sentTracks = useCallback(() => localTracks.current.map((t) => t.mediaStreamTrack).filter((t): t is MediaStreamTrack => !!t && t.readyState === 'live'), []);
 
   // Front ↔ back camera on phones, or one chosen camera/lens; the full picture, not a cropped strip.
   const restartCamera = useCallback(async (next: CameraChoice) => {
@@ -340,7 +344,7 @@ export function useLiveRoom(liveId: string | null, enabled: boolean, publishWant
   }, []);
   const flipCamera = useCallback(() => restartCamera({ facing: facing === 'user' ? 'environment' : 'user' }), [facing, restartCamera]);
 
-  return { room, tiles, viewers, audience, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, zoomInfo, setLiveZoom };
+  return { room, tiles, viewers, audience, status, error, role, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, sentTracks, zoomInfo, setLiveZoom };
 }
 
 /** Attaches a LiveKit track to a <video>/<audio> element. */
