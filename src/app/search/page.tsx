@@ -27,6 +27,7 @@ import { removeBackground } from '@/lib/ai/segment';
 import { embedImage, warmUpSearch } from '@/lib/ai/embed';
 import { cn } from '@/lib/utils';
 import { noteSearch } from '@/lib/taste';
+import { PeopleResults } from '@/components/people-results';
 
 type Sort = 'relevance' | 'newest' | 'price-asc' | 'price-desc' | 'rating' | 'popular';
 const SORTS: { value: Sort; label: string }[] = [
@@ -245,6 +246,8 @@ function SearchContent() {
             />
           </form>
       </div>
+
+      {text.trim() && !queryPhoto && <PeopleResults query={text} />}
 
       <CategoryStrip
         value={filters.categories[0] ?? null}

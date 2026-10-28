@@ -3,6 +3,7 @@
 import { CoinsAdmin, TipsAdmin } from '@/components/admin/tips-admin';
 
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
+import { CommentReportsAdmin } from '@/components/admin/comment-reports-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { SettlementsAdmin } from '@/components/admin/settlements-admin';
@@ -484,7 +485,7 @@ export default function AdminPage() {
   };
   const tabs: { value: string; label: string; icon: LucideIcon; show: boolean; body: React.ReactNode }[] = [
     { value: 'overview', label: 'Overview', icon: LayoutDashboard, show: true, body: <OverviewAdmin open={open} /> },
-    { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <AppealsAdmin /> },
+    { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <div className="space-y-6"><CommentReportsAdmin /><AppealsAdmin /></div> },
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
     { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },

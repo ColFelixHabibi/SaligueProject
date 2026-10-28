@@ -493,8 +493,8 @@ function notifyMentions(text, author, { where, link }) {
 route('GET', '/api/usernames', ({ url }) => {
   const q = String(url.searchParams.get('q') ?? '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
   if (!q) return [];
-  return db.prepare("select * from users where is_guest = 0 and suspended = 0 and username is not null and (lower(username) like ? or lower(display_name) like ?) order by (lower(username) like ?) desc, length(username) limit 8")
-    .all(`${q}%`, `%${q}%`, `${q}%`).map((u) => ({ ...personOut(u), username: u.username }));
+  return db.prepare("select * from users where is_guest = 0 and suspended = 0 and username is not null and (lower(username) like ? or lower(display_name) like ? or lower(json_extract(shop, '$.name')) like ?) order by (lower(username) like ?) desc, length(username) limit 8")
+    .all(`${q}%`, `%${q}%`, `%${q}%`, `${q}%`).map((u) => ({ ...personOut(u), username: u.username }));
 });
 route('GET', '/api/usernames/([\\w.]+)', ({ params }) => {
   const u = db.prepare('select id from users where lower(username) = ? and is_guest = 0').get(params[0].toLowerCase());
@@ -515,6 +515,40 @@ route('POST', '/api/push', ({ user, body }) => {
 });
 route('DELETE', '/api/push', ({ user, url }) => {
   if (user) removePushTarget(user.id, url.searchParams.get('target'));
+  return { ok: true };
+});
+
+// Deleting your account. Orders stay (the other side needs them for delivery and accounts), so the account is
+// emptied rather than removed: no name, email, photo, username, shop or password, and it can never sign in again.
+// What the person made or did on Saligue goes: comments, questions, likes, follows, looks, searches, history;
+// a shop's items and a teacher's lessons are taken down.
+route('POST', '/api/auth/me/delete', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  if (String(body.confirm ?? '').trim().toUpperCase() !== 'DELETE') fail(400, 'not_confirmed', 'Type DELETE to confirm.');
+  if (user.admin_level === 1) fail(403, 'main_admin', 'The main admin can’t delete their account. Give main admin to someone else first.');
+  const open = db.prepare("select count(*) as n from orders where (buyer_id = ? or seller_id = ?) and status in ('placed', 'confirmed', 'shipped')").get(user.id, user.id).n;
+  if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
+  const id = user.id;
+  transaction(() => {
+    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets']) {
+      db.prepare(`delete from ${table} where user_id = ?`).run(id);
+    }
+    db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
+    db.prepare('delete from comments where user_id = ?').run(id);
+    db.prepare('delete from lesson_comments where user_id = ?').run(id);
+    // Their past orders (all finished) keep the items and amounts for the shop's accounts, not who or where.
+    for (const o of db.prepare('select id, delivery from orders where buyer_id = ?').all(id)) {
+      const d = parse(o.delivery) ?? {};
+      db.prepare("update orders set buyer_name = 'Deleted account', buyer_email = '', delivery = ? where id = ?").run(json({ city: d.city ?? null }), o.id);
+    }
+    db.prepare("update products set status = 'archived', hidden = 1 where seller_id = ?").run(id);
+    db.prepare('update lessons set hidden = 1 where user_id = ?').run(id);
+    db.prepare("update lives set replay_status = 'none', replay_video = null, replay_poster = null where seller_id = ?").run(id);
+    db.prepare(`update users set email = ?, display_name = 'Deleted account', username = null, password_hash = null, avatar = null, bio = null, shop = null,
+      admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = 'Account deleted by its owner' where id = ?`).run(`deleted-${id}@deleted.saligue`, id);
+  });
+  broadcast('products');
+  broadcast('lessons');
   return { ok: true };
 });
 
@@ -754,6 +788,54 @@ route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
 });
 
 // Review of reported items, by INDECIANA's official account. Each decision also teaches the AI (learn.mjs).
+// Reporting a comment or reply (items and lessons). After 3 different people report it, it is hidden until a
+// moderator restores or removes it.
+const COMMENT_TABLE = { item: 'comments', lesson: 'lesson_comments' };
+route('POST', '/api/comment-reports', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to report.');
+  const kind = body.kind === 'lesson' ? 'lesson' : 'item';
+  const c = db.prepare(`select * from ${COMMENT_TABLE[kind]} where id = ?`).get(String(body.id ?? ''));
+  if (!c) fail(404, 'not_found', 'This comment was removed.');
+  if (c.user_id === user.id) fail(400, 'own', 'This is your own comment.');
+  const reason = ['rude', 'spam', 'not_fashion', 'other'].includes(body.reason) ? body.reason : 'other';
+  db.prepare('insert or ignore into comment_reports (kind, comment_id, user_id, reason, created_at) values (?, ?, ?, ?, ?)').run(kind, c.id, user.id, reason, now());
+  const count = db.prepare('select count(*) as n from comment_reports where kind = ? and comment_id = ?').get(kind, c.id).n;
+  if (count >= HIDE_AFTER_REPORTS && !c.hidden) {
+    db.prepare(`update ${COMMENT_TABLE[kind]} set hidden = 1 where id = ?`).run(c.id);
+    if (kind === 'item') broadcast('comments', { productId: c.product_id });
+    else broadcast('lesson_comments', { lessonId: c.lesson_id });
+  }
+  return { ok: true };
+});
+route('GET', '/api/admin/comment-reports', ({ user }) => {
+  if (!can(user, 'moderation')) fail(403, 'forbidden', 'Only moderators can review reports.');
+  return db.prepare('select kind, comment_id, count(*) as n, group_concat(distinct reason) as reasons, max(created_at) as last from comment_reports group by kind, comment_id order by last desc limit 200').all()
+    .map((r) => {
+      const c = db.prepare(`select * from ${COMMENT_TABLE[r.kind]} where id = ?`).get(r.comment_id);
+      if (!c) return null;
+      const author = db.prepare('select display_name, email, is_guest, username from users where id = ?').get(c.user_id);
+      return { kind: r.kind, id: c.id, text: c.text, author: personNameOf(author), username: author?.username ?? null, hidden: !!c.hidden, reports: r.n, reasons: (r.reasons ?? '').split(','), link: r.kind === 'item' ? `/product?id=${c.product_id}` : `/learn?lesson=${c.lesson_id}`, createdAt: c.created_at };
+    })
+    .filter(Boolean);
+});
+route('POST', '/api/admin/comment-reports', ({ user, body }) => {
+  if (!can(user, 'moderation')) fail(403, 'forbidden', 'Only moderators can review reports.');
+  const kind = body.kind === 'lesson' ? 'lesson' : 'item';
+  const table = COMMENT_TABLE[kind];
+  const c = db.prepare(`select * from ${table} where id = ?`).get(String(body.id ?? ''));
+  if (!c) fail(404, 'not_found', 'This comment was removed.');
+  if (body.decision === 'remove') {
+    db.prepare(`with recursive t(id) as (select ? union all select x.id from ${table} x join t on x.parent_id = t.id) delete from ${table} where id in (select id from t)`).run(c.id);
+  } else {
+    db.prepare(`update ${table} set hidden = 0 where id = ?`).run(c.id);
+  }
+  db.prepare('delete from comment_reports where kind = ? and comment_id = ?').run(kind, c.id);
+  logAdmin(user, body.decision === 'remove' ? 'comment removed' : 'comment kept', `${kind}: ${String(c.text).slice(0, 120)}`);
+  if (kind === 'item') broadcast('comments', { productId: c.product_id });
+  else broadcast('lesson_comments', { lessonId: c.lesson_id });
+  return { ok: true };
+});
+
 route('GET', '/api/admin/reports', ({ user }) => {
   if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review reports.');
   return db.prepare(`select p.*, count(r.user_id) as report_count, group_concat(distinct r.reason) as reasons, max(r.created_at) as last_report
@@ -792,7 +874,7 @@ route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
 // Comments
 // Comments are threads: anyone can reply to a comment or to a reply, as deep as they like (parentId).
 route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
-  db.prepare('select c.*, u.username from comments c left join users u on u.id = c.user_id where c.product_id = ? order by c.created_at desc limit 500').all(params[0])
+  db.prepare('select c.*, u.username from comments c left join users u on u.id = c.user_id where c.product_id = ? and c.hidden = 0 order by c.created_at desc limit 500').all(params[0])
     .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, username: r.username ?? null, parentId: r.parent_id ?? null, text: r.text, createdAt: r.created_at })));
 
 route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
@@ -804,6 +886,8 @@ route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
   if (blockedBetween(user.id, product.seller_id)) fail(403, 'blocked', 'You can’t comment here.');
   const name = user.is_guest ? 'Guest' : user.display_name || user.email?.split('@')[0] || 'Saligue user';
+  const recent = db.prepare('select count(*) as n from comments where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 60_000).toISOString()).n;
+  if (recent >= 8) fail(429, 'too_many', 'Slow down a little — wait a minute.');
   const parent = body.parentId ? db.prepare('select id, user_id from comments where id = ? and product_id = ?').get(String(body.parentId), product.id) : null;
   if (body.parentId && !parent) fail(404, 'not_found', 'That comment was removed.');
   const id = randomUUID();
@@ -2749,7 +2833,7 @@ route('GET', '/api/captions/status', () => ({ available: captionsAvailable(), la
 route('GET', '/api/lessons/([\\w-]+)/comments', ({ params }) => {
   const lesson = db.prepare('select user_id from lessons where id = ?').get(params[0]);
   if (!lesson) fail(404, 'not_found', 'This lesson is not available.');
-  const rows = db.prepare('select c.*, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar from lesson_comments c join users u on u.id = c.user_id where c.lesson_id = ? order by c.created_at limit 500').all(params[0]);
+  const rows = db.prepare('select c.*, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar from lesson_comments c join users u on u.id = c.user_id where c.lesson_id = ? and c.hidden = 0 order by c.created_at limit 500').all(params[0]);
   const out = rows.map((c) => ({ id: c.id, uid: c.user_id, name: c.role === 'seller' ? shopNameOf(c) : personNameOf(c), avatar: c.avatar ?? null, parentId: c.parent_id, kind: c.kind, text: c.text, teacher: c.user_id === lesson.user_id, createdAt: c.created_at }));
   const answered = new Set(out.filter((c) => c.teacher && c.parentId).map((c) => c.parentId));
   return out.map((c) => ({ ...c, answered: c.kind === 'question' && answered.has(c.id) }));

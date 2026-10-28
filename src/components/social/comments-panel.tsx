@@ -5,6 +5,7 @@ import { useBlockedIds } from '@/lib/blocks';
 import { useEffect, useState } from 'react';
 import { CornerDownRight, Loader2, Send, Trash2, X } from 'lucide-react';
 import { CommentThread } from '@/components/comment-thread';
+import { ReportComment } from '@/components/report-comment';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,7 +87,10 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
               <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
               {/* Deep replies (no more indent) say whom they answer. */}
               <p className="break-words">{depth > 3 && parent && <span className="mr-1 font-semibold text-primary">@{parent.username ?? parent.name}</span>}<RichText text={comment.text} /></p>
-              <button type="button" onClick={() => setReplyTo(comment)} className="mt-0.5 text-xs font-semibold text-muted-foreground hover:text-foreground">Reply</button>
+              <span className="mt-0.5 flex items-center gap-3">
+                <button type="button" onClick={() => setReplyTo(comment)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">Reply</button>
+                <ReportComment kind="item" id={comment.id} authorId={comment.uid} />
+              </span>
             </div>
             {/* Once sent, a comment stays: only the item's shop can remove it. */}
             {!!authUid && sellerId === authUid && (

@@ -154,3 +154,41 @@ describe('site', () => {
     assert.ok(r.json.webKey.length > 40);
   });
 });
+
+describe('safety and privacy', () => {
+  test('three reports hide a comment until a moderator looks', async () => {
+    const product = (await call('/products')).json[1];
+    const writer = await register('Rude Writer');
+    const c = await call(`/products/${product.id}/comments`, { token: writer.token, body: { text: 'Something rude' } });
+    for (const name of ['R One', 'R Two', 'R Three']) {
+      const r = await register(name);
+      assert.equal((await call('/comment-reports', { token: r.token, body: { kind: 'item', id: c.json.id, reason: 'rude' } })).status, 200);
+    }
+    const list = (await call(`/products/${product.id}/comments`)).json;
+    assert.ok(!list.some((x) => x.id === c.json.id));
+  });
+  test('item comments are limited to 8 a minute', async () => {
+    const product = (await call('/products')).json[2];
+    const a = await register('Fast Typer');
+    const codes = [];
+    for (let i = 0; i < 9; i++) codes.push((await call(`/products/${product.id}/comments`, { token: a.token, body: { text: `hi ${i}` } })).status);
+    assert.deepEqual(codes.slice(0, 8), Array(8).fill(200));
+    assert.equal(codes[8], 429);
+  });
+  test('deleting an account empties it, removes what it made, and it can no longer sign in', async () => {
+    const product = (await call('/products')).json[3];
+    const a = await register('Leaving Person');
+    await call(`/products/${product.id}/comments`, { token: a.token, body: { text: 'bye' } });
+    assert.equal((await call('/auth/me/delete', { token: a.token, body: { confirm: 'nope' } })).status, 400);
+    assert.equal((await call('/auth/me/delete', { token: a.token, body: { confirm: 'DELETE' } })).status, 200);
+    assert.equal((await call('/auth/me', { token: a.token })).json?.user?.isGuest ?? true, true);
+    assert.equal((await call(`/usernames/${a.user.username}`)).status, 404);
+    assert.ok(!(await call(`/products/${product.id}/comments`)).json.some((c) => c.uid === a.id));
+  });
+  test('people can be found by name, @username or shop name', async () => {
+    const a = await register('Diane Mukamana');
+    const found = (await call('/usernames?q=mukamana')).json;
+    assert.ok(found.some((p) => p.id === a.id));
+    assert.ok((await call('/usernames?q=kigali')).json.some((p) => p.isShop));
+  });
+});

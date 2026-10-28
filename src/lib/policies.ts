@@ -245,7 +245,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Your rights',
             paragraphs: [
-              'You can see and change your details in your account settings. You can ask us for a copy of your information, to correct it, or to delete your account through Help & Support.',
+              'You can see and change your details in your account settings. You can delete your account yourself in Settings → Delete my account: your profile, comments, likes, follows, looks, history and (for shops) items, lessons and replays are removed, and the account can’t sign in again. Orders already placed are kept for the shop’s accounts, without the buyer’s name, email, phone or address (a shop’s name stays on its customers’ receipts). You can also ask us for a copy of your information or to correct it through Help & Support.',
             ],
           },
           {

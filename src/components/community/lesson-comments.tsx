@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { RichText } from '@/components/rich-text';
 import { MentionSuggestions } from '@/components/mention-suggestions';
 import { CommentThread } from '@/components/comment-thread';
+import { ReportComment } from '@/components/report-comment';
 
 /** Comments and questions under a lesson, as threads: the teacher's replies are marked and answer the question. */
 export function LessonComments({ lesson }: { lesson: Lesson }) {
@@ -67,6 +68,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
         <p className="whitespace-pre-wrap break-words text-sm">{parent && <span className="mr-1 font-semibold text-primary">@{parent.name}</span>}<RichText text={c.text} /></p>
         <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
           {user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
+          <ReportComment kind="lesson" id={c.id} authorId={c.uid} />
           {lesson.authorId === authUid && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       </div>
