@@ -1,6 +1,7 @@
 
 'use client';
 
+import { ToMySaligue } from '@/components/to-my-saligue';
 import { useMemo } from 'react';
 import ProductCard from '@/components/product-card';
 import { useWishlist } from '@/hooks/use-wishlist';
@@ -22,6 +23,7 @@ export default function WishlistPage() {
 
   return (
     <div className="container mx-auto py-8 px-4 md:py-12">
+      <ToMySaligue to="/my-account/saved" />
       <div className="text-center mb-12">
         <Heart className="mx-auto h-16 w-16 mb-4 text-accent" />
         <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight font-headline text-primary">My Saligue</h1>

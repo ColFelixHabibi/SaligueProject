@@ -6,15 +6,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Inbox } from '@/components/messages/inbox';
 
-/** Shoppers' messages. Shops read theirs inside Seller Center (/dashboard/messages), so links here lead there. */
+/** Messages live inside each dashboard (My Saligue or Seller Center); links here lead there. */
 function Messages() {
-  const { role, isAuthLoading } = useAuth();
+  const { user, role, isAuthLoading } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   useEffect(() => {
-    if (!isAuthLoading && role === 'seller') router.replace(`/dashboard/messages${params.toString() ? `?${params}` : ''}`);
-  }, [isAuthLoading, role, params, router]);
-  if (isAuthLoading || role === 'seller') return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+    if (isAuthLoading || !user) return;
+    router.replace(`${role === 'seller' ? '/dashboard/messages' : '/my-account/messages'}${params.toString() ? `?${params}` : ''}`);
+  }, [isAuthLoading, user, role, params, router]);
+  if (isAuthLoading || user) return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
   return <Inbox />;
 }
 

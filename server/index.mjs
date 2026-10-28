@@ -2369,6 +2369,7 @@ route('GET', '/api/coins', ({ user }) => {
     onlinePayment: paymentsEnabled(),
     momoNumber: a.momoNumber,
     momoName: a.momoName,
+    history: user ? db.prepare('select amount, reason, created_at from coins where user_id = ? order by created_at desc limit 40').all(user.id).map((c) => ({ amount: c.amount, reason: c.reason, createdAt: c.created_at })) : [],
     pending: user ? db.prepare("select coins, amount, reference, created_at from coin_orders where user_id = ? and status = 'pending_payment' and created_at > ? order by created_at desc").all(user.id, new Date(Date.now() - 3 * 86_400_000).toISOString())
       .map((o) => ({ coins: o.coins, amount: o.amount, reference: o.reference, createdAt: o.created_at })) : [],
   };

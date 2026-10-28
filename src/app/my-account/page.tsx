@@ -1,104 +1,80 @@
-
 'use client';
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { useWishlist } from '@/hooks/use-wishlist';
-import ProductCard from '@/components/product-card';
-import { Button } from '@/components/ui/button';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { ArrowRight, Bookmark, Coins, GraduationCap, Package, ShoppingBag, Store, Wand2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ProductCard from '@/components/product-card';
+import { useCart } from '@/hooks/use-cart-store';
+import { useWishlist } from '@/hooks/use-wishlist';
+import { getCoins } from '@/lib/live';
+import { formatPrice, useOrders } from '@/lib/orders';
+import { cn } from '@/lib/utils';
 
-import { useAuth } from '@/components/auth/auth-provider';
-import React, { useState, useEffect } from 'react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Heart, ShoppingBag } from 'lucide-react';
+const STATUS: Record<string, string> = { placed: 'Placed', confirmed: 'Confirmed', shipped: 'On the way', delivered: 'Delivered', cancelled: 'Cancelled' };
 
-
-export default function BuyerDashboardPage() {
+/** My Saligue at a glance: orders on their way, saved items, the bag and coins; then the latest orders. */
+export default function MySaligue() {
+  const orders = useOrders('buyer');
   const { wishlistItems } = useWishlist();
-  const { user } = useAuth();
-  
-
-  const getInitials = (name?: string | null) => {
-    if (!name) return 'U';
-    return name.split(' ').map((n) => n[0]).join('');
-  };
-
-  const recentWishlist = wishlistItems.slice(0, 4);
-
+  const { cartItems } = useCart();
+  const [coins, setCoins] = useState<number | null>(null);
+  useEffect(() => void getCoins().then((c) => setCoins(c.balance)).catch(() => {}), []);
+  const open = useMemo(() => (orders ?? []).filter((o) => !['delivered', 'cancelled'].includes(o.status)), [orders]);
+  const tiles: [typeof Package, string, string, string][] = [
+    [Package, 'On their way', String(open.length), '/my-account/orders'],
+    [Bookmark, 'Saved', String(wishlistItems.length), '/my-account/saved'],
+    [ShoppingBag, 'In your bag', String(cartItems.reduce((n, i) => n + i.quantity, 0)), '/cart'],
+    [Coins, 'Coins', coins == null ? '…' : coins.toLocaleString(), '/my-account/coins'],
+  ];
   return (
-    <div className="flex flex-col gap-6">
-       <Card>
-          <CardHeader className="flex flex-row items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={user?.photoURL ?? undefined} alt="User avatar" />
-                <AvatarFallback>{getInitials(user?.displayName)}</AvatarFallback>
-              </Avatar>
-              <div>
-                <CardTitle className="text-2xl">Welcome, {user?.displayName || 'User'}!</CardTitle>
-                <CardDescription>This is your personal dashboard.</CardDescription>
-              </div>
-          </CardHeader>
-      </Card>
-      <div className="grid gap-4 md:grid-cols-2">
-         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg">My Saligue</CardTitle>
-            <Heart className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{wishlistItems.length} items</div>
-            <p className="text-xs text-muted-foreground">Your favorite fashion finds.</p>
-          </CardContent>
-        </Card>
-         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg">Purchase History</CardTitle>
-            <ShoppingBag className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">0 items</div>
-            <p className="text-xs text-muted-foreground">You haven't purchased anything yet.</p>
-          </CardContent>
-        </Card>
+    <>
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+        {tiles.map(([Icon, label, value, href]) => (
+          <Link key={label} href={href} className="group rounded-2xl border bg-card p-4 transition hover:border-primary">
+            <Icon className="h-5 w-5 text-primary" />
+            <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+            <p className="flex items-center justify-between text-xs text-muted-foreground">{label} <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" /></p>
+          </Link>
+        ))}
       </div>
+
       <Card>
-        <CardHeader>
-            <div className="flex items-center justify-between">
-                <div>
-                    <CardTitle>Recently Favorited</CardTitle>
-                    <CardDescription>Your latest additions to My Saligue.</CardDescription>
-                </div>
-                {wishlistItems.length > 0 && (
-                    <Button asChild variant="outline">
-                        <Link href="/wishlist">View All</Link>
-                    </Button>
-                )}
-            </div>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Latest orders</CardTitle>
+          <Link href="/my-account/orders" className="text-sm font-semibold text-primary">All</Link>
         </CardHeader>
-        <CardContent>
-            {recentWishlist.length > 0 ? (
-                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {recentWishlist.map((product) => (
-                        <ProductCard key={product.id} product={product} />
-                    ))}
-                </div>
-            ) : (
-                <div className="text-center py-10 border-2 border-dashed rounded-lg">
-                    <h3 className="text-lg font-semibold">Nothing here yet!</h3>
-                    <p className="text-sm text-muted-foreground">Start exploring and add items to your wishlist.</p>
-                     <Button asChild className="mt-4">
-                        <Link href="/mirror">Open the Fitting Room</Link>
-                    </Button>
-                </div>
-            )}
+        <CardContent className="divide-y">
+          {orders && orders.length === 0 && <p className="py-2 text-sm text-muted-foreground">No orders yet. <Link href="/search" className="text-primary underline">Explore items</Link></p>}
+          {(orders ?? []).slice(0, 4).map((o) => (
+            <Link key={o.id} href="/my-account/orders" className="flex items-center gap-3 py-2.5 text-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {o.items[0]?.image && <img src={o.items[0].image} alt="" className="h-11 w-11 shrink-0 rounded-lg bg-muted object-contain p-0.5" />}
+              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{o.items.map((i) => i.name).join(', ')}</span><span className="text-xs text-muted-foreground">{formatPrice(o.total)}</span></span>
+              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', o.status === 'delivered' ? 'bg-emerald-100 text-emerald-700' : o.status === 'cancelled' ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary')}>{STATUS[o.status] ?? o.status}</span>
+            </Link>
+          ))}
         </CardContent>
       </Card>
-    </div>
+
+      {wishlistItems.length > 0 && (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Saved for later</CardTitle>
+            <Link href="/my-account/saved" className="text-sm font-semibold text-primary">All</Link>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">{wishlistItems.slice(0, 4).map((p) => <ProductCard key={p.id} product={p} variant="shop" />)}</CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {([[Wand2, 'Fitting Room', 'See yourself in any item', '/mirror'], [GraduationCap, 'Teach a lesson', 'Share what you know', '/learn/new'], [Store, 'Start selling', 'Open your own shop', '/sell']] as const).map(([Icon, label, hint, href]) => (
+          <Link key={label} href={href} className="flex items-center gap-3 rounded-2xl border bg-card p-3 transition hover:border-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-5 w-5" /></span>
+            <span className="min-w-0"><span className="block text-sm font-semibold">{label}</span><span className="block truncate text-xs text-muted-foreground">{hint}</span></span>
+          </Link>
+        ))}
+      </div>
+    </>
   );
 }

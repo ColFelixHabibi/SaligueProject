@@ -96,7 +96,7 @@ export const votePoll = (id: string, option: number) => api<{ myVote: number; po
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment', replyToId?: string | null) =>
   api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind, replyToId: replyToId ?? undefined } });
 export const sendGift = (id: string, gift: string) => api<{ balance: number }>(`/lives/${id}/gift`, { body: { gift } });
-export type Coins = { balance: number; packs: { coins: number; price: number }[]; gifts: LiveGift[]; onlinePayment: boolean; momoNumber: string | null; momoName: string; pending: { coins: number; amount: number; reference: string }[] };
+export type Coins = { balance: number; packs: { coins: number; price: number }[]; gifts: LiveGift[]; onlinePayment: boolean; momoNumber: string | null; momoName: string; pending: { coins: number; amount: number; reference: string }[]; history?: { amount: number; reason: string; createdAt: string }[] };
 export const getCoins = () => api<Coins>('/coins');
 export const buyCoins = (coins: number) => api<{ link?: string; manual?: boolean; reference: string; amount: number; momoNumber?: string | null; momoName?: string }>('/coins/buy', { body: { coins } });
 export const removeLiveComment = (id: string, commentId: string) => api(`/lives/${id}/comments/${commentId}`, { method: 'DELETE' });

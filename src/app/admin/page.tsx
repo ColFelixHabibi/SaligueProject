@@ -6,7 +6,6 @@ import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Scale, ScrollText, Server, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
@@ -22,6 +21,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api, getToken } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
+import { Hub } from '@/components/layout/hub';
 
 type Platform = {
   site: string;
@@ -491,25 +491,26 @@ export default function AdminPage() {
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
     { value: 'platform', label: 'Platform', icon: Server, show: has('platform'), body: <PlatformSettings /> },
   ].filter((t) => t.show);
+  const main = me.level === 1;
+  const body = tabs.find((t) => t.value === tab)?.body ?? tabs[0]?.body;
   return (
-    <div className="mx-auto max-w-4xl space-y-4 px-3 py-5 sm:px-4 md:py-8">
-      <div className="min-w-0">
-        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Saligue admin · {me.level === 1 ? 'Main admin' : 'Sub-admin'}</p>
-        <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Admin dashboard</h1>
-      </div>
-      <Tabs value={tab} onValueChange={setTab}>
-        {/* Phones: one row of icon tabs that scrolls sideways and stays under the top bar. */}
-        <div className="sticky top-[calc(4rem+var(--sat))] z-30 -mx-3 bg-background/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:top-0">
-          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tabs.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} title={t.label} className="shrink-0 gap-1.5 px-2.5 py-1.5">
-                <t.icon className="h-4 w-4" /> <span className={cn(t.value !== tab && 'hidden sm:inline')}>{t.label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
-        {tabs.map((t) => <TabsContent key={t.value} value={t.value} className="mt-3">{t.body}</TabsContent>)}
-      </Tabs>
-    </div>
+    <Hub
+      tone={main ? 'main-admin' : 'admin'}
+      kicker={main ? 'Saligue admin · Main admin' : 'Saligue admin · Sub-admin'}
+      title={main ? 'Full access' : `${me.perms.length} right${me.perms.length === 1 ? '' : 's'}`}
+      items={tabs.map((t) => ({ key: t.value, icon: t.icon, label: t.label, onSelect: () => open(t.value) }))}
+      activeKey={tab}
+    >
+      {tab === 'overview' && !main && (
+        <Card className="border-sky-300">
+          <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-5 w-5 text-sky-600" /> Your rights</CardTitle></CardHeader>
+          <CardContent className="flex flex-wrap gap-1.5">
+            {me.perms.map((p) => <span key={p} className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800" title={me.allPerms[p]}>{p}: {me.allPerms[p]}</span>)}
+            <p className="w-full pt-1 text-xs text-muted-foreground">Ask the main admin for more.</p>
+          </CardContent>
+        </Card>
+      )}
+      {body}
+    </Hub>
   );
 }
