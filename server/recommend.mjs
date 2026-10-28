@@ -108,7 +108,8 @@ function dailyNoise(id) {
  * The feed for one shopper: [{ id, reason }] best first. `reason` says why it was picked
  * ("Because you liked …", "Shoppers like you also liked …", "Trending", "New").
  */
-export function feedFor(userId, products) {
+/** `closeness(product)`: 0 (far or unknown) to 4 (same city), a gentle lift for shops near the shopper. */
+export function feedFor(userId, products, closeness = () => 0) {
   const m = ensureModel();
   const mine = userId ? allSignals(userId).get(userId) ?? new Map() : new Map();
   const byId = new Map(products.map((p) => [p.id, p]));
@@ -158,6 +159,8 @@ export function feedFor(userId, products) {
       const score = confidence * (0.9 * look + 0.8 * cf + 0.35 * kind - dislike)
         + (1 - confidence * 0.5) * (0.35 * trend + 0.3 * fresh + popular)
         + dailyNoise(p.id) * (0.22 - confidence * 0.12)
+        // Nearer shops come a little earlier (taste still leads): delivery is faster and pickup possible.
+        + 0.06 * closeness(p)
         - seen - (p.stock === 0 ? 0.6 : 0);
       let reason = null;
       const b = because.get(p.id);

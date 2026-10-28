@@ -14,6 +14,9 @@ import { AUTO_LANGUAGES, captionMissing, captionsAvailable, cuesToVtt, enqueueCa
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { countryOfIp } from './geo.mjs';
+import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
@@ -1481,10 +1484,80 @@ const liveEvent = (liveId, data) => broadcast('live', { liveId, ...data });
 const sellerProductIds = (userId, ids) =>
   (Array.isArray(ids) ? ids.map(String) : []).filter((id) => db.prepare('select 1 from products where id = ? and seller_id = ?').get(id, userId)).slice(0, 30);
 
-route('GET', '/api/lives', () => ({
-  enabled: liveSettings().enabled && featureOn('live'),
-  lives: db.prepare("select * from lives where status = 'live' order by started_at desc limit 50").all().map(liveOut),
-}));
+// ---------------------------------------------------------------------------
+// Where people are (for ranking only, never shown): the visitor's country from their address, their city from
+// their latest delivery address or their own shop; a shop's from its address. Closer comes first:
+// same city, same country, same region (Africa's UN sub-regions), same continent, then the rest.
+// ---------------------------------------------------------------------------
+const REGIONS = JSON.parse(readFileSync(fileURLToPath(new URL('../src/lib/regions.json', import.meta.url)), 'utf8')).regions;
+const COUNTRY_CODES = (() => {
+  const names = new Map();
+  for (const lang of ['en', 'fr', 'sw', 'rw']) {
+    try {
+      const display = new Intl.DisplayNames([lang], { type: 'region' });
+      for (const code of Object.keys(REGIONS)) names.set(display.of(code)?.toLowerCase(), code);
+    } catch {
+      // Language not known to this Node build.
+    }
+  }
+  return names;
+})();
+const countryCode = (value) => {
+  const v = String(value ?? '').trim();
+  if (/^[A-Za-z]{2}$/.test(v)) return v.toUpperCase();
+  return COUNTRY_CODES.get(v.toLowerCase()) ?? null;
+};
+const sameText = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+function whereIs(user, ipCountry) {
+  const shop = parse(user?.shop ?? null);
+  const order = user ? db.prepare('select delivery from orders where buyer_id = ? order by created_at desc limit 1').get(user.id) : null;
+  const city = parse(order?.delivery ?? null)?.city || shop?.city || null;
+  const country = ipCountry || countryCode(parse(order?.delivery ?? null)?.country) || countryCode(shop?.country);
+  return { country, city };
+}
+/** 4 same city · 3 same country · 2 same region · 1 same continent · 0 farther (or unknown). */
+function closeness(a, b) {
+  if (!a.country || !b.country) return 0;
+  if (a.country === b.country) return sameText(a.city, b.city) ? 4 : 3;
+  const [ca, ra] = REGIONS[a.country] ?? [];
+  const [cb, rb] = REGIONS[b.country] ?? [];
+  if (ra && ra === rb) return 2;
+  return ca && ca === cb ? 1 : 0;
+}
+const shopPlace = (sellerId) => {
+  const shop = parse(db.prepare('select shop from users where id = ?').get(sellerId)?.shop ?? null);
+  return { country: countryCode(shop?.country), city: shop?.city ?? null };
+};
+const engage = (userId, sellerId, field, amount = 1) => {
+  if (!userId || userId === sellerId) return;
+  db.prepare(`insert into live_engagement (user_id, seller_id, ${field}, updated_at) values (?, ?, ?, ?)
+    on conflict(user_id, seller_id) do update set ${field} = ${field} + excluded.${field}, updated_at = excluded.updated_at`).run(userId, sellerId, amount, now());
+};
+
+// The visitor's place, for ranking on the device (For You). Not shown anywhere.
+route('GET', '/api/where', ({ user }) => whereIs(user, visitorCountry()));
+
+/**
+ * Lives for this viewer, closest first, then by how much they engage with each shop (hearts and double-taps,
+ * comments, gifts), shops they follow or bought from, and how lively each live is.
+ */
+route('GET', '/api/lives', ({ user }) => {
+  const lives = db.prepare("select * from lives where status = 'live' order by started_at desc limit 50").all();
+  const me = whereIs(user, visitorCountry());
+  const score = (l) => {
+    const e = user ? db.prepare('select hearts, comments, gifts from live_engagement where user_id = ? and seller_id = ?').get(user.id, l.seller_id) : null;
+    const follows = user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, l.seller_id) ? 1 : 0;
+    const bought = user && db.prepare("select 1 from orders where buyer_id = ? and seller_id = ? and status != 'cancelled' limit 1").get(user.id, l.seller_id) ? 1 : 0;
+    const affinity = Math.log1p(e?.hearts ?? 0) * 0.6 + Math.log1p(e?.comments ?? 0) * 0.8 + Math.log1p((e?.gifts ?? 0) / 10) * 1.2 + follows * 1.5 + bought * 1.2;
+    const lively = Math.log1p(l.like_count) * 0.25 + Math.log1p(l.peak_viewers) * 0.4;
+    // Closeness leads (each step is worth more than a little engagement); strong engagement can still lift a far shop.
+    return closeness(me, shopPlace(l.seller_id)) * 2 + affinity + lively;
+  };
+  return {
+    enabled: liveSettings().enabled && featureOn('live'),
+    lives: lives.map((l) => ({ l, s: score(l) })).sort((a, b) => b.s - a.s).map(({ l }) => liveOut(l)),
+  };
+});
 
 route('POST', '/api/lives', ({ user, body }) => {
   needFeature('live');
@@ -1633,6 +1706,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, reply_to, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(comment.id, comment.live_id, comment.user_id, comment.name, comment.text, comment.kind, comment.reply_to, comment.created_at);
   liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
+  if (kind !== 'join') engage(user.id, live.seller_id, 'comments');
   return liveCommentOut(comment);
 });
 
@@ -1654,6 +1728,7 @@ route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
   if (live.status !== 'live') return { likeCount: live.like_count };
   const count = Math.min(30, Math.max(1, Math.floor(Number(body.count) || 1)));
   db.prepare('update lives set like_count = like_count + ? where id = ?').run(count, live.id);
+  engage(user.id, live.seller_id, 'hearts', count);
   const likeCount = db.prepare('select like_count from lives where id = ?').get(live.id).like_count;
   liveEvent(live.id, { type: 'likes', likeCount, count, emoji: ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️', from: user.id });
   return { likeCount };
@@ -1704,6 +1779,7 @@ route('POST', '/api/lives/([\\w-]+)/gift', ({ user, params, body }) => {
   });
   liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
   liveEvent(live.id, { type: 'gift', from: name, emoji: gift.emoji, name: gift.name, coins: gift.coins });
+  engage(user.id, live.seller_id, 'gifts', gift.coins);
   return { balance: coinBalance(user.id) };
 });
 
@@ -1815,7 +1891,13 @@ route('POST', '/api/interactions', ({ req, user, body }) => {
   return { ok: true, recorded };
 });
 
-route('GET', '/api/feed', ({ user }) => feedFor(user?.id ?? null, db.prepare('select * from products').all()));
+route('GET', '/api/feed', ({ user }) => {
+  const me = whereIs(user, visitorCountry());
+  return feedFor(user?.id ?? null, db.prepare('select * from products').all(), (p) => {
+    const shop = parse(p.shop ?? null);
+    return closeness(me, { country: countryCode(shop?.country), city: shop?.city ?? null });
+  });
+});
 
 // A shopper can clear what was learned about them (Settings → Privacy).
 route('DELETE', '/api/interactions', ({ user }) => {
@@ -1849,11 +1931,51 @@ const FEATURES = {
   verification: 'Verification badge requests',
 };
 const features = () => ({ ...Object.fromEntries(Object.keys(FEATURES).map((k) => [k, true])), ...(parse(db.prepare("select value from app_config where key = 'features'").get()?.value) ?? {}) });
-const featureOn = (name) => features()[name] !== false;
+// Where each request comes from (set by the router for every API call).
+const requestContext = new AsyncLocalStorage();
+const visitorCountry = () => requestContext.getStore()?.country ?? null;
+function countryOf(req) {
+  return countryOfIp(clientIp(req));
+}
+
+// A feature can also be limited by country (e.g. monetization only where it makes sense, or a feature closed
+// where the law asks): 'only' these countries, or every country 'except' these. No rule = everywhere.
+const featureCountries = () => parse(db.prepare("select value from app_config where key = 'feature_countries'").get()?.value) ?? {};
+function featureOn(name, country = visitorCountry()) {
+  if (features()[name] === false) return false;
+  const rule = featureCountries()[name];
+  if (!rule?.countries?.length) return true;
+  // Unknown country (rare): allowed unless the feature is limited to a list.
+  if (!country) return rule.mode !== 'only';
+  return rule.mode === 'only' ? rule.countries.includes(country) : !rule.countries.includes(country);
+}
 const needFeature = (name) => {
-  if (!featureOn(name)) fail(503, 'feature_off', `${FEATURES[name] ?? 'This feature'} is switched off for now.`);
+  if (featureOn(name)) return;
+  if (features()[name] === false) fail(503, 'feature_off', `${FEATURES[name] ?? 'This feature'} is switched off for now.`);
+  fail(403, 'not_in_country', `${FEATURES[name] ?? 'This feature'} is not available in your country yet.`);
 };
-route('GET', '/api/features', () => features());
+// Admins see and switch the global setting (not their own country's view of it).
+route('GET', '/api/admin/features', ({ user }) => {
+  requireAdmin(user, 'features');
+  return Object.fromEntries(Object.keys(FEATURES).map((k) => [k, features()[k] !== false]));
+});
+route('GET', '/api/features', () => Object.fromEntries(Object.keys(FEATURES).map((k) => [k, featureOn(k)])));
+route('GET', '/api/admin/feature-countries', ({ user }) => {
+  requireAdmin(user, 'features');
+  return featureCountries();
+});
+route('PUT', '/api/admin/feature-countries', ({ user, body }) => {
+  requireAdmin(user, 'features');
+  if (!FEATURES[body.feature]) fail(400, 'invalid', 'Unknown feature.');
+  const countries = [...new Set((Array.isArray(body.countries) ? body.countries : []).map((c) => String(c).toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)))].slice(0, 250);
+  const all = featureCountries();
+  if (!countries.length || !['only', 'except'].includes(body.mode)) delete all[body.feature];
+  else all[body.feature] = { mode: body.mode, countries };
+  saveConfig('feature_countries', all);
+  logAdmin(user, 'feature countries', `${body.feature}: ${all[body.feature] ? `${all[body.feature].mode} ${countries.join(' ')}` : 'everywhere'}`);
+  broadcast('features');
+  return all;
+});
 
 // What a sub-admin (type 2) may be allowed to do. The main admin (type 1) can do everything and manages admins.
 const ADMIN_PERMS = {
@@ -3672,7 +3794,8 @@ const server = http.createServer(async (req, res) => {
     }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     const user = userOf(req);
-    const result = await match.handler({ req, res, url, params, body, user });
+    // The visitor's country (from their address) travels with the request: per-country features, "near you".
+    const result = await requestContext.run({ country: countryOf(req) }, () => match.handler({ req, res, url, params, body, user }));
     // A route that answered by itself (a file) is done; never answer twice.
     if (res.writableEnded || res.headersSent) return;
     if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));

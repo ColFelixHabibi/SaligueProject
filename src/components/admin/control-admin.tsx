@@ -1,5 +1,6 @@
 'use client';
 
+import { FeatureCountries, ruleSummary, type CountryRule } from '@/components/admin/feature-countries';
 import { ask } from '@/components/confirm-dialog';
 import { useCallback, useEffect, useState } from 'react';
 import { Ban, History, Loader2, Plus, RotateCcw, ScrollText, Search, ShieldCheck, SlidersHorizontal, Trash2, UserCog, Wallet } from 'lucide-react';
@@ -34,7 +35,14 @@ function useAct() {
 export function FeaturesAdmin({ features }: { features: Record<string, string> }) {
   const act = useAct();
   const [state, setState] = useState<Record<string, boolean> | null>(null);
-  useEffect(() => void api<Record<string, boolean>>('/features').then(setState).catch(() => {}), []);
+  const [rules, setRules] = useState<Record<string, CountryRule>>({});
+  useEffect(() => {
+    void api<Record<string, boolean>>('/admin/features').then(setState).catch(() => {});
+    void api<Record<string, CountryRule>>('/admin/feature-countries').then(setRules).catch(() => {});
+  }, []);
+  const saveCountries = (key: string, rule: CountryRule | null) =>
+    act(() => api<Record<string, CountryRule>>('/admin/feature-countries', { method: 'PUT', body: { feature: key, mode: rule?.mode, countries: rule?.countries ?? [] } }), `${features[key]}: ${ruleSummary(rule ?? undefined).toLowerCase()}`)
+      .then((r) => r && setRules(r));
   const toggle = async (key: string, on: boolean) => {
     const next = await act(() => api<Record<string, boolean>>('/admin/features', { method: 'PUT', body: { [key]: on } }), `${features[key]} ${on ? 'on' : 'off'}`);
     if (next) setState(next);
@@ -43,13 +51,14 @@ export function FeaturesAdmin({ features }: { features: Record<string, string> }
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5 text-primary" /> Features</CardTitle>
-        <CardDescription>Turned-off features disappear from the website and the app at once, and the server refuses them. Nothing is deleted: turn them back on any time.</CardDescription>
+        <CardDescription>Turned-off features disappear from the website and the app at once, and the server refuses them. Nothing is deleted: turn them back on any time. 🌍 limits a feature to some countries (e.g. monetization where it’s useful, or a feature closed where the law asks).</CardDescription>
       </CardHeader>
       <CardContent className="divide-y">
         {!state && <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
         {state && Object.entries(features).map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between gap-4 py-3">
-            <Label htmlFor={`f-${key}`} className="text-sm font-medium">{label}</Label>
+          <div key={key} className="flex items-center justify-between gap-2 py-2.5">
+            <Label htmlFor={`f-${key}`} className="min-w-0 flex-1 text-sm font-medium">{label}</Label>
+            {state[key] !== false && <FeatureCountries label={label} rule={rules[key]} onSave={(r) => saveCountries(key, r)} />}
             <Switch id={`f-${key}`} checked={state[key] !== false} onCheckedChange={(v) => toggle(key, v)} />
           </div>
         ))}

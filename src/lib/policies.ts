@@ -194,6 +194,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'Payments: when you pay online, Flutterwave handles your card or Mobile Money details on its own secure page. Saligue receives only whether the payment succeeded, the amount and a reference — never your card number or PIN.',
               'Profile photo: sellers add a profile photo, shown publicly with their shop.',
               'Support: the messages you send us.',
+              'Your country: worked out on Saligue’s own server from your internet address (IP Geolocation by DB-IP, db-ip.com), never sent to anyone else. It decides which features are available where you are, and helps show you lives and shops close to you first. Your city comes only from addresses you gave us (a delivery address or your shop). It is not shown to anyone.',
             ],
           },
           {

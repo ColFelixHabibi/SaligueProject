@@ -465,6 +465,17 @@ db.exec(`
   );
   create index if not exists ad_credits_user on ad_credits(user_id, created_at desc);
 
+  -- How much each person engages with each shop's lives (double-taps/hearts, comments, gifts): it ranks lives.
+  create table if not exists live_engagement (
+    user_id text not null references users(id) on delete cascade,
+    seller_id text not null references users(id) on delete cascade,
+    hearts integer not null default 0,
+    comments integer not null default 0,
+    gifts integer not null default 0,     -- coins
+    updated_at text not null,
+    primary key (user_id, seller_id)
+  );
+
   -- Coins (like TikTok): bought in packs, spent on gifts in lives. Each line + bought / − spent.
   create table if not exists coin_orders (
     id text primary key,
