@@ -35,8 +35,19 @@ export function useLiveRecorder(liveId: string | null, active: boolean, sources:
     const ctx = canvas.getContext('2d');
     canvas.width = 720;
     canvas.height = 1280;
-    const audio = new AudioContext();
+    // Sound: everyone's microphone through a gentle leveller (quiet voices up, loud ones down), so every voice in
+    // the replay is easy to understand.
+    const audio = new AudioContext({ sampleRate: 48_000 });
     const out = audio.createMediaStreamDestination();
+    const level = audio.createDynamicsCompressor();
+    level.threshold.value = -28;
+    level.knee.value = 20;
+    level.ratio.value = 4;
+    level.attack.value = 0.005;
+    level.release.value = 0.25;
+    const gain = audio.createGain();
+    gain.gain.value = 1.6;
+    level.connect(gain).connect(out);
     // A <video> per camera and an audio input per microphone, kept while that track is in the live.
     const videos = new Map<string, HTMLVideoElement>();
     const mics = new Map<string, MediaStreamAudioSourceNode>();
@@ -58,7 +69,7 @@ export function useLiveRecorder(liveId: string | null, active: boolean, sources:
       for (const s of now) {
         if (s.audio && s.audio.readyState === 'live' && !mics.has(s.audio.id)) {
           const m = audio.createMediaStreamSource(new MediaStream([s.audio]));
-          m.connect(out);
+          m.connect(level);
           mics.set(s.audio.id, m);
         }
       }
@@ -90,7 +101,7 @@ export function useLiveRecorder(liveId: string | null, active: boolean, sources:
       });
     }, 1000 / 24);
     const stream = new MediaStream([...canvas.captureStream(24).getVideoTracks(), ...out.stream.getAudioTracks()]);
-    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 96_000 });
+    const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 1_200_000, audioBitsPerSecond: 128_000 });
     // Pieces go one after another; a failed piece is retried a few times.
     let seq = 0;
     let chain: Promise<unknown> = Promise.resolve();

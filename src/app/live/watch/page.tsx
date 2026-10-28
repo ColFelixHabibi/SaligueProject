@@ -1,5 +1,6 @@
 'use client';
 
+import { ReplayPlayer } from '@/components/live/replay-player';
 import { absoluteUrl } from '@/lib/paths';
 import { shareLink } from '@/components/share-sheet';
 import { useBlockedIds } from '@/lib/blocks';
@@ -183,7 +184,7 @@ function Watch() {
         {live.replay ? (
           // Watch again: the host's recording of this live.
           <div className="mx-auto w-full max-w-sm space-y-2">
-            <video src={live.replay.video} poster={live.replay.poster ?? live.thumbnail ?? undefined} controls playsInline autoPlay className="aspect-[9/16] w-full rounded-2xl bg-black object-contain shadow-lg" />
+            <ReplayPlayer live={live} />
             <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
               <History className="h-4 w-4" /> Replay · {new Date(live.startedAt).toLocaleDateString()}
               {live.sellerId === authUid && (

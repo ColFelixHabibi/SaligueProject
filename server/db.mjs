@@ -498,6 +498,15 @@ db.exec(`
     primary key (user_id, product_id)
   );
 
+  -- Hearts during a live, in batches with their time: they float up again at the same moment in the replay.
+  create table if not exists live_hearts (
+    live_id text not null references lives(id) on delete cascade,
+    count integer not null,
+    emoji text not null,
+    created_at text not null
+  );
+  create index if not exists live_hearts_live on live_hearts(live_id, created_at);
+
   -- Questions to a shop about an item; the shop's answer is shown to every later shopper.
   create table if not exists product_questions (
     id text primary key,
@@ -613,7 +622,7 @@ for (const [table, column, type] of [
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
-  ['lives', 'replay_video', 'text'], ['lives', 'replay_poster', 'text'], ['lives', 'replay_duration', 'integer'], ['lives', 'replay_status', 'text'], ['lives', 'ended_at_ms', 'integer'],
+  ['lives', 'replay_video', 'text'], ['lives', 'replay_poster', 'text'], ['lives', 'replay_duration', 'integer'], ['lives', 'replay_status', 'text'], ['lives', 'replay_started_at', 'text'],
   ['users', 'username', 'text'], ['users', 'referred_by', 'text'], ['users', 'referral_rewarded', 'integer not null default 0'],
   ['orders', 'fee', 'real not null default 0'], ['orders', 'settlement_id', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],

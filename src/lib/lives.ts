@@ -33,7 +33,7 @@ export type Live = {
   startedAt: string;
   endedAt: string | null;
   // Watch again after the live: ready when the recording is saved.
-  replay?: { video: string; poster: string | null; duration: number | null } | null;
+  replay?: { video: string; poster: string | null; duration: number | null; startedAt?: string } | null;
   replayStatus?: 'recording' | 'processing' | 'ready' | 'none' | null;
 };
 

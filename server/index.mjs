@@ -1662,7 +1662,7 @@ function liveOut(l) {
     // Cover picture shown in the list of lives (a photo, or a frame from the host's camera).
     thumbnail: l.thumbnail ?? null,
     // The recording, to watch again after the live ('recording' → 'processing' → 'ready').
-    replay: l.replay_status === 'ready' ? { video: l.replay_video, poster: l.replay_poster, duration: l.replay_duration } : null,
+    replay: l.replay_status === 'ready' ? { video: l.replay_video, poster: l.replay_poster, duration: l.replay_duration, startedAt: l.replay_started_at ?? l.started_at } : null,
     replayStatus: l.replay_status ?? null,
     // Hearts the host hopes to reach (0 = no goal), shown as a bar to everyone.
     heartGoal: l.heart_goal ?? 0,
@@ -1932,6 +1932,18 @@ route('DELETE', '/api/lives/([\\w-]+)/replay', ({ user, params }) => {
   broadcast('lives');
   return { ok: true };
 });
+// The chat, gifts and hearts of a finished live, with their time from the start of the recording (seconds):
+// the replay plays them beside the video at the moment they happened.
+route('GET', '/api/lives/([\\w-]+)/replay-chat', ({ params }) => {
+  const live = db.prepare('select * from lives where id = ?').get(params[0]);
+  if (!live || live.replay_status !== 'ready') fail(404, 'not_found', 'No replay for this live.');
+  const start = new Date(live.replay_started_at ?? live.started_at).getTime();
+  const at = (t) => Math.max(0, Math.round((new Date(t).getTime() - start) / 100) / 10);
+  return {
+    comments: db.prepare("select * from live_comments where live_id = ? and kind != 'join' order by created_at limit 5000").all(live.id).map((c) => ({ ...liveCommentOut(c), at: at(c.created_at) })),
+    hearts: db.prepare('select count, emoji, created_at from live_hearts where live_id = ? order by created_at limit 20000').all(live.id).map((h) => ({ count: h.count, emoji: h.emoji, at: at(h.created_at) })),
+  };
+});
 // A shop's replays, newest first (profile → Replays).
 route('GET', '/api/profiles/([\\w-]+)/replays', ({ params }) =>
   db.prepare("select * from lives where seller_id = ? and replay_status = 'ready' order by started_at desc limit 50").all(params[0]).map(liveOut));
@@ -2014,7 +2026,9 @@ route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
   db.prepare('update lives set like_count = like_count + ? where id = ?').run(count, live.id);
   engage(user.id, live.seller_id, 'hearts', count);
   const likeCount = db.prepare('select like_count from lives where id = ?').get(live.id).like_count;
-  liveEvent(live.id, { type: 'likes', likeCount, count, emoji: ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️', from: user.id });
+  const emoji = ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️';
+  db.prepare('insert into live_hearts (live_id, count, emoji, created_at) values (?, ?, ?, ?)').run(live.id, count, emoji, now());
+  liveEvent(live.id, { type: 'likes', likeCount, count, emoji, from: user.id });
   return { likeCount };
 });
 
@@ -4223,7 +4237,7 @@ const server = http.createServer(async (req, res) => {
       const file = replayFile(live.id);
       if (seq === 0) {
         try { unlinkSync(file); } catch { /* none yet */ }
-        db.prepare("update lives set replay_status = 'recording' where id = ?").run(live.id);
+        db.prepare("update lives set replay_status = 'recording', replay_started_at = ? where id = ?").run(new Date(Date.now() - 10_000).toISOString(), live.id);
       }
       const size = existsSync(file) ? statSync(file).size : 0;
       const piece = await receiveUpload(req, Math.max(1, MAX_REPLAY_BYTES - size));
