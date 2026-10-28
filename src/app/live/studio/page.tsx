@@ -1,11 +1,11 @@
 'use client';
 
-import { useLiveRecorder } from '@/lib/live-recorder';
+import { useLiveRecorder, type RecordSource } from '@/lib/live-recorder';
 import { absoluteUrl } from '@/lib/paths';
 import { shareLink } from '@/components/share-sheet';
 import { ExpandableText } from '@/components/expandable-text';
 import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirrorFor, onDevicesChange, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraDevice, type MicDevice } from '@/lib/camera';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { BarChart3, Camera, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
@@ -267,7 +267,15 @@ function Studio({ id }: { id: string }) {
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, sentTracks, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
   // Recorded on this phone for the replay (what viewers see and hear from the host).
-  const replay = useLiveRecorder(id, live?.status === 'live' && status === 'connected', sentTracks);
+  // Everyone on camera (host first), with their current camera and mic: the replay shows the stage as viewers see it.
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
+  const recordSources = useCallback((): RecordSource[] => tilesRef.current.map((t) => ({
+    video: t.video?.mediaStreamTrack ?? null,
+    // The host's own mic isn't in their tile (they don't hear themselves); take it from what is sent.
+    audio: t.isLocal ? sentTracks().find((x) => x.kind === 'audio') ?? null : t.audio?.mediaStreamTrack ?? null,
+  })), [sentTracks]);
+  const replay = useLiveRecorder(id, live?.status === 'live' && status === 'connected', recordSources);
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [mics, setMics] = useState<MicDevice[]>([]);

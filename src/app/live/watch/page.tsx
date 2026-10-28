@@ -168,7 +168,7 @@ function Watch() {
     }
     try {
       await askToJoin(id);
-      toast({ title: 'Request sent', description: 'The host will see it. Your camera turns on if they accept.' });
+      toast({ title: 'Request sent', description: 'The host will see it. Your camera turns on if they accept, and you will be in the replay.' });
     } catch (err) {
       toast({ variant: 'destructive', title: 'Not sent', description: friendlyError(err) });
     }
@@ -273,7 +273,7 @@ function Watch() {
           {invited && !isGuest && (
             <div className="flex items-center gap-2 rounded-2xl bg-white/95 p-3 text-sm text-foreground shadow-lg">
               <Video className="h-5 w-5 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1"><b>{live.sellerName}</b> invites you on camera</span>
+              <span className="min-w-0 flex-1"><b>{live.sellerName}</b> invites you on camera<span className="block text-xs text-muted-foreground">You will also be in the replay.</span></span>
               <Button size="sm" onClick={() => answer(true)}>Join</Button>
               <Button size="sm" variant="ghost" onClick={() => answer(false)}>No</Button>
             </div>
@@ -281,7 +281,7 @@ function Watch() {
           {isMod && <p className="flex items-center gap-1 text-xs font-semibold text-sky-300"><Shield className="h-3.5 w-3.5" /> You are a moderator · tap a comment to manage it</p>}
           {isGuest && (
             <div className="flex items-center justify-center gap-2">
-              <span className="rounded-full bg-primary px-3 py-1 text-xs font-bold text-white">You are on camera</span>
+              <span className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-bold text-white" title="This live is recorded for a replay"><span className="h-2 w-2 animate-pulse rounded-full bg-white" /> You are on camera · REC</span>
               <button type="button" onClick={toggleMic} className="rounded-full bg-black/45 p-2 text-white">{micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}</button>
               <button type="button" onClick={toggleCam} className="rounded-full bg-black/45 p-2 text-white">{camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}</button>
               <button type="button" onClick={flipCamera} className="rounded-full bg-black/45 px-3 py-2 text-xs font-semibold text-white">Flip</button>

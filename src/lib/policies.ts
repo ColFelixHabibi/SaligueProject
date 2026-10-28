@@ -201,6 +201,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'Reviews: the stars and text you post about items you received, shown publicly with your first name.',
               'Payments: when you pay online, Flutterwave handles your card or Mobile Money details on its own secure page. Saligue receives only whether the payment succeeded, the amount and a reference — never your card number or PIN.',
               'Profile photo: sellers add a profile photo, shown publicly with their shop.',
+              'Lives: a live is recorded on the host’s phone so people can watch it again (a replay on the shop’s profile). It shows what viewers saw: the host and any guest who joined on camera, with their sound. Guests are told before they join. The host can delete a replay at any time.',
               'Support: the messages you send us.',
               'Your country: worked out on Saligue’s own server from your internet address (IP Geolocation by DB-IP, db-ip.com), never sent to anyone else. It decides which features are available where you are, and helps show you lives and shops close to you first. Your city comes only from addresses you gave us (a delivery address or your shop). It is not shown to anyone.',
             ],
