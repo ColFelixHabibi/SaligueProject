@@ -219,6 +219,8 @@ function productOut(r) {
     photoType: r.photo_type === 'worn' ? 'worn' : 'item',
     rating: r.rating_count ? Math.round(r.rating_avg * 10) / 10 : 0,
     ratingCount: r.rating_count ?? 0,
+    // How many were bought (orders not cancelled), shown with what is left in stock.
+    sold: r.sold ?? soldCount(r.id),
     createdAt: r.created_at,
   };
   return p;
@@ -546,10 +548,14 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 // Sample items (server/seed.mjs) fill the app while it is new. They are marked as samples, and leave on their own
 // once real shops list enough real items.
 const SAMPLES_HIDE_AT = 12;
+const soldCount = (productId) => db.prepare("select coalesce(sum(json_extract(i.value, '$.quantity')), 0) as n from orders o, json_each(o.items) i where o.status != 'cancelled' and json_extract(i.value, '$.productId') = ?").get(productId).n;
 route('GET', '/api/products', ({ user }) => {
   const rows = db.prepare("select p.*, u.avatar as seller_avatar, u.verified as seller_verified, u.email like '%@demo.saligue.app' as sample from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc")
     .all(user?.id ?? '');
   const real = rows.filter((r) => !r.sample && r.status === 'active').length;
+  // Sold counts for every item in one pass.
+  const sold = new Map(db.prepare("select json_extract(i.value, '$.productId') as id, sum(json_extract(i.value, '$.quantity')) as n from orders o, json_each(o.items) i where o.status != 'cancelled' group by id").all().map((x) => [x.id, x.n]));
+  for (const r of rows) r.sold = sold.get(r.id) ?? 0;
   return rows
     .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
     .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)));
