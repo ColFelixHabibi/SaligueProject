@@ -3811,6 +3811,14 @@ function sharePreview(pathname, params) {
 }
 
 function serveStatic(req, res, pathname) {
+  // Next.js page data (…/index.txt) opened as a page: after a deploy, a tab that was already open reloads the data
+  // file's address instead of the page (a Next.js quirk with static sites). Send the browser to the page itself.
+  if (pathname.endsWith('/index.txt') && !req.headers.rsc && /text\/html/.test(req.headers.accept ?? '')) {
+    const page = new URL(req.url, 'http://x');
+    page.searchParams.delete('_rsc');
+    res.writeHead(302, { Location: `${pathname.slice(0, -'index.txt'.length)}${page.search}`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   const target = normalize(join(STATIC_DIR, decodeURIComponent(pathname)));
   if (!target.startsWith(STATIC_DIR + sep) && target !== STATIC_DIR) return send(res, 400, 'Bad path');
   let file = target;
