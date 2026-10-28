@@ -16,6 +16,7 @@ import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
+import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
@@ -170,6 +171,8 @@ function notify(userId, { type, title, body = '', link = null, email = true }) {
     .run(randomUUID(), userId, type, title, body, link, now());
   // Clients refresh their own notifications; nothing about whose they are is sent to everyone.
   broadcast('notifications');
+  // And the person's phone or computer buzzes, even when Saligue is closed (if they turned it on).
+  void pushTo(userId, { title, body, link: link ? `${siteUrl()}${link}` : siteUrl(), type, site: siteUrl() });
   if (!email) return;
   const account = db.prepare('select email, is_guest from users where id = ?').get(userId);
   if (account?.email && !account.is_guest) {
@@ -497,6 +500,22 @@ route('GET', '/api/usernames/([\\w.]+)', ({ params }) => {
   const u = db.prepare('select id from users where lower(username) = ? and is_guest = 0').get(params[0].toLowerCase());
   if (!u) fail(404, 'not_found', 'No one has this username.');
   return { id: u.id };
+});
+
+// Push notifications: the browser's web push key, and saving or removing this device.
+route('GET', '/api/push', () => ({ webKey: webPushKey(), app: fcmReady() }));
+route('POST', '/api/push', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to get notifications.');
+  try {
+    savePushTarget(user.id, body.kind === 'fcm' ? 'fcm' : 'web', body.kind === 'fcm' ? body.token : body.subscription);
+  } catch {
+    fail(400, 'invalid', 'This device could not be registered.');
+  }
+  return { ok: true };
+});
+route('DELETE', '/api/push', ({ user, url }) => {
+  if (user) removePushTarget(user.id, url.searchParams.get('target'));
+  return { ok: true };
 });
 
 route('PATCH', '/api/auth/me', ({ user, body }) => {

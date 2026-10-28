@@ -12,6 +12,7 @@ import { subscribeToLikes } from '@/hooks/use-likes';
 import { subscribeToProducts } from '@/hooks/use-product-store';
 import { subscribeToMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
+import { refreshPush } from '@/lib/push';
 import { Skeleton } from '../ui/skeleton';
 
 export type AppUser = {
@@ -83,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUid(account.id);
       setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, username: account.username ?? null, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);
+      if (!account.isGuest) void refreshPush();
       if (change === 'registered' || change === 'signed-in') {
         // Straight to their own dashboard, unless they were in the middle of something (paying, starting a shop).
         const path = window.location.pathname.replace(/\/+$/, '');

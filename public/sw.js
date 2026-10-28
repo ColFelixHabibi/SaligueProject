@@ -1,6 +1,6 @@
 // Saligue service worker: makes the app installable and quick to reopen.
 // AI model files are cached separately by the app (Cache Storage "saligue-models-v1" and Transformers.js).
-const CACHE = 'saligue-app-v1';
+const CACHE = 'saligue-app-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -47,4 +47,39 @@ self.addEventListener('fetch', (event) => {
         .catch(() => caches.match(request).then((hit) => hit || caches.match(self.registration.scope)))
     );
   }
+});
+
+// Push notifications (server/push.mjs): show it, and open the right page when tapped.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: 'Saligue', body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Saligue', {
+      body: data.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: data.tag,
+      renotify: !!data.tag,
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => w.url.startsWith(self.location.origin));
+      if (open) {
+        open.focus();
+        return open.navigate(url);
+      }
+      return self.clients.openWindow(url);
+    })
+  );
 });

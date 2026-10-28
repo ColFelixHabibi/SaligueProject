@@ -141,6 +141,12 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'sold': ['byaguzwe', 'vendus'],
   'left': ['bisigaye', 'restants'],
   'No reviews yet': ['Nta bitekerezo biratangwa', 'Pas encore d’avis'],
+  'Notifications on this device': ['Amatangazo kuri iki gikoresho', 'Notifications sur cet appareil'],
+  'Replies, orders and lives, even when Saligue is closed.': ['Ibisubizo, ibyo watumije na live, n’iyo Saligue ifunze.', 'Réponses, commandes et directs, même quand Saligue est fermé.'],
+  'Blocked: allow notifications for Saligue in your browser or phone settings.': ['Byahagaritswe: emerera Saligue amatangazo mu igenamiterere rya telefone cyangwa mushakisha.', 'Bloqué : autorisez les notifications de Saligue dans les réglages du navigateur ou du téléphone.'],
+  'Notifications on': ['Amatangazo yafunguwe', 'Notifications activées'],
+  'Quiet from 22:00 to 07:00, except orders.': ['Nta majwi kuva 22:00 kugeza 07:00, uretse ibyo watumije.', 'Silencieux de 22 h à 7 h, sauf les commandes.'],
+  'This device could not be registered.': ['Iki gikoresho nticyanditswe.', 'Cet appareil n’a pas pu être enregistré.'],
   // Looks, Ask the shop, end of a lesson, weekly note
   'Add to a look': ['Shyira mu mwambaro', 'Ajouter à un look'],
   'Log in to make looks': ['Injira ukore imyambarire yawe', 'Connectez-vous pour créer des looks'],

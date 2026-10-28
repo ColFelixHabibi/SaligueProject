@@ -25,6 +25,7 @@ import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
 import { useFeatures } from '@/lib/features';
 import { WeekCard } from '@/components/week-card';
+import { PushCard } from '@/components/push-card';
 
 type Stats = { clients: number; following: number; items: number; lessons: number; rating: number | null };
 
@@ -140,6 +141,7 @@ export default function MePage() {
         </Link>
       )}
 
+      {user && <PushCard />}
       {user && on('weekly') && <WeekCard />}
 
       <div className="grid grid-cols-4 gap-2">

@@ -507,6 +507,16 @@ db.exec(`
   );
   create index if not exists live_hearts_live on live_hearts(live_id, created_at);
 
+  -- Devices that receive push notifications: a browser's web push subscription or the Android app's FCM token.
+  create table if not exists push_targets (
+    target text primary key,
+    user_id text not null references users(id) on delete cascade,
+    kind text not null check (kind in ('web', 'fcm')),
+    keys text,
+    created_at text not null
+  );
+  create index if not exists push_targets_user on push_targets(user_id);
+
   -- Questions to a shop about an item; the shop's answer is shown to every later shopper.
   create table if not exists product_questions (
     id text primary key,
