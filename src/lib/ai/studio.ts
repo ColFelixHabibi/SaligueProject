@@ -78,6 +78,36 @@ async function toJpeg(src: string, maxEdge = 1024) {
   return out.toDataURL('image/jpeg', 0.92);
 }
 
+// The try-on AIs work at a fixed shape (FASHN 2:3, the free models 3:4) and crop or stretch other photos, so
+// the result would no longer line up with the shopper's photo. The photo is padded to that shape (with a
+// blurred copy of itself, so the AI sees a natural background) and the padding is cut off the result again:
+// before and after match pixel for pixel.
+type Padded = { url: string; width: number; height: number; box: { x: number; y: number; w: number; h: number } };
+async function padToShape(src: string, ratio: number): Promise<Padded> {
+  const img = await loadImage(src);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (Math.abs(w / h - ratio) < 0.02) return { url: src, width: w, height: h, box: { x: 0, y: 0, w, h } };
+  const W = w / h > ratio ? w : Math.round(h * ratio);
+  const H = w / h > ratio ? Math.round(w / ratio) : h;
+  const out = createCanvas(W, H);
+  const ctx = context2d(out);
+  const cover = Math.max(W / w, H / h);
+  ctx.filter = 'blur(24px)';
+  ctx.drawImage(img, (W - w * cover) / 2, (H - h * cover) / 2, w * cover, h * cover);
+  ctx.filter = 'none';
+  const box = { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w, h };
+  ctx.drawImage(img, box.x, box.y);
+  return { url: out.toDataURL('image/jpeg', 0.92), width: W, height: H, box };
+}
+async function cropBack(result: string, padded: Padded): Promise<string> {
+  if (padded.box.w === padded.width && padded.box.h === padded.height) return result;
+  const img = await loadImage(result);
+  const sx = img.naturalWidth / padded.width, sy = img.naturalHeight / padded.height;
+  const out = createCanvas(Math.round(padded.box.w * sx), Math.round(padded.box.h * sy));
+  context2d(out).drawImage(img, padded.box.x * sx, padded.box.y * sy, padded.box.w * sx, padded.box.h * sy, 0, 0, out.width, out.height);
+  return out.toDataURL('image/jpeg', 0.92);
+}
+
 async function call(path: string, body: object): Promise<string> {
   const url = await getStudio();
   if (!url) throw new Error('Saligue AI Studio is not running right now.');
@@ -142,15 +172,16 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
-      const body = { person: await toJpeg(personUrl), garment: await toJpeg(garmentUrl), category, description };
+      const padded = await padToShape(await toJpeg(personUrl), isUnlimited() ? 2 / 3 : 3 / 4);
+      const body = { person: padded.url, garment: await toJpeg(garmentUrl), category, description };
       for (let tries = 0; tries < 2; tries++) {
         const variant = attempts.get(key) ?? 0;
         const image = (await getStudio()) ? await call('/api/tryon', { ...body, variant }) : (await api<{ image: string }>('/ai/tryon', { body: { ...body, variant } })).image;
         // The paid try-on (fal.ai FASHN) returns a finished, clean photo: shown as it is. Cutting out "only what
         // changed" was made for the free models, and on a good picture it leaves halos around the garment.
-        if (isUnlimited()) return image;
+        if (isUnlimited()) return cropBack(image, padded);
         try {
-          return await keepOnlyChanged(body.person, image, category);
+          return await cropBack(await keepOnlyChanged(body.person, image, category), padded);
         } catch (error) {
           attempts.set(key, variant + 1);
           if (!(error instanceof LookRejected)) {
