@@ -141,6 +141,7 @@ function mergeGuestInto(guestId, accountId) {
 // Each listener knows whose app it is (when signed in), so private events reach only that account.
 const listeners = new Map(); // res → user id or null
 function broadcast(event, data = {}) {
+  if (event === 'products') fingerprintCache = null;
   if (event === 'products') productsChanged();
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of listeners.keys()) res.write(message);
@@ -249,7 +250,9 @@ function productFields(body) {
     if (stock !== null && !(stock >= 0 && stock <= 100_000)) fail(400, 'invalid_stock', 'Enter how many you have in stock (0 or more).');
     fields.stock = stock;
   }
-  if (body.embedding !== undefined) fields.embedding = json(body.embedding);
+  // A rounded copy from /api/products/fingerprints (whole numbers −127…127) is never stored over the real one.
+  const rounded = Array.isArray(body.embedding) && body.embedding.every((x) => Number.isInteger(x) && Math.abs(x) <= 127);
+  if (body.embedding !== undefined && !rounded) fields.embedding = json(body.embedding);
   if (body.sound !== undefined) fields.sound = json(body.sound);
   if ((fields.image?.length ?? 0) > 1_500_000 || (fields.cutout?.length ?? 0) > 1_500_000) fail(413, 'too_large', 'This photo is too large.');
   // Photos are kept as files; the database stores their links.
@@ -556,9 +559,36 @@ route('GET', '/api/products', ({ user }) => {
   // Sold counts for every item in one pass.
   const sold = new Map(db.prepare("select json_extract(i.value, '$.productId') as pid, sum(json_extract(i.value, '$.quantity')) as n from orders o, json_each(o.items) i where o.status != 'cancelled' group by pid").all().map((x) => [x.pid, x.n]));
   for (const r of rows) r.sold = sold.get(r.id) ?? 0;
+  // The AI fingerprints (4 KB each) are not in the list: they come from /api/products/fingerprints, small
+  // and cached, so the catalogue stays quick to load as it grows.
   return rows
     .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
-    .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)));
+    .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)))
+    .map(({ embedding, ...p }) => p);
+});
+
+// Every item's AI fingerprint, rounded to whole numbers (−127…127, 512 bytes each, base64): about 6× smaller,
+// still precise enough for "looks like" and search. The ETag lets phones skip the download when nothing changed.
+let fingerprintCache = null;
+route('GET', '/api/products/fingerprints', ({ req, res }) => {
+  if (!fingerprintCache) {
+    const out = {};
+    for (const r of db.prepare('select id, embedding from products where embedding is not null').all()) {
+      const v = parse(r.embedding);
+      if (!Array.isArray(v) || !v.length) continue;
+      // Each vector scaled to its own largest value: similarity (cosine) ignores the scale, so none is stored.
+      const top = Math.max(...v.map(Math.abs)) || 1;
+      out[r.id] = Buffer.from(Int8Array.from(v, (x) => Math.round((x / top) * 127))).toString('base64');
+    }
+    const body = JSON.stringify(out);
+    fingerprintCache = { body, etag: `"${createHash('sha1').update(body).digest('base64url').slice(0, 20)}"` };
+  }
+  if (req.headers['if-none-match'] === fingerprintCache.etag) {
+    res.writeHead(304, { ETag: fingerprintCache.etag, 'Cache-Control': 'no-cache' });
+    return res.end();
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json', ETag: fingerprintCache.etag, 'Cache-Control': 'no-cache' });
+  res.end(fingerprintCache.body);
 });
 
 // Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.
