@@ -605,13 +605,26 @@ for (const [table, column, type] of [
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
-  ['users', 'referred_by', 'text'], ['users', 'referral_rewarded', 'integer not null default 0'],
+  ['users', 'username', 'text'], ['users', 'referred_by', 'text'], ['users', 'referral_rewarded', 'integer not null default 0'],
   ['orders', 'fee', 'real not null default 0'], ['orders', 'settlement_id', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
 }
+// @usernames: unique (any case), for @mentions. Accounts without one get one from their name.
+db.exec("create unique index if not exists users_username on users(lower(username)) where username is not null");
+export function makeUsername(base, id) {
+  const clean = String(base ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_.]+/g, '').replace(/^[._]+|[._]+$/g, '').slice(0, 20) || 'user';
+  let name = clean.length >= 3 ? clean : `${clean}${id.replace(/-/g, '').slice(0, 4)}`;
+  for (let i = 0; db.prepare('select 1 from users where lower(username) = ? and id != ?').get(name, id); i++) name = `${clean.slice(0, 17)}${Math.floor(Math.random() * 900 + 100)}`;
+  return name;
+}
+for (const u of db.prepare("select id, display_name, email, shop, role from users where username is null and is_guest = 0").all()) {
+  const shopName = u.role === 'seller' ? JSON.parse(u.shop || 'null')?.name : null;
+  db.prepare('update users set username = ? where id = ?').run(makeUsername(shopName || u.display_name || u.email?.split('@')[0], u.id), u.id);
+}
+
 // Lesson topics that were merged: clothing care joins sewing, shoes & bags join styling.
 for (const table of ['lessons', 'challenges']) {
   db.exec(`update ${table} set topic = 'sewing' where topic = 'care'`);

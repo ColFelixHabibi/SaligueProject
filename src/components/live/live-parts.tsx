@@ -1,5 +1,6 @@
 'use client';
 
+import { RichText } from '@/components/rich-text';
 import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useEffect, useRef, useState } from 'react';
@@ -183,7 +184,7 @@ export function LiveChat({ comments, pinned, onAction, roles, className }: { com
             {c.kind === 'question' && <HelpCircle className="mr-1 inline h-3.5 w-3.5" />}
             {roles?.[c.uid] && <span className={cn('mr-1 rounded px-1 py-px text-[10px] font-extrabold uppercase', roles[c.uid] === 'Host' ? 'bg-primary text-white' : 'bg-sky-500 text-white')}>{roles[c.uid]}</span>}
             <b className="mr-1.5">{c.name}</b>
-            <span className="line-clamp-3 break-words">{c.gift ? <>sent <span className="text-base">{c.gift.emoji}</span> {c.gift.name}</> : c.text}</span>
+            <span className="line-clamp-3 break-words">{c.gift ? <>sent <span className="text-base">{c.gift.emoji}</span> {c.gift.name}</> : <RichText text={c.text} />}</span>
           </button>
         ))}
       </div>

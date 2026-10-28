@@ -13,6 +13,8 @@ import { api, onServerEvent } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { RichText } from '@/components/rich-text';
+import { MentionSuggestions } from '@/components/mention-suggestions';
 
 function timeAgo(value?: string | null) {
   if (!value) return 'now';
@@ -77,7 +79,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
             <div className="min-w-0 flex-1 text-sm">
               <span className="font-semibold">{comment.name}</span>{' '}
               <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
-              <p className="break-words">{comment.text}</p>
+              <p className="break-words"><RichText text={comment.text} /></p>
             </div>
             {/* Once sent, a comment stays: only the item's shop can remove it. */}
             {!!authUid && sellerId === authUid && (
@@ -88,6 +90,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
           </div>
         ))}
       </div>
+      <MentionSuggestions value={text} onChange={setText} />
       <form onSubmit={send} className="flex gap-2">
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment…" maxLength={500} className="h-10" />
         <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={sending || !text.trim()} aria-label="Send comment">

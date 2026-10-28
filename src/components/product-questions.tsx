@@ -11,6 +11,7 @@ import { api, mediaUrl, onServerEvent } from '@/lib/api';
 import { useBlockedIds } from '@/lib/blocks';
 import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
+import { RichText } from '@/components/rich-text';
 
 type Question = { id: string; uid: string; name: string; avatar: string | null; text: string; answer: string | null; answeredAt: string | null; createdAt: string; mine: boolean; canAnswer: boolean };
 
@@ -73,7 +74,7 @@ export function ProductQuestions({ productId, sellerId }: { productId: string; s
                     ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label={t('Answered')} />
                     : <Clock className="h-3.5 w-3.5 text-amber-600" aria-label={t('Waiting')} />}
                 </p>
-                <p className="whitespace-pre-wrap break-words text-sm">{q.text}</p>
+                <p className="whitespace-pre-wrap break-words text-sm"><RichText text={q.text} /></p>
               </div>
               {q.canAnswer && (
                 <button type="button" aria-label={t('Delete')} title={t('Delete')} className="self-start text-muted-foreground hover:text-destructive"
@@ -85,7 +86,7 @@ export function ProductQuestions({ productId, sellerId }: { productId: string; s
             {q.answer && (
               <div className="ml-10 flex gap-2 rounded-2xl bg-muted p-3 text-sm">
                 <Store className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <p className="whitespace-pre-wrap break-words">{q.answer}</p>
+                <p className="whitespace-pre-wrap break-words"><RichText text={q.answer} /></p>
               </div>
             )}
             {q.canAnswer && !q.answer && (

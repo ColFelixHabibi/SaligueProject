@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getToken, mediaUrl, setToken } from '@/lib/api';
 import { currentAccount, onAccountChange, startGuestSession, type AccountChange, type AccountUser } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
@@ -45,6 +46,9 @@ function FullPageLoader() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authUid, setAuthUid] = useState<string | null>(null);
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const { role } = useUserRoleStore();
   const { toast } = useToast();
@@ -79,6 +83,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);
       if (change === 'registered' || change === 'signed-in') {
+        // Straight to their own dashboard, unless they were in the middle of something (paying, starting a shop).
+        const path = window.location.pathname.replace(/\/+$/, '');
+        if (!/\/(checkout|cart|sell|payment|verify|invite)$/.test(path)) routerRef.current.push(account.role === 'seller' ? '/dashboard' : '/my-account');
         toast({
           title: change === 'registered' ? 'Welcome to Saligue!' : 'Welcome back!',
           description: account.role === 'seller' ? 'You are signed in as a seller.' : `Signed in as ${account.displayName || account.email}.`,

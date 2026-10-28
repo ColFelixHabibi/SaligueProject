@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 
 type Person = { id: string; name: string; avatar: string | null; isShop: boolean; official: boolean; verified?: boolean };
 type Profile = Person & {
+  username?: string | null;
   bio: string;
   verifiedType?: string | null;
   shop: { city: string; country: string; hours: string | null; phone: string; whatsapp: string | null; street: string; district: string | null; landmark: string | null; mapUrl: string | null } | null;
@@ -143,6 +144,7 @@ function ProfileView({ id }: { id: string }) {
           {profile.official && <BadgeCheck className="h-5 w-5 text-primary" />}
           {profile.verified && <VerifiedBadge type={profile.verifiedType} className="h-5 w-5" />}
         </h1>
+        {profile.username && <p className="-mt-1 text-sm font-semibold text-muted-foreground">@{profile.username}</p>}
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           {profile.isShop ? <span className="flex items-center gap-1"><Store className="h-4 w-4" /> {t('Shop')}</span> : <span className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> {t('Teacher')}</span>}
           {profile.shop && <span className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {profile.shop.city}</span>}
@@ -296,7 +298,15 @@ function BioDialog({ open, onOpenChange, profile, onSaved }: { open: boolean; on
 }
 
 function ProfilePage() {
-  const id = useSearchParams().get('id');
+  const params = useSearchParams();
+  const username = params.get('u');
+  // From an @mention (?u=username): find whose username it is.
+  const [found, setFound] = useState<string | null | 'missing'>(null);
+  useEffect(() => {
+    if (username) api<{ id: string }>(`/usernames/${encodeURIComponent(username)}`).then((r) => setFound(r.id)).catch(() => setFound('missing'));
+  }, [username]);
+  const id = params.get('id') ?? (found !== 'missing' ? found : null);
+  if (username && found === null && !params.get('id')) return <Skeleton className="mx-auto mt-6 h-[70vh] max-w-2xl rounded-2xl" />;
   if (!id) return <p className="p-10 text-center text-muted-foreground">This profile does not exist.</p>;
   return <ProfileView id={id} />;
 }

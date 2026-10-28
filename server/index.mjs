@@ -4,7 +4,7 @@ import http from 'node:http';
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { db, json, now, parse, transaction } from './db.mjs';
+import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
@@ -96,6 +96,7 @@ function publicUser(u) {
     id: u.id,
     email: u.email,
     displayName: u.display_name,
+    username: u.username ?? null,
     role: u.role,
     official: !!u.official,
     // Runs the platform (Platform settings: email, payments, try-on). Set with `node server/admin.mjs admin <email>`.
@@ -340,6 +341,7 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
   // Invited by someone (their link /register?ref=…): they get coins when this shop makes its first real sale.
   const ref = String(body.ref ?? '');
   if (ref && ref !== id && db.prepare('select 1 from users where id = ? and is_guest = 0').get(ref)) db.prepare('update users set referred_by = ? where id = ? and referred_by is null').run(ref, id);
+  db.prepare('update users set username = ? where id = ? and username is null').run(makeUsername(name, id), id);
   welcome(id, name, role);
   return { token: id === user?.id ? tokenOf(req) : createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
@@ -467,9 +469,46 @@ route('POST', '/api/auth/logout', ({ req, res }) => {
   return { ok: true };
 });
 
+// @usernames and #hashtags in texts. Mentions notify the person (up to 5 per text, never yourself or someone
+// who blocked you).
+const RESERVED_USERNAMES = new Set(['admin', 'saligue', 'support', 'help', 'indeciana', 'everyone', 'here', 'official', 'moderator']);
+const mentionsIn = (text) => [...new Set([...String(text ?? '').matchAll(/(?:^|[^\w@])@([a-zA-Z0-9_.]{3,24})/g)].map((m) => m[1].toLowerCase().replace(/[._]+$/, '')))].slice(0, 5);
+function notifyMentions(text, author, { where, link }) {
+  for (const name of mentionsIn(text)) {
+    const u = db.prepare('select id from users where lower(username) = ? and is_guest = 0 and suspended = 0').get(name);
+    if (!u || u.id === author.id || blockedBetween(u.id, author.id)) continue;
+    notify(u.id, { type: 'message', title: `${author.role === 'seller' ? shopNameOf(author) : personNameOf(author)} mentioned you ${where}`, body: String(text).slice(0, 140), link, email: false });
+  }
+}
+// Finding people to @mention while typing, and opening a profile from @username.
+route('GET', '/api/usernames', ({ url }) => {
+  const q = String(url.searchParams.get('q') ?? '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  if (!q) return [];
+  return db.prepare("select * from users where is_guest = 0 and suspended = 0 and username is not null and (lower(username) like ? or lower(display_name) like ?) order by (lower(username) like ?) desc, length(username) limit 8")
+    .all(`${q}%`, `%${q}%`, `${q}%`).map((u) => ({ ...personOut(u), username: u.username }));
+});
+route('GET', '/api/usernames/([\\w.]+)', ({ params }) => {
+  const u = db.prepare('select id from users where lower(username) = ? and is_guest = 0').get(params[0].toLowerCase());
+  if (!u) fail(404, 'not_found', 'No one has this username.');
+  return { id: u.id };
+});
+
 route('PATCH', '/api/auth/me', ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
-  if (body.displayName !== undefined) db.prepare('update users set display_name = ? where id = ?').run(String(body.displayName).slice(0, 80), user.id);
+  if (body.displayName !== undefined) {
+    const name = String(body.displayName).trim().slice(0, 80);
+    if (!name) fail(400, 'missing_name', 'Please enter your name.');
+    db.prepare('update users set display_name = ? where id = ?').run(name, user.id);
+  }
+  if (body.username !== undefined) {
+    if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
+    const username = String(body.username).trim().replace(/^@/, '').toLowerCase();
+    if (!/^[a-z0-9_.]{3,24}$/.test(username) || /^[._]|[._]$/.test(username)) fail(400, 'invalid_username', 'Use 3–24 letters, numbers, _ or . (not at the start or end).');
+    if (RESERVED_USERNAMES.has(username)) fail(409, 'username_taken', 'This username is not available.');
+    if (db.prepare('select 1 from users where lower(username) = ? and id != ?').get(username, user.id)) fail(409, 'username_taken', 'This username is taken. Try another.');
+    db.prepare('update users set username = ? where id = ?').run(username, user.id);
+    broadcast('products');
+  }
   if (body.role === 'seller' || body.role === 'buyer') db.prepare('update users set role = ? where id = ?').run(body.role, user.id);
   if (body.avatar !== undefined) {
     if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
@@ -711,6 +750,7 @@ route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   const id = randomUUID();
   db.prepare('insert into comments (id, product_id, user_id, name, text, created_at) values (?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, now());
   broadcast('comments', { productId: params[0] });
+  notifyMentions(text, user, { where: `on ${product.name}`, link: product.official ? `/indeciana?item=${product.id}` : `/product?id=${product.id}` });
   if (product.seller_id !== user.id) {
     notify(product.seller_id, {
       type: 'message',
@@ -858,6 +898,7 @@ route('POST', '/api/products/([\\w-]+)/questions', ({ user, params, body }) => {
   const id = randomUUID();
   db.prepare('insert into product_questions (id, product_id, user_id, text, created_at) values (?, ?, ?, ?, ?)').run(id, product.id, user.id, text, now());
   broadcast('questions', { productId: product.id });
+  notifyMentions(text, user, { where: `on ${product.name}`, link: `/product?id=${product.id}#questions` });
   notify(product.seller_id, { type: 'message', title: `Question about ${product.name}`, body: text.slice(0, 140), link: `/product?id=${product.id}#questions`, email: true });
   return { id };
 });
@@ -1884,6 +1925,7 @@ route('POST', '/api/lives/([\\w-]+)/comments', ({ user, params, body }) => {
   const comment = { id: randomUUID(), live_id: live.id, user_id: user.id, name: name.slice(0, 60), text, kind, reply_to: answered ? json({ id: answered.id, name: answered.name, text: answered.text.slice(0, 80) }) : null, created_at: now() };
   db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, reply_to, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(comment.id, comment.live_id, comment.user_id, comment.name, comment.text, comment.kind, comment.reply_to, comment.created_at);
+  if (kind === 'comment') notifyMentions(text, user, { where: 'in a live', link: `/live/watch?id=${live.id}` });
   liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
   if (kind !== 'join') engage(user.id, live.seller_id, 'comments');
   return liveCommentOut(comment);
@@ -2423,6 +2465,9 @@ route('GET', '/api/lessons', ({ user, url }) => {
     return db.prepare(`select * from lessons where ${where.join(' and ')} order by like_count desc, created_at asc limit 200`).all(...args).map((l, i) => ({ ...lessonOut(l, user), rank: i + 1 }));
   }
   if (author) where.push('user_id = ?'), args.push(author);
+  // #hashtag pages: lessons whose title or description has the tag.
+  const tag = String(url.searchParams.get('tag') ?? '').toLowerCase().replace(/[^\p{L}\p{N}_]/gu, '');
+  if (tag) where.push("(lower(title) like ? or lower(description) like ?)"), args.push(`%#${tag}%`, `%#${tag}%`);
   // Teachers see their own hidden lessons (to appeal).
   if (author && author === user?.id) where.splice(where.indexOf('hidden = 0'), 1);
   if (following) {
@@ -2479,6 +2524,7 @@ route('POST', '/api/lessons', ({ user, body }) => {
   db.prepare('insert into lessons (id, user_id, title, description, topic, language, challenge_id, duet_of, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 2000), body.topic, LESSON_LANGUAGES.includes(body.language) ? body.language : 'en', challengeId, duetOf?.id ?? null, now());
   if (duetOf && duetOf.user_id !== user.id) notify(duetOf.user_id, { type: 'message', title: `${personNameOf(user)} made a duet with "${duetOf.title}"`, body: title, link: `/learn?lesson=${id}`, email: false });
+  notifyMentions(`${title} ${String(body.description ?? "")}`, user, { where: "in a lesson", link: `/learn?lesson=${id}` });
   return lessonOut(db.prepare('select * from lessons where id = ?').get(id), user);
 });
 
@@ -2586,6 +2632,7 @@ route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
   const id = randomUUID();
   db.prepare('insert into lesson_comments (id, lesson_id, user_id, parent_id, kind, text, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, lesson.id, user.id, parent?.id ?? null, kind, text, now());
   broadcast('lesson_comments', { lessonId: lesson.id });
+  notifyMentions(text, user, { where: `on "${lesson.title}"`, link: `/learn?lesson=${lesson.id}` });
   const who = personNameOf(user);
   if (lesson.user_id !== user.id) notify(lesson.user_id, { type: 'message', title: kind === 'question' ? `${who} asked a question on "${lesson.title}"` : `${who} commented on "${lesson.title}"`, body: text.slice(0, 140), link: `/learn?lesson=${lesson.id}`, email: kind === 'question' });
   if (parent && parent.user_id !== user.id) notify(parent.user_id, { type: 'message', title: lesson.user_id === user.id ? `The teacher answered you on "${lesson.title}"` : `${who} replied to you on "${lesson.title}"`, body: text.slice(0, 140), link: `/learn?lesson=${lesson.id}`, email: false });
@@ -3471,7 +3518,7 @@ route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
 
 // Profiles: every shop and teacher has one. "Clients" are the people who follow them.
 const PROFILE_PEOPLE = 'select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official, u.verified from follows f join users u on u.id = ';
-const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official, verified: !!u.verified });
+const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), username: u.username ?? null, avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official, verified: !!u.verified });
 
 route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
   const u = db.prepare('select * from users where id = ?').get(params[0]);

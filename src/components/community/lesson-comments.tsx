@@ -13,6 +13,8 @@ import { onServerEvent } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { deleteLessonComment, lessonComments, postLessonComment, type Lesson, type LessonComment } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
+import { RichText } from '@/components/rich-text';
+import { MentionSuggestions } from '@/components/mention-suggestions';
 
 /** Comments and questions under a lesson, as threads: the teacher's replies are marked and answer the question. */
 export function LessonComments({ lesson }: { lesson: Lesson }) {
@@ -61,7 +63,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
           {c.teacher && <span className="ml-1.5 rounded bg-primary px-1 py-px text-[10px] font-extrabold uppercase text-white">Teacher</span>}
           {c.kind === 'question' && <span className={cn('ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-bold', c.answered ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{c.answered ? <CheckCircle2 className="h-3 w-3" /> : <HelpCircle className="h-3 w-3" />}{c.answered ? t('Answered') : t('Question')}</span>}
         </p>
-        <p className="whitespace-pre-wrap break-words text-sm">{c.text}</p>
+        <p className="whitespace-pre-wrap break-words text-sm"><RichText text={c.text} /></p>
         <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
           {!reply && user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
           {lesson.authorId === authUid && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
@@ -91,6 +93,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
       </div>
       {user ? (
         <form onSubmit={send} className="space-y-1.5 border-t pt-3">
+          <MentionSuggestions value={text} onChange={setText} />
           {replyTo && <p className="flex items-center gap-1 text-xs text-muted-foreground"><CornerDownRight className="h-3.5 w-3.5" /> Replying to {replyTo.name} <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label="Cancel"><X className="h-4 w-4" /></button></p>}
           <div className="flex items-center gap-2">
             {!replyTo && (

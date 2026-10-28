@@ -76,13 +76,14 @@ const withMedia = (l: Lesson): Lesson => ({
 });
 
 /** Lessons, newest and fairest first; filtered by topic, teacher, or only people I follow. */
-export function useLessons(filter: { topic?: string | null; author?: string; following?: boolean; challenge?: string | null } = {}) {
+export function useLessons(filter: { topic?: string | null; author?: string; following?: boolean; challenge?: string | null; tag?: string | null } = {}) {
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const query = new URLSearchParams();
   if (filter.topic) query.set('topic', filter.topic);
   if (filter.author) query.set('author', filter.author);
   if (filter.following) query.set('following', '1');
   if (filter.challenge) query.set('challenge', filter.challenge);
+  if (filter.tag) query.set('tag', filter.tag);
   const qs = query.toString();
   useEffect(() => {
     let active = true;
