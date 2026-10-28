@@ -500,9 +500,17 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 });
 
 // Products
-route('GET', '/api/products', ({ user }) =>
-  db.prepare('select p.*, u.avatar as seller_avatar, u.verified as seller_verified from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc')
-    .all(user?.id ?? '').map(productOut));
+// Sample items (server/seed.mjs) fill the app while it is new. They are marked as samples, and leave on their own
+// once real shops list enough real items.
+const SAMPLES_HIDE_AT = 12;
+route('GET', '/api/products', ({ user }) => {
+  const rows = db.prepare("select p.*, u.avatar as seller_avatar, u.verified as seller_verified, u.email like '%@demo.saligue.app' as sample from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc")
+    .all(user?.id ?? '');
+  const real = rows.filter((r) => !r.sample && r.status === 'active').length;
+  return rows
+    .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
+    .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)));
+});
 
 // Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.
 const CATEGORIES = Object.keys(FASHION_TYPES);
@@ -973,10 +981,11 @@ route('POST', '/api/orders', ({ user, body }) => {
     }
     return [...groups].map(([sellerId, group]) => {
       const id = randomUUID();
-      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, created_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      const total = Math.round(group.total * 100) / 100;
+      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, fee, created_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, user.id, user.display_name || String(delivery.fullName), user.email || '', sellerId, group.shop,
-        json(group.items), Math.round(group.total * 100) / 100, json(delivery), body.paymentMethod, now()
+        json(group.items), total, json(delivery), body.paymentMethod, saleFee(sellerId, total), now()
       );
       return { id, sellerId, group };
     });
@@ -2921,7 +2930,7 @@ route('PUT', '/api/admin/policies/([\\w-]+)', ({ user, params, body }) => {
 route('GET', '/api/admin/rules', ({ user }) => {
   requireAdmin(user, 'policies');
   const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice() };
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays };
 });
 route('PUT', '/api/admin/rules', ({ user, body }) => {
   requireAdmin(user, 'policies');
@@ -2940,9 +2949,93 @@ route('PUT', '/api/admin/rules', ({ user, body }) => {
     saveConfig('tips', { share: n(body.tipShare ?? t.share, 0.5, 1), amounts: amounts.length ? amounts : t.amounts });
   }
   if (body.verificationPrice !== undefined) saveConfig('verification', { price: Math.round(n(body.verificationPrice, 0, 1000) * 100) / 100 });
+  if (body.saleFee !== undefined || body.freeDays !== undefined) {
+    const c = commission();
+    saveConfig('commission', { rate: n(body.saleFee ?? c.rate, 0, 0.3), freeDays: Math.round(n(body.freeDays ?? c.freeDays, 0, 3650)) });
+  }
   logAdmin(user, 'rules changed', JSON.stringify(body).slice(0, 250));
   const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice() };
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays };
+});
+
+// Saligue's fee on each sale (Admin → Rules): a share of the order, nothing during a new shop's first days,
+// nothing for Saligue's own shop. Fixed on the order when it is placed, so later changes never touch old orders.
+function commission() {
+  const saved = parse(db.prepare("select value from app_config where key = 'commission'").get()?.value) ?? {};
+  return { rate: Number(saved.rate ?? 0.05), freeDays: Number(saved.freeDays ?? 90) };
+}
+function freeUntil(seller) {
+  return new Date(new Date(seller.created_at).getTime() + commission().freeDays * 86_400_000).toISOString();
+}
+function saleFee(sellerId, total) {
+  const seller = db.prepare('select created_at, official from users where id = ?').get(sellerId);
+  if (!seller || seller.official || freeUntil(seller) > now()) return 0;
+  return Math.round(total * commission().rate * 100) / 100;
+}
+// Delivered sales not settled yet: what Saligue owes the shop (paid online) and what the shop owes (paid to the shop).
+function openSales(sellerId) {
+  const rows = db.prepare("select id, total, fee, payment_method, payment_status, created_at from orders where seller_id = ? and status = 'delivered' and settlement_id is null order by created_at").all(sellerId);
+  const online = rows.filter((o) => o.payment_method === 'online' && o.payment_status === 'paid');
+  const direct = rows.filter((o) => !(o.payment_method === 'online' && o.payment_status === 'paid'));
+  const toShop = online.reduce((sum, o) => sum + o.total - o.fee, 0);
+  const fees = direct.reduce((sum, o) => sum + o.fee, 0);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return { orders: rows.length, ids: rows.map((o) => o.id), onlineSales: r2(online.reduce((s, o) => s + o.total, 0)), directSales: r2(direct.reduce((s, o) => s + o.total, 0)), fees: r2(rows.reduce((s, o) => s + o.fee, 0)), balance: r2(toShop - fees) };
+}
+
+route('GET', '/api/seller/sales', ({ user }) => {
+  if (!user || user.role !== 'seller') fail(403, 'forbidden', 'For shops only.');
+  const c = commission();
+  const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(user.id);
+  const month = new Date().toISOString().slice(0, 7);
+  const thisMonth = db.prepare("select count(*) as n, coalesce(sum(total), 0) as total, coalesce(sum(fee), 0) as fees from orders where seller_id = ? and status = 'delivered' and substr(created_at, 1, 7) = ?").get(user.id, month);
+  return {
+    rate: user.official ? 0 : c.rate,
+    freeUntil: user.official ? null : freeUntil(user),
+    official: !!user.official,
+    open: openSales(user.id),
+    thisMonth: { orders: thisMonth.n, total: Math.round(thisMonth.total * 100) / 100, fees: Math.round(thisMonth.fees * 100) / 100 },
+    momo: account ? { number: account.momo_number, name: account.momo_name } : null,
+    saligueMomo: { number: adSettings().momoNumber ?? null, name: adSettings().momoName ?? 'Saligue' },
+    settlements: db.prepare('select * from shop_settlements where seller_id = ? order by created_at desc limit 24').all(user.id).map((r) => ({ id: r.id, amount: r.amount, orders: r.orders, reference: r.reference, createdAt: r.created_at })),
+  };
+});
+
+// Admin → Money: shops with sales to settle, and recording a settlement (money sent either way by Mobile Money).
+route('GET', '/api/admin/settlements', ({ user }) => {
+  requireAdmin(user, 'money');
+  const sellers = db.prepare("select distinct seller_id from orders where status = 'delivered' and settlement_id is null").all();
+  return {
+    commission: commission(),
+    shops: sellers.map(({ seller_id }) => {
+      const u = db.prepare('select * from users where id = ?').get(seller_id);
+      const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(seller_id) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(seller_id);
+      const { ids, ...open } = openSales(seller_id);
+      return { sellerId: seller_id, shop: u ? shopNameOf(u) : 'Shop', momoNumber: acc?.momo_number ?? parse(u?.shop)?.phone ?? null, momoName: acc?.momo_name ?? null, ...open };
+    }).filter((s) => s.orders > 0).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)),
+    recent: db.prepare('select s.*, u.shop, u.display_name, u.email, u.is_guest, u.role from shop_settlements s join users u on u.id = s.seller_id order by s.created_at desc limit 30').all()
+      .map((r) => ({ id: r.id, shop: shopNameOf(r), amount: r.amount, orders: r.orders, reference: r.reference, createdAt: r.created_at })),
+  };
+});
+route('POST', '/api/admin/settlements/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  const open = openSales(params[0]);
+  if (!open.orders) fail(400, 'nothing', 'Nothing to settle for this shop.');
+  const id = randomUUID();
+  const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
+  transaction(() => {
+    db.prepare('insert into shop_settlements (id, seller_id, amount, orders, reference, created_at) values (?, ?, ?, ?, ?, ?)').run(id, params[0], open.balance, open.orders, reference, now());
+    const mark = db.prepare('update orders set settlement_id = ? where id = ?');
+    for (const o of open.ids) mark.run(id, o);
+  });
+  logAdmin(user, 'shop settled', `${params[0]}: ${money(open.balance)} for ${open.orders} orders${reference ? ` (${reference})` : ''}`);
+  notify(params[0], {
+    type: 'sale',
+    title: open.balance >= 0 ? `Saligue sent you ${money(open.balance)}` : `Saligue fees settled: ${money(-open.balance)}`,
+    body: `${open.orders} delivered order${open.orders === 1 ? '' : 's'} settled${reference ? ` · ref ${reference}` : ''}.`,
+    link: '/dashboard/sales',
+  });
+  return { ok: true, id };
 });
 
 // Accounts: find people, suspend or restore them.

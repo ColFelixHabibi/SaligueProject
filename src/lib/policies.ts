@@ -150,6 +150,14 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             ],
           },
           {
+            heading: 'Fees for shops',
+            paragraphs: [
+              'Listing items, going live and selling are free to start. Saligue takes a fee of 5% of each delivered order, fixed on the order when it is placed. A new shop pays no fee during its first 90 days. There is no monthly charge.',
+              'Orders paid online: Saligue receives the payment and sends the shop the order total minus the fee by Mobile Money. Orders paid to the shop directly (Mobile Money to the shop, cash on delivery, pickup): the shop sends Saligue the fee. Seller Center → Sales shows every amount.',
+              'Saligue tells shops at least 30 days before it raises the fee; a change never affects orders already placed.',
+            ],
+          },
+          {
             heading: 'The Fitting Room and AI features',
             paragraphs: [
               'The Fitting Room shows how items could look on you. It is a preview made by artificial intelligence, not a guarantee of fit, size or colour. Always check the size details of an item.',

@@ -213,6 +213,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
                 <BadgeCheck className="h-3.5 w-3.5" /> INDECIANA
               </span>
             )}
+            {product.sample && <span className="mb-1.5 ml-1 inline-flex rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-black" title="A sample item while Saligue is new">Sample</span>}
             {sponsoredBy && <p className="mb-1 inline-flex items-center rounded bg-foreground/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-background">Sponsored</p>}
             <Link href={productHref(product)} onClick={() => sponsoredBy && adClicked(sponsoredBy)} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
             {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}

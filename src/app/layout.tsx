@@ -14,6 +14,7 @@ import { AppUpdate } from '@/components/app-update';
 import { ConfirmHost } from '@/components/confirm-dialog';
 import { ShareHost } from '@/components/share-sheet';
 import { LookPickerHost } from '@/components/look-picker';
+import { Welcome } from '@/components/welcome';
 import { NativeLinks } from '@/components/native-links';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
@@ -77,6 +78,7 @@ export default function RootLayout({
           <ConfirmHost />
           <ShareHost />
           <LookPickerHost />
+          <Welcome />
           <NativeLinks />
         </AuthProvider>
       </body>

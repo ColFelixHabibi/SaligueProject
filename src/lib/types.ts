@@ -2,6 +2,8 @@
 export type Product = {
   id: string;
   name: string;
+  // A sample item that fills Saligue while it is new (not a real shop’s listing).
+  sample?: boolean;
   price: number;
   // Original photo as uploaded by the seller (JPEG data URL).
   image: string;

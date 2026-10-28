@@ -5,6 +5,7 @@ import { CoinsAdmin, TipsAdmin } from '@/components/admin/tips-admin';
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 
 import { MonetizationAdmin } from '@/components/admin/monetization-admin';
+import { SettlementsAdmin } from '@/components/admin/settlements-admin';
 import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -485,7 +486,7 @@ export default function AdminPage() {
     { value: 'overview', label: 'Overview', icon: LayoutDashboard, show: true, body: <OverviewAdmin open={open} /> },
     { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <AppealsAdmin /> },
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
-    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <TipsAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
     { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },

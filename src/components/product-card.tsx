@@ -69,6 +69,7 @@ function ShopTile({ product, className, sponsoredBy }: { product: Product; class
             <BadgeCheck className="h-3 w-3" /> INDECIANA
           </span>
         )}
+        {product.sample && <span className={cn('absolute left-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black', product.official ? 'top-9' : 'top-2')} title="A sample item while Saligue is new">Sample</span>}
         {product.stock === 0 ? (
           <span className="absolute bottom-2 left-2 rounded-full bg-destructive px-2.5 py-1 text-[10px] font-bold uppercase text-destructive-foreground">Sold out</span>
         ) : product.stock != null && product.stock <= 3 ? (
@@ -109,6 +110,7 @@ function SocialCard({ product, className }: { product: Product; className?: stri
             <BadgeCheck className="h-3 w-3" /> INDECIANA
           </span>
         )}
+        {product.sample && <span className={cn('absolute left-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black', product.official ? 'top-9' : 'top-2')} title="A sample item while Saligue is new">Sample</span>}
         <SoundChip product={product} className="absolute bottom-2 left-2" />
         {product.stock === 0 ? (
           <span className="absolute right-2 top-2 rounded-full bg-destructive px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-destructive-foreground">Sold out</span>

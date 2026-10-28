@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, Bell, Coins, HelpCircle, Megaphone, Home, LifeBuoy, MessageCircle, Package, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
+import { BarChart3, Bell, Coins, HandCoins, HelpCircle, Megaphone, Home, LifeBuoy, MessageCircle, Package, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { Hub } from '@/components/layout/hub';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -48,6 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
     { href: '/dashboard/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
     ...(on('questions') ? [{ href: '/dashboard/questions', icon: HelpCircle, label: 'Questions', count: waitingQuestions }] : []),
+    { href: '/dashboard/sales', icon: HandCoins, label: 'Sales' },
     { href: '/dashboard/ads', icon: Megaphone, label: 'Ads' },
     { href: '/dashboard/earnings', icon: Coins, label: 'Earnings' },
     { href: '/dashboard/analytics', icon: BarChart3, label: 'Analytics' },

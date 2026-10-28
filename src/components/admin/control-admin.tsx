@@ -67,7 +67,7 @@ export function FeaturesAdmin({ features }: { features: Record<string, string> }
   );
 }
 
-type Rules = { followers: number; views90: number; accountDays: number; creatorShare: number; cpm: number; minBudget: number; tipShare: number; tipAmounts: number[]; verificationPrice: number };
+type Rules = { followers: number; views90: number; accountDays: number; creatorShare: number; cpm: number; minBudget: number; tipShare: number; tipAmounts: number[]; verificationPrice: number; saleFee: number; freeDays: number };
 
 /** The numbers behind monetization, ads and tips. */
 export function RulesAdmin() {
@@ -78,7 +78,7 @@ export function RulesAdmin() {
   useEffect(() => {
     api<Rules>('/admin/rules').then((d) => {
       setR(d);
-      setForm({ followers: String(d.followers), views90: String(d.views90), accountDays: String(d.accountDays), creatorShare: String(Math.round(d.creatorShare * 100)), cpm: String(d.cpm), minBudget: String(d.minBudget), tipShare: String(Math.round(d.tipShare * 100)), tipAmounts: d.tipAmounts.join(', '), verificationPrice: String(d.verificationPrice) });
+      setForm({ followers: String(d.followers), views90: String(d.views90), accountDays: String(d.accountDays), creatorShare: String(Math.round(d.creatorShare * 100)), cpm: String(d.cpm), minBudget: String(d.minBudget), tipShare: String(Math.round(d.tipShare * 100)), tipAmounts: d.tipAmounts.join(', '), verificationPrice: String(d.verificationPrice), saleFee: String(Math.round(d.saleFee * 1000) / 10), freeDays: String(d.freeDays) });
     }).catch(() => setFailed(true));
   }, []);
   if (failed) return <p className="text-sm text-muted-foreground">The money rules could not be loaded. Reload the page.</p>;
@@ -93,7 +93,7 @@ export function RulesAdmin() {
   const save = () => act(() => api<Rules>('/admin/rules', { method: 'PUT', body: {
     followers: Number(form.followers), views90: Number(form.views90), accountDays: Number(form.accountDays),
     creatorShare: Number(form.creatorShare) / 100, cpm: Number(form.cpm), minBudget: Number(form.minBudget),
-    tipShare: Number(form.tipShare) / 100, tipAmounts: form.tipAmounts.split(/[,\s]+/).map(Number).filter(Boolean), verificationPrice: Number(form.verificationPrice),
+    tipShare: Number(form.tipShare) / 100, tipAmounts: form.tipAmounts.split(/[,\s]+/).map(Number).filter(Boolean), verificationPrice: Number(form.verificationPrice), saleFee: Number(form.saleFee) / 100, freeDays: Number(form.freeDays),
   } }), 'Rules saved').then((d) => d && setR(d));
   return (
     <Card>
@@ -107,6 +107,11 @@ export function RulesAdmin() {
           {field('followers', 'Clients needed')}
           {field('views90', 'Item views in 90 days')}
           {field('accountDays', 'Days since joining')}
+        </div>
+        <p className="text-sm font-semibold">Saligue’s fee on each sale</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {field('saleFee', 'Fee per sale (%)', 'Up to 30%. Fixed on each order when it is placed')}
+          {field('freeDays', 'Free days for a new shop', 'No fee during a shop’s first days')}
         </div>
         <p className="text-sm font-semibold">Ads and creators’ share</p>
         <div className="grid gap-3 sm:grid-cols-3">

@@ -512,6 +512,18 @@ db.exec(`
   );
   create index if not exists lesson_done_user on lesson_done(user_id, done_at desc);
 
+  -- Settling sales with a shop: Saligue pays out online-paid sales minus its fee, or the shop pays the fees
+  -- on sales it was paid for directly (Mobile Money to the shop, cash, pickup). amount > 0: Saligue paid the shop.
+  create table if not exists shop_settlements (
+    id text primary key,
+    seller_id text not null references users(id) on delete cascade,
+    amount real not null,
+    orders integer not null,
+    reference text,
+    created_at text not null
+  );
+  create index if not exists shop_settlements_seller on shop_settlements(seller_id, created_at desc);
+
   -- How much each person engages with each shop's lives (double-taps/hearts, comments, gifts): it ranks lives.
   create table if not exists live_engagement (
     user_id text not null references users(id) on delete cascade,
@@ -593,6 +605,7 @@ for (const [table, column, type] of [
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
+  ['orders', 'fee', 'real not null default 0'], ['orders', 'settlement_id', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
