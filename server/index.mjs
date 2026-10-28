@@ -3464,6 +3464,35 @@ const TYPES = {
   '.onnx': 'application/octet-stream', '.task': 'application/octet-stream',
 };
 
+// Link previews (WhatsApp, Facebook, X, Telegram read these tags): a shared live shows its cover and title,
+// an item its photo and price, a shop or teacher their photo, a lesson its poster. Other pages stay as built.
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+function sharePreview(pathname, params) {
+  const path = pathname.replace(/\/+$/, '');
+  const abs = (media) => (media ? (/^https?:/.test(media) ? media : `${siteUrl()}${media}`) : null);
+  try {
+    if (path === '/live/watch' && params.get('id')) {
+      const l = db.prepare('select l.title, l.description, l.thumbnail, l.status, u.avatar, u.shop, u.display_name, u.email, u.is_guest, u.role from lives l join users u on u.id = l.seller_id where l.id = ?').get(params.get('id'));
+      if (l) return { title: `${l.status === 'live' ? '🔴 LIVE · ' : ''}${l.title}`, description: `${shopNameOf(l)} on Saligue Live${l.description ? ` · ${l.description}` : ''}`, image: abs(l.thumbnail ?? l.avatar) };
+    }
+    if ((path === '/product' || path === '/indeciana') && (params.get('id') || params.get('item'))) {
+      const p = db.prepare("select name, description, price, image, cutout from products where id = ? and status = 'active' and hidden = 0").get(params.get('id') ?? params.get('item'));
+      if (p) return { title: `${p.name} · ${money(p.price)}`, description: p.description || 'See it on you in the Saligue Fitting Room.', image: abs(p.image ?? p.cutout) };
+    }
+    if (path === '/profile' && params.get('id')) {
+      const u = db.prepare('select display_name, email, is_guest, role, shop, avatar, bio from users where id = ? and suspended = 0').get(params.get('id'));
+      if (u) return { title: `${u.role === 'seller' ? shopNameOf(u) : personNameOf(u)} on Saligue`, description: u.bio || 'Fashion on Saligue', image: abs(u.avatar) };
+    }
+    if (path === '/learn' && params.get('lesson')) {
+      const l = db.prepare('select title, description, poster from lessons where id = ? and hidden = 0').get(params.get('lesson'));
+      if (l) return { title: `${l.title} · a fashion lesson`, description: l.description || 'Learn on Saligue', image: abs(l.poster) };
+    }
+  } catch (error) {
+    console.error('Link preview failed:', error.message);
+  }
+  return null;
+}
+
 function serveStatic(req, res, pathname) {
   const target = normalize(join(STATIC_DIR, decodeURIComponent(pathname)));
   if (!target.startsWith(STATIC_DIR + sep) && target !== STATIC_DIR) return send(res, 400, 'Bad path');
@@ -3475,6 +3504,19 @@ function serveStatic(req, res, pathname) {
     file = join(STATIC_DIR, '404.html');
     status = 404;
     if (!existsSync(file)) return send(res, 404, 'Not found');
+  }
+  if (status === 200 && file.endsWith('.html')) {
+    const preview = sharePreview(pathname, new URL(req.url, 'http://x').searchParams);
+    if (preview) {
+      const tags = [
+        ['og:title', preview.title], ['og:description', preview.description], ['og:type', 'website'], ['og:site_name', 'Saligue'],
+        ['og:url', `${siteUrl()}${req.url}`], ...(preview.image ? [['og:image', preview.image]] : []),
+      ].map(([k, v]) => `<meta property="${k}" content="${escapeHtml(v)}">`).join('')
+        + `<meta name="twitter:card" content="${preview.image ? 'summary_large_image' : 'summary'}"><meta name="twitter:title" content="${escapeHtml(preview.title)}">${preview.image ? `<meta name="twitter:image" content="${escapeHtml(preview.image)}">` : ''}`;
+      const html = readFileSync(file, 'utf8').replace(/<head>/, `<head>${tags}`);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(html);
+    }
   }
   // Build files have unique names, so they never change; AI models are large and change rarely (30 days).
   const immutable = pathname.includes('/_next/static/');

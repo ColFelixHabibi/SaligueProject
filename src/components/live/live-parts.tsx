@@ -68,9 +68,23 @@ function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
 }
 
 /** Host full screen; up to three guests share the screen with the host, like TikTok and Instagram multi-guest lives. */
-export function LiveStage({ tiles, waiting, fill }: { tiles: Tile[]; waiting: string; fill?: boolean }) {
-  if (!tiles.length) {
-    return <div className="flex h-full w-full items-center justify-center bg-neutral-900 p-8 text-center text-white/80">{waiting}</div>;
+export function LiveStage({ tiles, waiting, fill, cover }: { tiles: Tile[]; waiting: string; fill?: boolean; cover?: string | null }) {
+  // Until the video arrives: the live's cover (whole, on a soft blurred copy of itself), like TikTok.
+  if (!tiles.length || !tiles.some((t) => t.video)) {
+    return (
+      <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-neutral-900 p-8 text-center text-white/90">
+        {cover && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={cover} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={cover} alt="" className="absolute inset-0 h-full w-full object-contain" />
+            <span className="absolute inset-0 bg-black/30" />
+          </>
+        )}
+        <span className="relative flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold backdrop-blur"><Radio className="h-4 w-4 animate-pulse text-primary" /> {waiting}</span>
+      </div>
+    );
   }
   if (tiles.length === 1) return <VideoView tile={tiles[0]} cover={fill} />;
   return (
