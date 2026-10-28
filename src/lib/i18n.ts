@@ -138,6 +138,9 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Nothing with this tag yet. Add it to an item or lesson description.': ['Nta kintu kiriho iyi tag. Yongere mu bisobanuro by’igicuruzwa cyangwa isomo.', 'Rien avec ce tag. Ajoutez-le à la description d’un article ou d’une leçon.'],
   'Username': ['Izina ukoresha', 'Nom d’utilisateur'],
   'View replies': ['Reba ibisubizo', 'Voir les réponses'],
+  'sold': ['byaguzwe', 'vendus'],
+  'left': ['bisigaye', 'restants'],
+  'No reviews yet': ['Nta bitekerezo biratangwa', 'Pas encore d’avis'],
   // Looks, Ask the shop, end of a lesson, weekly note
   'Add to a look': ['Shyira mu mwambaro', 'Ajouter à un look'],
   'Log in to make looks': ['Injira ukore imyambarire yawe', 'Connectez-vous pour créer des looks'],

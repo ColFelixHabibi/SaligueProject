@@ -554,7 +554,7 @@ route('GET', '/api/products', ({ user }) => {
     .all(user?.id ?? '');
   const real = rows.filter((r) => !r.sample && r.status === 'active').length;
   // Sold counts for every item in one pass.
-  const sold = new Map(db.prepare("select json_extract(i.value, '$.productId') as id, sum(json_extract(i.value, '$.quantity')) as n from orders o, json_each(o.items) i where o.status != 'cancelled' group by id").all().map((x) => [x.id, x.n]));
+  const sold = new Map(db.prepare("select json_extract(i.value, '$.productId') as pid, sum(json_extract(i.value, '$.quantity')) as n from orders o, json_each(o.items) i where o.status != 'cancelled' group by pid").all().map((x) => [x.pid, x.n]));
   for (const r of rows) r.sold = sold.get(r.id) ?? 0;
   return rows
     .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
