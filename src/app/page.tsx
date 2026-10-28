@@ -167,7 +167,7 @@ export default function ForYouPage() {
   return (
     // Computers (lg): the feed column with a panel beside it about the item on screen; phones: the feed only.
     <div className="lg:flex lg:h-dvh lg:justify-center lg:gap-6 lg:bg-muted/50 lg:px-6">
-    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background md:h-dvh lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
+    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
       {/* What to watch: chosen by the viewer, not only by the algorithm. */}
       <div className="pointer-events-none sticky top-0 z-50 flex h-0 items-start justify-center">

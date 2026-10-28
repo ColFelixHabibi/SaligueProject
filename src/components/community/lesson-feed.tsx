@@ -62,7 +62,7 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
           <Plus className="h-4 w-4" /> {tr('Teach')}
         </Link>
       </div>
-      <div className="h-full snap-y snap-mandatory overflow-y-auto">
+      <div className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lessons === null ? (
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (
