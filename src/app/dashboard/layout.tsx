@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { BarChart3, Bell, Coins, Megaphone, Home, LifeBuoy, MessageCircle, Package, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
+import { BarChart3, Bell, Coins, HelpCircle, Megaphone, Home, LifeBuoy, MessageCircle, Package, Radio, Settings, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { Hub } from '@/components/layout/hub';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,6 +11,8 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useNotificationStore } from '@/hooks/use-notification-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useUnreadMessages } from '@/lib/messages';
+import { useShopQuestions } from '@/lib/questions';
+import { useFeatures } from '@/lib/features';
 
 /** Seller Center: the shop's own space, with its own menu (a Menu button on phones, a side menu on computers). */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -20,6 +22,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { official, shop, avatar } = useUserRoleStore();
   const unreadNotifications = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
   const unreadMessages = useUnreadMessages();
+  const on = useFeatures();
+  const questions = useShopQuestions(!!user && role === 'seller');
+  const waitingQuestions = questions?.filter((q) => !q.answer).length ?? 0;
 
   useEffect(() => {
     if (!isAuthLoading) {
@@ -42,6 +47,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard/products', icon: Package, label: 'Products' },
     { href: '/dashboard/orders', icon: ShoppingBag, label: 'Orders' },
     { href: '/dashboard/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
+    ...(on('questions') ? [{ href: '/dashboard/questions', icon: HelpCircle, label: 'Questions', count: waitingQuestions }] : []),
     { href: '/dashboard/ads', icon: Megaphone, label: 'Ads' },
     { href: '/dashboard/earnings', icon: Coins, label: 'Earnings' },
     { href: '/dashboard/analytics', icon: BarChart3, label: 'Analytics' },

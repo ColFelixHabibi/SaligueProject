@@ -98,6 +98,7 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Messages with shops': ['Ubutumwa n’amaduka', 'Messages avec les boutiques'],
   'Start selling': ['Tangira gucuruza', 'Commencer à vendre'],
   'Log out': ['Sohoka', 'Se déconnecter'],
+  'Every question is answered.': ['Ibibazo byose byasubijwe.', 'Toutes les questions ont une réponse.'],
   // Looks, Ask the shop, end of a lesson, weekly note
   'Add to a look': ['Shyira mu mwambaro', 'Ajouter à un look'],
   'Log in to make looks': ['Injira ukore imyambarire yawe', 'Connectez-vous pour créer des looks'],

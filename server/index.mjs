@@ -850,6 +850,12 @@ route('POST', '/api/products/([\\w-]+)/questions', ({ user, params, body }) => {
   notify(product.seller_id, { type: 'message', title: `Question about ${product.name}`, body: text.slice(0, 140), link: `/product?id=${product.id}#questions`, email: true });
   return { id };
 });
+// The shop's questions across all its items, waiting ones first (Seller Center → Questions).
+route('GET', '/api/seller/questions', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  return db.prepare('select q.*, p.name as product_name, coalesce(p.cutout, p.image) as product_image from product_questions q join products p on p.id = q.product_id where p.seller_id = ? order by q.answer is null desc, q.created_at desc limit 200')
+    .all(user.id).map((q) => ({ ...questionOut(q, user, user.id), productId: q.product_id, productName: q.product_name, productImage: q.product_image }));
+});
 route('PUT', '/api/questions/([\\w-]+)/answer', ({ user, params, body }) => {
   const q = db.prepare('select q.*, p.seller_id, p.name as product_name from product_questions q join products p on p.id = q.product_id where q.id = ?').get(params[0]);
   if (!q) fail(404, 'not_found', 'This question was removed.');
