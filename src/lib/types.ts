@@ -53,7 +53,7 @@ export type Product = {
 
 export type Review = { id: string; uid: string; name: string; rating: number; text: string; createdAt: string };
 
-export type Comment = { id: string; uid: string; name: string; text: string; createdAt?: string | null };
+export type Comment = { id: string; uid: string; name: string; username?: string | null; parentId?: string | null; text: string; createdAt?: string | null };
 
 // A seller's shop: shown with every item so buyers know exactly where the shop is.
 export type Shop = {

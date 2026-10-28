@@ -15,6 +15,7 @@ import { deleteLessonComment, lessonComments, postLessonComment, type Lesson, ty
 import { cn } from '@/lib/utils';
 import { RichText } from '@/components/rich-text';
 import { MentionSuggestions } from '@/components/mention-suggestions';
+import { CommentThread } from '@/components/comment-thread';
 
 /** Comments and questions under a lesson, as threads: the teacher's replies are marked and answer the question. */
 export function LessonComments({ lesson }: { lesson: Lesson }) {
@@ -53,9 +54,9 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
 
   const visible = (list ?? []).filter((c) => !blocked.has(c.uid));
   const top = visible.filter((c) => !c.parentId && (filter === 'all' || c.kind === 'question'));
-  const replies = (id: string) => visible.filter((c) => c.parentId === id);
-  const Row = ({ c, reply }: { c: LessonComment; reply?: boolean }) => (
-    <div className={cn('flex gap-2.5', reply && 'ml-9')}>
+  // Anyone can reply to any comment or reply, as deep as they like (see CommentThread).
+  const Row = ({ c, reply, parent }: { c: LessonComment; reply?: boolean; parent?: LessonComment | null }) => (
+    <div className="flex gap-2.5">
       <SellerAvatar src={c.avatar} name={c.name} className={reply ? 'h-7 w-7' : 'h-8 w-8'} />
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold">
@@ -63,9 +64,9 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
           {c.teacher && <span className="ml-1.5 rounded bg-primary px-1 py-px text-[10px] font-extrabold uppercase text-white">Teacher</span>}
           {c.kind === 'question' && <span className={cn('ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-bold', c.answered ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{c.answered ? <CheckCircle2 className="h-3 w-3" /> : <HelpCircle className="h-3 w-3" />}{c.answered ? t('Answered') : t('Question')}</span>}
         </p>
-        <p className="whitespace-pre-wrap break-words text-sm"><RichText text={c.text} /></p>
+        <p className="whitespace-pre-wrap break-words text-sm">{parent && <span className="mr-1 font-semibold text-primary">@{parent.name}</span>}<RichText text={c.text} /></p>
         <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
-          {!reply && user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
+          {user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
           {lesson.authorId === authUid && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       </div>
@@ -84,12 +85,9 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-3">
         {list === null && <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
         {list?.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Be the first to comment or ask the teacher.</p>}
-        {top.map((c) => (
-          <div key={c.id} className="space-y-2">
-            <Row c={c} />
-            {replies(c.id).map((r) => <Row key={r.id} c={r} reply />)}
-          </div>
-        ))}
+        <div className="space-y-4">
+          <CommentThread items={visible} roots={top} render={(c, depth, parent) => <Row c={c} reply={depth > 0} parent={depth > 3 ? parent : null} />} />
+        </div>
       </div>
       {user ? (
         <form onSubmit={send} className="space-y-1.5 border-t pt-3">

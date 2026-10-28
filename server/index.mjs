@@ -735,9 +735,10 @@ route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
 });
 
 // Comments
+// Comments are threads: anyone can reply to a comment or to a reply, as deep as they like (parentId).
 route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
-  db.prepare('select * from comments where product_id = ? order by created_at desc limit 50').all(params[0])
-    .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, text: r.text, createdAt: r.created_at })));
+  db.prepare('select c.*, u.username from comments c left join users u on u.id = c.user_id where c.product_id = ? order by c.created_at desc limit 500').all(params[0])
+    .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, username: r.username ?? null, parentId: r.parent_id ?? null, text: r.text, createdAt: r.created_at })));
 
 route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   needFeature('comments');
@@ -748,8 +749,13 @@ route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
   if (blockedBetween(user.id, product.seller_id)) fail(403, 'blocked', 'You can’t comment here.');
   const name = user.is_guest ? 'Guest' : user.display_name || user.email?.split('@')[0] || 'Saligue user';
+  const parent = body.parentId ? db.prepare('select id, user_id from comments where id = ? and product_id = ?').get(String(body.parentId), product.id) : null;
+  if (body.parentId && !parent) fail(404, 'not_found', 'That comment was removed.');
   const id = randomUUID();
-  db.prepare('insert into comments (id, product_id, user_id, name, text, created_at) values (?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, now());
+  db.prepare('insert into comments (id, product_id, user_id, name, text, parent_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, parent?.id ?? null, now());
+  if (parent && parent.user_id !== user.id && parent.user_id !== product.seller_id) {
+    notify(parent.user_id, { type: 'message', title: `${name.slice(0, 60)} replied to you on ${product.name}`, body: text.slice(0, 140), link: product.official ? `/indeciana?item=${product.id}` : `/product?id=${product.id}`, email: false });
+  }
   broadcast('comments', { productId: params[0] });
   notifyMentions(text, user, { where: `on ${product.name}`, link: product.official ? `/indeciana?item=${product.id}` : `/product?id=${product.id}` });
   if (product.seller_id !== user.id) {
@@ -770,7 +776,8 @@ route('DELETE', '/api/comments/([\\w-]+)', ({ user, params }) => {
   if (!comment) return { ok: true };
   // Once sent, a comment stays: only the shop that owns the item (or a moderator) can remove it.
   if (comment.seller_id !== user.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the shop can remove comments on its items.');
-  db.prepare('delete from comments where id = ?').run(params[0]);
+  // The comment and every reply under it, however deep.
+  db.prepare('with recursive t(id) as (select ? union all select c.id from comments c join t on c.parent_id = t.id) delete from comments where id in (select id from t)').run(params[0]);
   broadcast('comments', { productId: comment.product_id });
   return { ok: true };
 });
@@ -2720,7 +2727,7 @@ route('DELETE', '/api/lesson-comments/([\\w-]+)', ({ user, params }) => {
   const c = db.prepare('select c.*, l.user_id as teacher from lesson_comments c join lessons l on l.id = c.lesson_id where c.id = ?').get(params[0]);
   if (!c) return { ok: true };
   if (c.teacher !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the teacher can remove comments on a lesson.');
-  db.prepare('delete from lesson_comments where id = ? or parent_id = ?').run(c.id, c.id);
+  db.prepare('with recursive t(id) as (select ? union all select c.id from lesson_comments c join t on c.parent_id = t.id) delete from lesson_comments where id in (select id from t)').run(c.id);
   broadcast('lesson_comments', { lessonId: c.lesson_id });
   return { ok: true };
 });
