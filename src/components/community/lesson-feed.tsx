@@ -29,25 +29,29 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
   }, [startAt, lessons?.length]);
 
-  const chip = 'flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
+  const chip = 'flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
+  // One row on every screen: the topics scroll sideways, Teach stays in reach on the right.
   return (
     <div className={cn('relative h-full', className)}>
-      <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-1.5 overflow-x-auto border-b bg-background/95 p-2 backdrop-blur [mask-image:linear-gradient(to_right,black_92%,transparent)] [scrollbar-width:none] md:flex-wrap md:overflow-visible md:[mask-image:none] [&::-webkit-scrollbar]:hidden">
-        {!challenge && on('challenges') && (
-          <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
-            <Trophy className="h-5 w-5" /> {tr('Challenges')}
-          </Link>
-        )}
-        <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic}>
-          <LayoutGrid className="h-5 w-5" /> {tr('All')}
-        </button>
-        {LESSON_TOPICS.map((t) => (
-          <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value}>
-            <t.icon className="h-5 w-5" /> {tr(t.label)}
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b bg-background/95 py-2 pl-2 pr-2 backdrop-blur">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_88%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {!challenge && on('challenges') && (
+            <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
+              <Trophy className="h-4 w-4" /> {tr('Challenges')}
+            </Link>
+          )}
+          <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic}>
+            <LayoutGrid className="h-4 w-4" /> {tr('All')}
           </button>
-        ))}
-        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'ml-auto border border-primary text-primary')} aria-label="Teach a lesson">
-          <Plus className="h-5 w-5" /> {tr('Teach')}
+          {LESSON_TOPICS.map((t) => (
+            <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value}>
+              <t.icon className="h-4 w-4" /> {tr(t.label)}
+            </button>
+          ))}
+          <span className="w-6 shrink-0" aria-hidden />
+        </div>
+        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'bg-foreground px-3 text-background shadow-sm')} aria-label="Teach a lesson">
+          <Plus className="h-4 w-4" /> {tr('Teach')}
         </Link>
       </div>
       <div className="h-full snap-y snap-mandatory overflow-y-auto">

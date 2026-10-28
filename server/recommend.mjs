@@ -108,8 +108,21 @@ function dailyNoise(id) {
  * The feed for one shopper: [{ id, reason }] best first. `reason` says why it was picked
  * ("Because you liked …", "Shoppers like you also liked …", "Trending", "New").
  */
-/** `closeness(product)`: 0 (far or unknown) to 4 (same city), a gentle lift for shops near the shopper. */
-export function feedFor(userId, products, closeness = () => 0) {
+// Words in searches that say nothing about an item.
+const STOP = new Set(['the', 'and', 'for', 'with', 'size', 'new', 'les', 'des', 'une', 'pour', 'avec', 'na', 'ya', 'cya', 'kandi']);
+/** Recent search words → weight (newer and repeated searches count more). */
+function searchWords(userId) {
+  const words = new Map();
+  const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  for (const r of db.prepare('select q, created_at from searches where user_id = ? and created_at > ? order by created_at desc limit 200').all(userId, since)) {
+    for (const w of r.q.split(/[^\p{L}\p{N}]+/u)) {
+      if (w.length >= 3 && !STOP.has(w)) words.set(w, (words.get(w) ?? 0) + decay(r.created_at));
+    }
+  }
+  return words;
+}
+
+export function feedFor(userId, products) {
   const m = ensureModel();
   const mine = userId ? allSignals(userId).get(userId) ?? new Map() : new Map();
   const byId = new Map(products.map((p) => [p.id, p]));
@@ -142,6 +155,22 @@ export function feedFor(userId, products, closeness = () => 0) {
   const category = new Map();
   for (const [id, w] of positive) category.set(byId.get(id).category, (category.get(byId.get(id).category) ?? 0) + w);
 
+  // What they search for, matched against each item's words (name, kind, brand, colour, description).
+  const searched = userId ? searchWords(userId) : new Map();
+  const maxSearched = Math.max(1e-9, ...searched.values());
+  const searchMatch = (p) => {
+    if (!searched.size) return { v: 0, word: null };
+    const text = `${p.name} ${p.type ?? ''} ${p.category} ${p.brand ?? ''} ${p.color ?? ''} ${p.description ?? ''}`.toLowerCase();
+    let v = 0, best = null, bestW = 0;
+    for (const [w, weight] of searched) {
+      if (text.includes(w)) {
+        v += weight;
+        if (weight > bestW) { bestW = weight; best = w; }
+      }
+    }
+    return { v: Math.min(1, v / maxSearched), word: best };
+  };
+
   const scored = products
     // "Show less like this" removes the item itself; its look counts as a dislike below.
     .filter((p) => p.status === 'active' && !p.hidden && !bought.has(p.id) && (mine.get(p.id) ?? 0) > -3)
@@ -156,15 +185,17 @@ export function feedFor(userId, products, closeness = () => 0) {
       const fresh = Math.exp(-ageDays / 14);
       const popular = Math.log1p(p.like_count) / 5;
       const seen = (mine.get(p.id) ?? 0) > 2 ? 0.35 : 0;
+      // Searches count strongly from the first one (no need to wait until enough likes build up).
+      const sm = searchMatch(p);
       const score = confidence * (0.9 * look + 0.8 * cf + 0.35 * kind - dislike)
         + (1 - confidence * 0.5) * (0.35 * trend + 0.3 * fresh + popular)
         + dailyNoise(p.id) * (0.22 - confidence * 0.12)
-        // Nearer shops come a little earlier (taste still leads): delivery is faster and pickup possible.
-        + 0.06 * closeness(p)
+        + 0.6 * sm.v
         - seen - (p.stock === 0 ? 0.6 : 0);
       let reason = null;
       const b = because.get(p.id);
-      if (b && cf > 0.3) reason = `Shoppers who liked ${byId.get(b.id)?.name ?? 'your picks'} also liked this`;
+      if (sm.v > 0.4 && sm.word) reason = `Because you searched “${sm.word}”`;
+      else if (b && cf > 0.3) reason = `Shoppers who liked ${byId.get(b.id)?.name ?? 'your picks'} also liked this`;
       else if (look > 0.8 && positive.length) reason = 'Matches your style';
       else if (trend > 0.5) reason = 'Trending on Saligue';
       else if (ageDays < 3) reason = 'New';

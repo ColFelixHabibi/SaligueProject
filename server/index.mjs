@@ -716,9 +716,158 @@ route('DELETE', '/api/comments/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   const comment = db.prepare('select c.*, p.seller_id from comments c join products p on p.id = c.product_id where c.id = ?').get(params[0]);
   if (!comment) return { ok: true };
-  if (comment.user_id !== user.id && comment.seller_id !== user.id) fail(403, 'forbidden', 'You can only delete your own comments.');
+  // Once sent, a comment stays: only the shop that owns the item (or a moderator) can remove it.
+  if (comment.seller_id !== user.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the shop can remove comments on its items.');
   db.prepare('delete from comments where id = ?').run(params[0]);
   broadcast('comments', { productId: comment.product_id });
+  return { ok: true };
+});
+
+// Looks: named boards of items and lessons. Making them needs an account; anyone with the link can view one.
+function lookOut(l, full = false) {
+  const items = db.prepare('select kind, ref_id, added_at from look_items where look_id = ? order by added_at desc').all(l.id);
+  const cover = (it) => it.kind === 'product'
+    ? db.prepare('select coalesce(cutout, image) as img from products where id = ?').get(it.ref_id)?.img
+    : db.prepare('select poster as img from lessons where id = ?').get(it.ref_id)?.img;
+  const owner = db.prepare('select id, display_name, email, is_guest, avatar, role, shop from users where id = ?').get(l.user_id);
+  return {
+    id: l.id,
+    name: l.name,
+    ownerId: l.user_id,
+    ownerName: owner?.role === 'seller' ? shopNameOf(owner) : personNameOf(owner),
+    count: items.length,
+    covers: items.slice(0, 4).map(cover).filter(Boolean),
+    items: full ? items.map((it) => ({ kind: it.kind, id: it.ref_id })) : undefined,
+    updatedAt: l.updated_at,
+  };
+}
+const ownLook = (user, id) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to make looks.');
+  const l = db.prepare('select * from looks where id = ?').get(id);
+  if (!l || l.user_id !== user.id) fail(404, 'not_found', 'This look no longer exists.');
+  return l;
+};
+route('GET', '/api/looks', ({ user }) => {
+  if (!user || user.is_guest) return [];
+  return db.prepare('select * from looks where user_id = ? order by updated_at desc').all(user.id).map((l) => ({
+    ...lookOut(l, true),
+  }));
+});
+route('GET', '/api/looks/([\\w-]+)', ({ params }) => {
+  const l = db.prepare('select * from looks where id = ?').get(params[0]);
+  if (!l) fail(404, 'not_found', 'This look no longer exists.');
+  return lookOut(l, true);
+});
+route('POST', '/api/looks', ({ user, body }) => {
+  needFeature('looks');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to make looks.');
+  const name = String(body.name ?? '').trim().slice(0, 40);
+  if (!name) fail(400, 'empty', 'Give your look a name.');
+  if (db.prepare('select count(*) as n from looks where user_id = ?').get(user.id).n >= 100) fail(400, 'too_many', 'You have 100 looks. Delete one first.');
+  const id = randomUUID();
+  db.prepare('insert into looks (id, user_id, name, created_at, updated_at) values (?, ?, ?, ?, ?)').run(id, user.id, name, now(), now());
+  return lookOut(db.prepare('select * from looks where id = ?').get(id), true);
+});
+route('PATCH', '/api/looks/([\\w-]+)', ({ user, params, body }) => {
+  const l = ownLook(user, params[0]);
+  const name = String(body.name ?? '').trim().slice(0, 40);
+  if (name) db.prepare('update looks set name = ?, updated_at = ? where id = ?').run(name, now(), l.id);
+  return lookOut(db.prepare('select * from looks where id = ?').get(l.id), true);
+});
+route('DELETE', '/api/looks/([\\w-]+)', ({ user, params }) => {
+  const l = ownLook(user, params[0]);
+  db.prepare('delete from looks where id = ?').run(l.id);
+  return { ok: true };
+});
+// Adds or removes one item or lesson (toggle).
+route('POST', '/api/looks/([\\w-]+)/items', ({ user, params, body }) => {
+  const l = ownLook(user, params[0]);
+  const kind = body.kind === 'lesson' ? 'lesson' : 'product';
+  const ref = String(body.id ?? '');
+  const exists = kind === 'product' ? db.prepare('select 1 from products where id = ?').get(ref) : db.prepare('select 1 from lessons where id = ?').get(ref);
+  if (!exists) fail(404, 'not_found', 'This is no longer on Saligue.');
+  const had = db.prepare('delete from look_items where look_id = ? and kind = ? and ref_id = ?').run(l.id, kind, ref).changes;
+  if (!had) {
+    if (db.prepare('select count(*) as n from look_items where look_id = ?').get(l.id).n >= 60) fail(400, 'too_many', 'A look holds up to 60 pieces.');
+    db.prepare('insert into look_items (look_id, kind, ref_id, added_at) values (?, ?, ?, ?)').run(l.id, kind, ref, now());
+  }
+  db.prepare('update looks set updated_at = ? where id = ?').run(now(), l.id);
+  return { added: !had, look: lookOut(db.prepare('select * from looks where id = ?').get(l.id), true) };
+});
+
+// The weekly note: a calm summary of what someone learned and made, instead of a stream of alerts.
+function weekOf(userId, since = new Date(Date.now() - 7 * 86_400_000).toISOString()) {
+  const done = db.prepare('select l.id, l.title, l.topic, l.duration, d.thanked_at from lesson_done d join lessons l on l.id = d.lesson_id where d.user_id = ? and d.done_at > ? order by d.done_at desc').all(userId, since);
+  const topics = {};
+  for (const l of done) topics[l.topic] = (topics[l.topic] ?? 0) + 1;
+  return {
+    since,
+    lessons: done.length,
+    minutes: Math.round(done.reduce((sum, l) => sum + (l.duration ?? 0), 0) / 60),
+    topics,
+    recent: done.slice(0, 3).map((l) => ({ id: l.id, title: l.title })),
+    thanked: done.filter((l) => l.thanked_at).length,
+    answers: db.prepare("select count(*) as n from lesson_comments r join lesson_comments q on q.id = r.parent_id join lessons l on l.id = q.lesson_id where q.user_id = ? and q.kind = 'question' and r.user_id = l.user_id and r.created_at > ?").get(userId, since).n
+      + db.prepare('select count(*) as n from product_questions where user_id = ? and answered_at > ?').get(userId, since).n,
+    looks: db.prepare('select count(distinct li.look_id) as n from look_items li join looks k on k.id = li.look_id where k.user_id = ? and li.added_at > ?').get(userId, since).n,
+    saved: db.prepare('select count(*) as n from look_items li join looks k on k.id = li.look_id where k.user_id = ? and li.added_at > ?').get(userId, since).n,
+    newFromFollowed: db.prepare("select count(*) as n from products p join follows f on f.seller_id = p.seller_id where f.follower_id = ? and p.created_at > ? and p.status = 'active' and p.hidden = 0").get(userId, since).n
+      + db.prepare('select count(*) as n from lessons l join follows f on f.seller_id = l.user_id where f.follower_id = ? and l.created_at > ? and l.hidden = 0').get(userId, since).n,
+  };
+}
+route('GET', '/api/me/week', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to see your week.');
+  return weekOf(user.id);
+});
+
+// Ask the shop: questions on an item. Answered ones are public, so the next shopper sees the answer;
+// waiting ones are seen only by the person who asked and the shop.
+function questionOut(q, viewer, sellerId) {
+  const asker = db.prepare('select display_name, email, is_guest, avatar from users where id = ?').get(q.user_id);
+  return { id: q.id, uid: q.user_id, name: personNameOf(asker), avatar: asker?.avatar ?? null, text: q.text, answer: q.answer, answeredAt: q.answered_at, createdAt: q.created_at, mine: q.user_id === viewer?.id, canAnswer: sellerId === viewer?.id };
+}
+route('GET', '/api/products/([\\w-]+)/questions', ({ user, params }) => {
+  const product = db.prepare('select seller_id from products where id = ?').get(params[0]);
+  if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  const shop = product.seller_id === user?.id;
+  return db.prepare('select * from product_questions where product_id = ? and (answer is not null or user_id = ? or ?) order by answer is null desc, coalesce(answered_at, created_at) desc limit 100')
+    .all(params[0], user?.id ?? '', shop ? 1 : 0).map((q) => questionOut(q, user, product.seller_id));
+});
+route('POST', '/api/products/([\\w-]+)/questions', ({ user, params, body }) => {
+  needFeature('questions');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to ask the shop.');
+  const product = db.prepare('select id, name, seller_id, official from products where id = ?').get(params[0]);
+  if (!product) fail(404, 'not_found', 'This item no longer exists.');
+  if (product.seller_id === user.id) fail(400, 'own', 'This is your own item.');
+  if (blockedBetween(user.id, product.seller_id)) fail(403, 'blocked', 'You can’t ask here.');
+  const text = String(body.text ?? '').trim().slice(0, 300);
+  if (text.length < 3) fail(400, 'empty', 'Write your question first.');
+  const recent = db.prepare('select count(*) as n from product_questions where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 3_600_000).toISOString()).n;
+  if (recent >= 10) fail(429, 'too_many', 'Slow down a little — try again in an hour.');
+  const id = randomUUID();
+  db.prepare('insert into product_questions (id, product_id, user_id, text, created_at) values (?, ?, ?, ?, ?)').run(id, product.id, user.id, text, now());
+  broadcast('questions', { productId: product.id });
+  notify(product.seller_id, { type: 'message', title: `Question about ${product.name}`, body: text.slice(0, 140), link: `/product?id=${product.id}#questions`, email: true });
+  return { id };
+});
+route('PUT', '/api/questions/([\\w-]+)/answer', ({ user, params, body }) => {
+  const q = db.prepare('select q.*, p.seller_id, p.name as product_name from product_questions q join products p on p.id = q.product_id where q.id = ?').get(params[0]);
+  if (!q) fail(404, 'not_found', 'This question was removed.');
+  if (q.seller_id !== user?.id) fail(403, 'forbidden', 'Only the shop can answer.');
+  const answer = String(body.answer ?? '').trim().slice(0, 600);
+  if (!answer) fail(400, 'empty', 'Write the answer first.');
+  db.prepare('update product_questions set answer = ?, answered_at = ? where id = ?').run(answer, now(), q.id);
+  broadcast('questions', { productId: q.product_id });
+  if (!q.answered_at) notify(q.user_id, { type: 'message', title: `The shop answered your question about ${q.product_name}`, body: answer.slice(0, 140), link: `/product?id=${q.product_id}#questions`, email: true });
+  return { ok: true };
+});
+// The shop or a moderator can remove a question (spam, rude); the person who asked can't once it is answered.
+route('DELETE', '/api/questions/([\\w-]+)', ({ user, params }) => {
+  const q = db.prepare('select q.*, p.seller_id from product_questions q join products p on p.id = q.product_id where q.id = ?').get(params[0]);
+  if (!q) return { ok: true };
+  if (q.seller_id !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the shop can remove questions.');
+  db.prepare('delete from product_questions where id = ?').run(q.id);
+  broadcast('questions', { productId: q.product_id });
   return { ok: true };
 });
 
@@ -1714,7 +1863,7 @@ route('DELETE', '/api/lives/([\\w-]+)/comments/([\\w-]+)', ({ user, params }) =>
   const live = getLive(params[0]);
   const comment = db.prepare('select * from live_comments where id = ? and live_id = ?').get(params[1], live.id);
   if (!comment) return { ok: true };
-  if (live.seller_id !== user?.id && comment.user_id !== user?.id && !isLiveMod(live, user)) fail(403, 'forbidden', 'Only the host and moderators can remove comments.');
+  if (live.seller_id !== user?.id && !isLiveMod(live, user)) fail(403, 'forbidden', 'Only the host and moderators can remove comments.');
   if (comment.user_id === live.seller_id && live.seller_id !== user?.id) fail(403, 'forbidden', 'Moderators can’t remove the host’s comments.');
   db.prepare('delete from live_comments where id = ?').run(comment.id);
   liveEvent(live.id, { type: 'comment_removed', commentId: comment.id });
@@ -1891,17 +2040,28 @@ route('POST', '/api/interactions', ({ req, user, body }) => {
   return { ok: true, recorded };
 });
 
-route('GET', '/api/feed', ({ user }) => {
-  const me = whereIs(user, visitorCountry());
-  return feedFor(user?.id ?? null, db.prepare('select * from products').all(), (p) => {
-    const shop = parse(p.shop ?? null);
-    return closeness(me, { country: countryCode(shop?.country), city: shop?.city ?? null });
-  });
-});
+// For You follows the person (likes, searches, what they spend seconds on…), wherever items come from;
+// the Local tab is the one about place.
+route('GET', '/api/feed', ({ user }) => feedFor(user?.id ?? null, db.prepare('select * from products').all()));
 
 // A shopper can clear what was learned about them (Settings → Privacy).
 route('DELETE', '/api/interactions', ({ user }) => {
-  if (user) db.prepare('delete from interactions where user_id = ?').run(user.id);
+  if (user) {
+    db.prepare('delete from interactions where user_id = ?').run(user.id);
+    db.prepare('delete from searches where user_id = ?').run(user.id);
+  }
+  return { ok: true };
+});
+
+// What someone searched for: items like it come up in their For You, wherever they're from.
+route('POST', '/api/searches', ({ req, user, body }) => {
+  if (!user) return { ok: true };
+  if (consentOf(req) === 'essential' || body.consent === 'essential') return { ok: true };
+  const q = String(body.q ?? '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 80);
+  if (q.length < 2) return { ok: true };
+  const today = db.prepare('select count(*) as n from searches where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 86_400_000).toISOString()).n;
+  if (today >= 60) return { ok: true };
+  db.prepare('insert into searches (user_id, q, created_at) values (?, ?, ?)').run(user.id, q, now());
   return { ok: true };
 });
 
@@ -1929,6 +2089,9 @@ const FEATURES = {
   comments: 'Comments',
   reviews: 'Reviews',
   verification: 'Verification badge requests',
+  looks: 'Looks (boards of items and lessons)',
+  questions: 'Ask the shop (questions on items)',
+  weekly: 'Weekly note',
 };
 const features = () => ({ ...Object.fromEntries(Object.keys(FEATURES).map((k) => [k, true])), ...(parse(db.prepare("select value from app_config where key = 'features'").get()?.value) ?? {}) });
 // Where each request comes from (set by the router for every API call).
@@ -1952,7 +2115,8 @@ function featureOn(name, country = visitorCountry()) {
 const needFeature = (name) => {
   if (featureOn(name)) return;
   if (features()[name] === false) fail(503, 'feature_off', `${FEATURES[name] ?? 'This feature'} is switched off for now.`);
-  fail(403, 'not_in_country', `${FEATURES[name] ?? 'This feature'} is not available in your country yet.`);
+  const why = featureCountries()[name]?.reason;
+  fail(403, 'not_in_country', `${FEATURES[name] ?? 'This feature'} is not available in your country yet${why ? `: ${why}` : '.'}`);
 };
 // Admins see and switch the global setting (not their own country's view of it).
 route('GET', '/api/admin/features', ({ user }) => {
@@ -1970,9 +2134,10 @@ route('PUT', '/api/admin/feature-countries', ({ user, body }) => {
   const countries = [...new Set((Array.isArray(body.countries) ? body.countries : []).map((c) => String(c).toUpperCase()).filter((c) => /^[A-Z]{2}$/.test(c)))].slice(0, 250);
   const all = featureCountries();
   if (!countries.length || !['only', 'except'].includes(body.mode)) delete all[body.feature];
-  else all[body.feature] = { mode: body.mode, countries };
+  // Why (e.g. "waiting for the payment licence"): shown to people where it's closed, and kept in the admin log.
+  else all[body.feature] = { mode: body.mode, countries, reason: String(body.reason ?? '').trim().slice(0, 160) || null };
   saveConfig('feature_countries', all);
-  logAdmin(user, 'feature countries', `${body.feature}: ${all[body.feature] ? `${all[body.feature].mode} ${countries.join(' ')}` : 'everywhere'}`);
+  logAdmin(user, 'feature countries', `${body.feature}: ${all[body.feature] ? `${all[body.feature].mode} ${countries.join(' ')}${all[body.feature].reason ? ` — ${all[body.feature].reason}` : ''}` : 'everywhere'}`);
   broadcast('features');
   return all;
 });
@@ -2400,10 +2565,33 @@ route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
 route('DELETE', '/api/lesson-comments/([\\w-]+)', ({ user, params }) => {
   const c = db.prepare('select c.*, l.user_id as teacher from lesson_comments c join lessons l on l.id = c.lesson_id where c.id = ?').get(params[0]);
   if (!c) return { ok: true };
-  if (c.user_id !== user?.id && c.teacher !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'You can only delete your own comments.');
+  if (c.teacher !== user?.id && !can(user, 'moderation')) fail(403, 'forbidden', 'Only the teacher can remove comments on a lesson.');
   db.prepare('delete from lesson_comments where id = ? or parent_id = ?').run(c.id, c.id);
   broadcast('lesson_comments', { lessonId: c.lesson_id });
   return { ok: true };
+});
+
+// Watched to the end: counts in the person's weekly note, and the teacher can be thanked.
+route('POST', '/api/lessons/([\\w-]+)/done', ({ user, params }) => {
+  if (!user || user.is_guest) return { ok: true };
+  const l = db.prepare('select id, user_id from lessons where id = ?').get(params[0]);
+  if (!l || l.user_id === user.id) return { ok: true };
+  db.prepare('insert into lesson_done (user_id, lesson_id, done_at) values (?, ?, ?) on conflict (user_id, lesson_id) do update set done_at = excluded.done_at').run(user.id, l.id, now());
+  const row = db.prepare('select thanked_at from lesson_done where user_id = ? and lesson_id = ?').get(user.id, l.id);
+  return { ok: true, thanked: !!row?.thanked_at };
+});
+
+// A free "thank you" to the teacher (once per lesson); a tip is the paid way.
+route('POST', '/api/lessons/([\\w-]+)/thanks', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to thank a teacher.');
+  const l = db.prepare('select id, user_id, title from lessons where id = ?').get(params[0]);
+  if (!l) fail(404, 'not_found', 'This lesson is not available.');
+  if (l.user_id === user.id) fail(400, 'own', 'This is your own lesson.');
+  if (blockedBetween(user.id, l.user_id)) fail(403, 'blocked', 'You can’t do this.');
+  db.prepare('insert into lesson_done (user_id, lesson_id, done_at) values (?, ?, ?) on conflict (user_id, lesson_id) do nothing').run(user.id, l.id, now());
+  const fresh = db.prepare('update lesson_done set thanked_at = ? where user_id = ? and lesson_id = ? and thanked_at is null').run(now(), user.id, l.id).changes;
+  if (fresh) notify(l.user_id, { type: 'message', title: `${personNameOf(user)} thanked you for "${l.title}"`, body: 'Your lesson helped someone today.', link: `/learn?lesson=${l.id}`, email: false });
+  return { ok: true, thanks: db.prepare('select count(*) as n from lesson_done where lesson_id = ? and thanked_at is not null').get(l.id).n };
 });
 
 // A view counts once per person per lesson per day.
@@ -3833,6 +4021,25 @@ if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 cancelAbandonedOrders();
 setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
 setInterval(checkBadges, 60 * 60_000).unref();
+// Sunday evening: one note per person who learned or saved something that week (nothing for quiet weeks).
+function sendWeeklyNotes() {
+  const d = new Date();
+  if (d.getUTCDay() !== 0 || d.getUTCHours() < 16) return;
+  const week = d.toISOString().slice(0, 10);
+  const key = 'weekly_note_sent';
+  if (parse(db.prepare('select value from app_config where key = ?').get(key)?.value) === week) return;
+  db.prepare('insert into app_config (key, value) values (?, ?) on conflict (key) do update set value = excluded.value').run(key, json(week));
+  if (!featureOn('weekly', null)) return;
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const people = db.prepare('select distinct user_id from lesson_done where done_at > ? union select distinct k.user_id from look_items li join looks k on k.id = li.look_id where li.added_at > ?').all(since, since);
+  for (const { user_id } of people) {
+    const w = weekOf(user_id, since);
+    const parts = [w.lessons && `${w.lessons} lesson${w.lessons === 1 ? '' : 's'} (${w.minutes} min)`, w.saved && `${w.saved} piece${w.saved === 1 ? '' : 's'} saved to looks`, w.answers && `${w.answers} answer${w.answers === 1 ? '' : 's'}`].filter(Boolean);
+    if (parts.length) notify(user_id, { type: 'account', title: 'Your week on Saligue', body: parts.join(' · '), link: '/me#week', email: false });
+  }
+}
+setInterval(sendWeeklyNotes, 60 * 60_000).unref();
+
 // The For You model relearns from everyone's behaviour every few minutes.
 try {
   train();

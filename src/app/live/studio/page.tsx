@@ -582,7 +582,7 @@ function PollPanel({ id, live }: { id: string; live: Live }) {
           {live.poll.open
             ? <Button variant="outline" onClick={() => save({ pollOpen: false }, 'Poll closed')}>Close voting</Button>
             : <Button variant="outline" onClick={() => save({ pollOpen: true }, 'Poll open again')}>Open again</Button>}
-          <Button variant="ghost" className="text-destructive" onClick={() => save({ poll: null }, 'Poll removed')}><Trash2 className="mr-1.5 h-4 w-4" /> Remove</Button>
+          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => save({ poll: null }, 'Poll removed')} aria-label="Remove poll" title="Remove poll"><Trash2 className="h-4 w-4" /></Button>
         </div>
       </div>
     );

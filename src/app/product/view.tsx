@@ -17,7 +17,7 @@ import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
+import { Layers, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
 import ProductCard from '@/components/product-card';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
@@ -36,6 +36,10 @@ import { Reviews } from '@/components/reviews';
 import { Stars } from '@/components/stars';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { api } from '@/lib/api';
+import { useAuth } from '@/components/auth/auth-provider';
+import { useFeatures } from '@/lib/features';
+import { addToLook } from '@/components/look-picker';
+import { ProductQuestions } from '@/components/product-questions';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -44,6 +48,8 @@ export default function ProductView({ id }: { id: string | null }) {
   const [showVideo, setShowVideo] = useState(true);
   const { toast } = useToast();
   const t = useT();
+  const { user } = useAuth();
+  const on = useFeatures();
   
   const allProducts = [...products];
   const product = allProducts.find((p) => p.id === id);
@@ -184,6 +190,11 @@ export default function ProductView({ id }: { id: string | null }) {
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-4xl font-bold text-primary">{formatPrice(Number(product.price))}</p>
                 <SoundChip product={product} autoPlay className="ml-auto" />
+                {user && on('looks') && (
+                  <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 rounded-full" onClick={() => addToLook({ kind: 'product', id: product.id })} aria-label={t('Add to a look')} title={t('Add to a look')}>
+                    <Layers className="h-5 w-5" />
+                  </Button>
+                )}
               </div>
               <p className={`mb-4 flex items-center gap-1.5 text-sm font-semibold ${soldOut ? 'text-destructive' : product.stock != null && product.stock <= 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
@@ -284,6 +295,12 @@ export default function ProductView({ id }: { id: string | null }) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {on('questions') && (
+        <div id="questions" className="mt-12 scroll-mt-20">
+          <ProductQuestions productId={product.id} sellerId={product.sellerId} />
+        </div>
       )}
 
       <div id="reviews" className="scroll-mt-20">

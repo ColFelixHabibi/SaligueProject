@@ -105,7 +105,7 @@ export function VideoField({ file, onChange, existing, onRemoveExisting, uploadi
           <video src={preview} controls playsInline className="max-h-80 w-full" />
           <div className="flex items-center justify-between gap-2 bg-background p-2 text-sm">
             <span className="text-muted-foreground">{file ? `${file.name.slice(0, 28)} · ${seconds ? `${Math.round(seconds)} s` : ''}` : 'Current video'}</span>
-            <Button type="button" size="sm" variant="ghost" disabled={uploading != null} onClick={() => (file ? onChange(null) : onRemoveExisting?.())}><Trash2 className="mr-1 h-4 w-4" /> Remove</Button>
+            <Button type="button" size="icon" variant="ghost" className="text-destructive" disabled={uploading != null} onClick={() => (file ? onChange(null) : onRemoveExisting?.())} aria-label="Remove video" title="Remove video"><Trash2 className="h-4 w-4" /></Button>
           </div>
           {uploading != null && (
             <div className="space-y-1 bg-background p-2 pt-0 text-xs text-muted-foreground">

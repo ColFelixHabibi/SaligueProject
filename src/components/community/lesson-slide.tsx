@@ -11,7 +11,9 @@ import { useT } from '@/lib/i18n';
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
-import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, MessageCircle, MoreHorizontal, Play, Share2, Sparkles, Trash2, Volume2, VolumeX } from 'lucide-react';
+import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, HeartHandshake, Layers, MessageCircle, MoreHorizontal, Play, RotateCcw, Share2, Sparkles, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { addToLook } from '@/components/look-picker';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { LessonComments } from '@/components/community/lesson-comments';
@@ -46,6 +48,18 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [captionsOpen, setCaptionsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // Watched to the end: a quiet card to thank the teacher (free), tip, or keep the lesson in a look.
+  const [ended, setEnded] = useState(false);
+  const [thanked, setThanked] = useState(false);
+  const endedOnce = useRef(false);
+  const onTime = (v: HTMLVideoElement) => {
+    if (endedOnce.current || !v.duration || v.currentTime < v.duration - 0.6) return;
+    endedOnce.current = true;
+    v.pause();
+    setEnded(true);
+    if (user && !lesson.mine) api<{ thanked?: boolean }>(`/lessons/${lesson.id}/done`, { body: {} }).then((r) => r.thanked && setThanked(true)).catch(() => {});
+  };
+  const thank = () => run(async () => { await api(`/lessons/${lesson.id}/thanks`, { body: {} }); setThanked(true); });
   // Captions: on unless the viewer turned them off; in the app's language when there is one, else the lesson's.
   const lang = useLang();
   const [cc, setCc] = useState(true);
@@ -126,6 +140,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           crossOrigin="anonymous"
           onPlay={() => { setPlaying(true); if (original.current) { original.current.currentTime = video.current?.currentTime ?? 0; original.current.play().catch(() => {}); } }}
           onPause={() => { setPlaying(false); original.current?.pause(); }}
+          onTimeUpdate={(e) => onTime(e.currentTarget)}
           onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
           className={cn('absolute inset-y-0 h-full object-contain', lesson.duetOf ? 'right-0 w-1/2 object-cover' : 'inset-x-0 w-full')}
           aria-label={lesson.title}
@@ -142,7 +157,40 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           </Link>
         </>
       )}
-      {!playing && (
+      {ended && (
+        <div className="absolute inset-x-4 top-1/2 z-20 mx-auto max-w-xs -translate-y-1/2 rounded-3xl bg-background/95 p-4 text-center text-foreground shadow-2xl backdrop-blur">
+          <button type="button" onClick={() => setEnded(false)} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted" aria-label="Close"><X className="h-4 w-4" /></button>
+          <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
+          <p className="mt-2 font-bold">{t('Did this help?')}</p>
+          <p className="text-xs text-muted-foreground">@{lesson.authorName}</p>
+          <div className="mt-3 flex items-start justify-center gap-3 text-[11px] font-semibold">
+            {user && !lesson.mine && (
+              <button type="button" onClick={thank} disabled={thanked} className="flex w-14 flex-col items-center gap-1" aria-pressed={thanked}>
+                <span className={cn('flex h-12 w-12 items-center justify-center rounded-full', thanked ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary')}><HeartHandshake className="h-6 w-6" /></span>
+                {thanked ? t('Thanked') : t('Thank')}
+              </button>
+            )}
+            {user && !lesson.mine && on('tips') && (
+              <span className="flex w-14 flex-col items-center gap-1">
+                <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600"><Coins className="h-6 w-6" /></TipButton>
+                {t('Tip')}
+              </span>
+            )}
+            {user && on('looks') && (
+              <button type="button" onClick={() => addToLook({ kind: 'lesson', id: lesson.id })} className="flex w-14 flex-col items-center gap-1">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Layers className="h-6 w-6" /></span>
+                {t('Look')}
+              </button>
+            )}
+            <button type="button" onClick={() => { setEnded(false); if (video.current) { video.current.currentTime = 0; endedOnce.current = false; video.current.play().catch(() => {}); } }} className="flex w-14 flex-col items-center gap-1">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><RotateCcw className="h-6 w-6" /></span>
+              {t('Again')}
+            </button>
+          </div>
+          {!user && <p className="mt-3 text-xs text-muted-foreground">{t('Log in to thank the teacher.')}</p>}
+        </div>
+      )}
+      {!playing && !ended && (
         <button type="button" onClick={() => video.current?.play().catch(() => {})} className="absolute left-1/2 top-1/2 z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 backdrop-blur" aria-label="Play">
           <Play className="h-8 w-8 fill-white" />
         </button>
@@ -174,6 +222,11 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           <div className="mt-4 grid grid-cols-3 gap-2 text-foreground">
             {!lesson.mine && !lesson.duetOf && on('duets') && (
               <Link href={`/learn/new?duet=${lesson.id}`} className={moreTile}><Columns2 className="h-6 w-6 text-primary" /> Duet{(lesson.duetCount ?? 0) > 0 ? ` · ${lesson.duetCount}` : ''}</Link>
+            )}
+            {user && on('looks') && (
+              <button type="button" className={moreTile} onClick={() => { setMoreOpen(false); addToLook({ kind: 'lesson', id: lesson.id }); }}>
+                <Layers className="h-6 w-6 text-primary" /> {t('Look')}
+              </button>
             )}
             {(tracks.length > 0 || lesson.mine) && (
               <button type="button" className={cn(moreTile, cc && tracks.length > 0 && 'border-primary bg-primary/10')} onClick={() => { setMoreOpen(false); if (lesson.mine) setCaptionsOpen(true); else toggleCc(); }} aria-pressed={cc}>

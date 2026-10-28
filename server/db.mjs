@@ -465,6 +465,53 @@ db.exec(`
   );
   create index if not exists ad_credits_user on ad_credits(user_id, created_at desc);
 
+  -- What each person searches for (only with "OK, personalise"): matching items rise in their For You.
+  create table if not exists searches (
+    user_id text not null references users(id) on delete cascade,
+    q text not null,
+    created_at text not null
+  );
+  create index if not exists searches_user on searches(user_id, created_at desc);
+
+  -- Looks: a person's named boards ("Wedding", "Office") of items and lessons, shareable by link.
+  create table if not exists looks (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    name text not null,
+    created_at text not null,
+    updated_at text not null
+  );
+  create index if not exists looks_user on looks(user_id, updated_at desc);
+  create table if not exists look_items (
+    look_id text not null references looks(id) on delete cascade,
+    kind text not null check (kind in ('product', 'lesson')),
+    ref_id text not null,
+    added_at text not null,
+    primary key (look_id, kind, ref_id)
+  );
+
+  -- Questions to a shop about an item; the shop's answer is shown to every later shopper.
+  create table if not exists product_questions (
+    id text primary key,
+    product_id text not null references products(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    text text not null,
+    answer text,
+    answered_at text,
+    created_at text not null
+  );
+  create index if not exists product_questions_product on product_questions(product_id, created_at desc);
+
+  -- Lessons someone watched to the end (for their weekly note), and whether they said thank you.
+  create table if not exists lesson_done (
+    user_id text not null references users(id) on delete cascade,
+    lesson_id text not null references lessons(id) on delete cascade,
+    done_at text not null,
+    thanked_at text,
+    primary key (user_id, lesson_id)
+  );
+  create index if not exists lesson_done_user on lesson_done(user_id, done_at desc);
+
   -- How much each person engages with each shop's lives (double-taps/hearts, comments, gifts): it ranks lives.
   create table if not exists live_engagement (
     user_id text not null references users(id) on delete cascade,

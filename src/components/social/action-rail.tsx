@@ -5,7 +5,9 @@ import { shareLink } from '@/components/share-sheet';
 import { useFeatures } from '@/lib/features';
 
 import Link from 'next/link';
-import { Bookmark, Heart, MessageCircle, Share2, Wand2 } from 'lucide-react';
+import { Bookmark, Heart, Layers, MessageCircle, Share2, Wand2 } from 'lucide-react';
+import { useAuth } from '@/components/auth/auth-provider';
+import { addToLook } from '@/components/look-picker';
 import { useToast } from '@/hooks/use-toast';
 import { toggleLike, useLiked } from '@/hooks/use-likes';
 import { useWishlist } from '@/hooks/use-wishlist';
@@ -30,12 +32,13 @@ interface ActionRailProps {
 }
 
 /**
- * Like (public count) · Comments · Save (private) · Wear it · Share.
+ * Like (public count) · Comments · Save (private) · Look (with an account) · Wear it · Share.
  * Works for guests too — no login needed.
  */
 export function ActionRail({ product, commentsOpen, onToggleComments, variant, hideWearIt }: ActionRailProps) {
   const { toast } = useToast();
   const on = useFeatures();
+  const { user } = useAuth();
   const liked = useLiked(product.id);
   const { wishlistItems, addToWishlist, removeFromWishlist } = useWishlist();
   const saved = wishlistItems.some((p) => p.id === product.id);
@@ -56,7 +59,7 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
   const icon = overlay ? 'h-11 w-11 rounded-full bg-background/90 p-2.5 shadow' : 'h-5 w-5';
 
   return (
-    <div className={cn(overlay ? 'flex flex-col items-center gap-5' : 'flex flex-wrap items-center justify-between gap-x-1')}>
+    <div className={cn(overlay ? 'flex flex-col items-center gap-5 [@media(max-height:700px)]:gap-2.5' : 'flex flex-wrap items-center justify-between gap-x-1')}>
       <button type="button" className={button} onClick={() => run(() => toggleLike(product.id))} aria-pressed={liked} aria-label="Like" title="Like">
         <Heart className={cn(icon, liked && 'fill-primary text-primary')} />
         {likeCount > 0 && <span>{compact(likeCount)}</span>}
@@ -74,6 +77,11 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
       >
         <Bookmark className={cn(icon, saved && 'fill-current')} />
       </button>
+      {user && on('looks') && (
+        <button type="button" className={button} onClick={() => addToLook({ kind: 'product', id: product.id })} aria-label="Add to a look" title="Add to a look">
+          <Layers className={icon} />
+        </button>
+      )}
       {!hideWearIt && (
         <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Wear it" title="Wear it">
           <Wand2 className={icon} />

@@ -11,7 +11,7 @@ import { adClicked, adOnScreen } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, EyeOff, HelpCircle, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX } from 'lucide-react';
+import { BadgeCheck, EyeOff, HelpCircle, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useDataSaver } from '@/lib/data-saver';
 import { Button } from '@/components/ui/button';
@@ -240,8 +240,8 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
         <div className="flex min-h-0 flex-1 flex-col bg-background p-4 text-foreground">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-semibold">{product.name}</p>
-            <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setCommentsOpen(false)}>
-              Close
+            <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70" onClick={() => setCommentsOpen(false)} aria-label="Close" title="Close">
+              <X className="h-5 w-5" />
             </button>
           </div>
           <CommentsPanel productId={product.id} sellerId={product.sellerId} className="min-h-0 flex-1" />

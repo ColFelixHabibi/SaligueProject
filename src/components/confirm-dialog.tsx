@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
+import { Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Saligue's own "Are you sure?" box, instead of the browser's confirm()/prompt() pop-ups (which look foreign,
@@ -45,6 +46,7 @@ export function ConfirmHost() {
     pending?.resolve(answer);
     setPending(null);
   };
+  const binOnly = !!pending?.destructive && /^(delete|remove)$/i.test(pending.confirm ?? '');
   return (
     <AlertDialog open={!!pending} onOpenChange={(open) => !open && close(null)}>
       <AlertDialogContent className="max-w-[calc(100vw-2rem)] rounded-2xl sm:max-w-md">
@@ -58,11 +60,13 @@ export function ConfirmHost() {
             <Input autoFocus value={text} onChange={(e) => setText(e.target.value)} maxLength={300} />
           </label>
         )}
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction disabled={!!pending?.input && !text.trim()} className={cn(pending?.destructive && 'bg-destructive hover:bg-destructive/90')}
+        {/* Icons instead of words: X to cancel, a bin to delete or remove. */}
+        <AlertDialogFooter className="flex-row justify-end gap-3 space-x-0">
+          <AlertDialogCancel className="mt-0 h-12 w-12 rounded-full p-0" aria-label="Cancel" title="Cancel"><X className="h-5 w-5" /></AlertDialogCancel>
+          <AlertDialogAction disabled={!!pending?.input && !text.trim()} className={cn('h-12', binOnly ? 'w-12 rounded-full p-0' : 'rounded-full px-6', pending?.destructive && 'bg-destructive hover:bg-destructive/90')}
+            aria-label={pending?.confirm ?? 'OK'} title={pending?.confirm ?? 'OK'}
             onClick={() => close(pending?.input ? text.trim() : true)}>
-            {pending?.confirm ?? 'OK'}
+            {binOnly ? <Trash2 className="h-5 w-5" /> : pending?.confirm ?? 'OK'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

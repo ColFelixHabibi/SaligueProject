@@ -207,6 +207,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
  * for shops (inside Seller Center, so its menu stays).
  */
 export function Inbox({ base = '/messages', embedded = false }: { base?: string; embedded?: boolean }) {
+  const { role } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
   const openId = params.get('c');
@@ -218,15 +219,17 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
   );
   const open = (id: string | null) => router.replace(id ? `${base}?c=${id}` : base, { scroll: false });
 
+  const none = isInitialized && conversations.length === 0 && !openId;
   return (
     <div className={cn('mx-auto flex flex-col', embedded
-      ? '-mx-3 h-[calc(100dvh-17rem-var(--sat)-var(--sab))] min-h-[420px] w-[calc(100%+1.5rem)] min-[360px]:-mx-4 min-[360px]:w-[calc(100%+2rem)] md:mx-0 md:h-[calc(100dvh-9rem)] md:w-full'
+      ? '-mx-3 h-[calc(100dvh-17rem-var(--sat)-var(--sab))] min-h-[420px] w-[calc(100%+1.5rem)] min-[360px]:-mx-4 min-[360px]:w-[calc(100%+2rem)] md:mx-0 md:h-[calc(100dvh-15rem)] md:w-full'
        : 'w-full h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-6xl px-0 md:h-[100dvh] md:px-6 md:py-6')}>
       <div className="flex min-h-0 flex-1 overflow-hidden border-y bg-background md:rounded-2xl md:border md:shadow-sm">
-        <aside className={cn('flex w-full min-w-0 flex-col border-r md:w-80 lg:w-96', openId && 'hidden md:flex')}>
+        {/* No conversations at all: one message across the whole box, not an empty list beside an empty thread. */}
+        <aside className={cn('flex w-full min-w-0 flex-col', !none && 'border-r md:w-80 lg:w-96', openId && 'hidden md:flex')}>
           <div className="space-y-3 border-b p-4">
             <h1 className={cn('text-2xl font-extrabold tracking-tight', embedded && 'hidden md:block')}>Messages</h1>
-            <div className="relative">
+            <div className={cn('relative', none && 'hidden')}>
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations" className="rounded-full pl-9" />
             </div>
@@ -240,8 +243,17 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
                 {conversations.length === 0 ? (
                   <>
                     <p className="font-semibold text-foreground">No conversations yet</p>
-                    <p className="mt-1">Tap “Message seller” on any item to ask about sizes, price or delivery.</p>
-                    <Button asChild className="mt-4 rounded-full"><Link href="/search">Explore items</Link></Button>
+                    {role === 'seller' ? (
+                      <>
+                        <p className="mt-1">Customers’ questions about your items arrive here.</p>
+                        <Button asChild className="mt-4 rounded-full"><Link href="/sell">Add item</Link></Button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1">Tap “Message seller” on any item to ask about sizes, price or delivery.</p>
+                        <Button asChild className="mt-4 rounded-full"><Link href="/search">Explore items</Link></Button>
+                      </>
+                    )}
                   </>
                 ) : (
                   'No conversation matches.'
@@ -252,7 +264,7 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
             )}
           </div>
         </aside>
-        <section className={cn('min-w-0 flex-1 flex-col', openId ? 'flex' : 'hidden md:flex')}>
+        <section className={cn('min-w-0 flex-1 flex-col', openId ? 'flex' : none ? 'hidden' : 'hidden md:flex')}>
           {openId ? (
             <Thread id={openId} onBack={() => open(null)} />
           ) : (

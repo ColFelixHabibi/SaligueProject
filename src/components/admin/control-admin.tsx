@@ -41,7 +41,7 @@ export function FeaturesAdmin({ features }: { features: Record<string, string> }
     void api<Record<string, CountryRule>>('/admin/feature-countries').then(setRules).catch(() => {});
   }, []);
   const saveCountries = (key: string, rule: CountryRule | null) =>
-    act(() => api<Record<string, CountryRule>>('/admin/feature-countries', { method: 'PUT', body: { feature: key, mode: rule?.mode, countries: rule?.countries ?? [] } }), `${features[key]}: ${ruleSummary(rule ?? undefined).toLowerCase()}`)
+    act(() => api<Record<string, CountryRule>>('/admin/feature-countries', { method: 'PUT', body: { feature: key, mode: rule?.mode, countries: rule?.countries ?? [], reason: rule?.reason ?? null } }), `${features[key]}: ${ruleSummary(rule ?? undefined).toLowerCase()}`)
       .then((r) => r && setRules(r));
   const toggle = async (key: string, on: boolean) => {
     const next = await act(() => api<Record<string, boolean>>('/admin/features', { method: 'PUT', body: { [key]: on } }), `${features[key]} ${on ? 'on' : 'off'}`);

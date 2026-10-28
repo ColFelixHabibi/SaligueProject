@@ -6,7 +6,7 @@ import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
-import { Archive, Download, Edit, Eye, EyeOff, FileEdit, MoreHorizontal, PackagePlus, Search, Star, Trash2, Upload } from 'lucide-react';
+import { Archive, Download, Edit, Eye, EyeOff, FileEdit, MoreHorizontal, PackagePlus, Search, Star, Trash2, Upload, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -181,7 +181,7 @@ function ProductsTable() {
             <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'active')}><Upload className="mr-1.5 h-3.5 w-3.5" /> Publish</Button>
             <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'draft')}><FileEdit className="mr-1.5 h-3.5 w-3.5" /> Draft</Button>
             <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'archived')}><Archive className="mr-1.5 h-3.5 w-3.5" /> Archive</Button>
-            <Button size="sm" variant="outline" className="h-8 text-destructive hover:text-destructive" onClick={() => setConfirmDelete([...selected])}><Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete</Button>
+            <Button size="icon" variant="outline" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setConfirmDelete([...selected])} aria-label="Delete" title="Delete"><Trash2 className="h-4 w-4" /></Button>
             <Button size="sm" variant="ghost" className="ml-auto h-8" onClick={() => setSelected(new Set())}>Clear</Button>
           </div>
         )}
@@ -275,9 +275,9 @@ function ProductsTable() {
             <AlertDialogTitle>Delete {confirmDelete?.length === 1 ? 'this item' : `${confirmDelete?.length} items`}?</AlertDialogTitle>
             <AlertDialogDescription>This cannot be undone. Orders that already include it stay as they are. To hide an item for now, archive it instead.</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => confirmDelete && bulk(confirmDelete, 'delete').then(() => setConfirmDelete(null))}>Delete</AlertDialogAction>
+          <AlertDialogFooter className="flex-row justify-end gap-3 space-x-0">
+            <AlertDialogCancel className="mt-0 h-12 w-12 rounded-full p-0" aria-label="Cancel" title="Cancel"><X className="h-5 w-5" /></AlertDialogCancel>
+            <AlertDialogAction className="h-12 w-12 rounded-full bg-destructive p-0 hover:bg-destructive/90" aria-label="Delete" title="Delete" onClick={() => confirmDelete && bulk(confirmDelete, 'delete').then(() => setConfirmDelete(null))}><Trash2 className="h-5 w-5" /></AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

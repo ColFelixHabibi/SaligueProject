@@ -79,7 +79,8 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
               <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
               <p className="break-words">{comment.text}</p>
             </div>
-            {(comment.uid === authUid || sellerId === authUid) && (
+            {/* Once sent, a comment stays: only the item's shop can remove it. */}
+            {!!authUid && sellerId === authUid && (
               <button type="button" aria-label="Delete comment" className="text-muted-foreground hover:text-destructive" onClick={() => void remove(comment.id)}>
                 <Trash2 className="h-4 w-4" />
               </button>

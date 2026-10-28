@@ -82,6 +82,12 @@ export function noteInterest(productId: string, signal: Signal, times = 1) {
   }
 }
 
+/** Notes what the shopper searched for: items like it come up in their For You. */
+export function noteSearch(q: string) {
+  if (typeof window === 'undefined' || q.trim().length < 2 || !allowed() || !getToken()) return;
+  api('/searches', { body: { q: q.trim() } }).catch(() => {});
+}
+
 /** Current interest per item (after fading). */
 export function interests(): Map<string, number> {
   const now = Date.now();

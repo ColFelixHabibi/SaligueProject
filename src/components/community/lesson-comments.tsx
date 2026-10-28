@@ -5,7 +5,7 @@ import { useT } from '@/lib/i18n';
 import { useBlockedIds } from '@/lib/blocks';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, CornerDownRight, HelpCircle, Loader2, Send, Trash2 } from 'lucide-react';
+import { CheckCircle2, CornerDownRight, HelpCircle, Loader2, Send, Trash2, X } from 'lucide-react';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -64,7 +64,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
         <p className="whitespace-pre-wrap break-words text-sm">{c.text}</p>
         <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
           {!reply && user && <button type="button" onClick={() => setReplyTo(c)} className="font-semibold hover:text-foreground">{t('Reply')}</button>}
-          {(c.uid === authUid || lesson.authorId === authUid) && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
+          {lesson.authorId === authUid && <button type="button" onClick={() => deleteLessonComment(c.id).catch(() => {})} aria-label="Delete" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       </div>
     </div>
@@ -91,7 +91,7 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
       </div>
       {user ? (
         <form onSubmit={send} className="space-y-1.5 border-t pt-3">
-          {replyTo && <p className="flex items-center gap-1 text-xs text-muted-foreground"><CornerDownRight className="h-3.5 w-3.5" /> Replying to {replyTo.name} <button type="button" className="ml-auto font-semibold" onClick={() => setReplyTo(null)}>Cancel</button></p>}
+          {replyTo && <p className="flex items-center gap-1 text-xs text-muted-foreground"><CornerDownRight className="h-3.5 w-3.5" /> Replying to {replyTo.name} <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label="Cancel"><X className="h-4 w-4" /></button></p>}
           <div className="flex items-center gap-2">
             {!replyTo && (
               <button type="button" onClick={() => setQuestion((q) => !q)} aria-pressed={question} title="Ask as a question" aria-label="Ask as a question"

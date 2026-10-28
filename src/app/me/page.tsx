@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, FileText, LayoutDashboard, LogOut, Package, Repeat, Settings, ShieldCheck, Store } from 'lucide-react';
+import { Bookmark, ChevronRight, Coins, Layers, FileText, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { BadgeCheck, CircleUserRound, GraduationCap, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
@@ -23,18 +23,33 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
+import { useFeatures } from '@/lib/features';
+import { WeekCard } from '@/components/week-card';
 
-function Row({ href, icon: Icon, label, detail, onClick }: { href?: string; icon: typeof Package; label: string; detail?: string; onClick?: () => void }) {
+type Stats = { clients: number; following: number; items: number; lessons: number; rating: number | null };
+
+function Stat({ value, label, href }: { value: string | number; label: string; href?: string }) {
   const t = useT();
   const body = (
     <>
-      <Icon className="h-5 w-5 text-primary" />
-      <span className="flex-1 font-medium">{t(label)}</span>
-      {detail && <span className="text-sm text-muted-foreground">{detail}</span>}
-      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+      <span className="block text-lg font-extrabold leading-tight">{value}</span>
+      <span className="block truncate text-[11px] text-muted-foreground">{t(label)}</span>
     </>
   );
-  const className = 'flex w-full items-center gap-3 px-4 py-4 text-left hover:bg-muted/60';
+  const className = 'min-w-0 flex-1 rounded-xl px-1 py-2 text-center transition hover:bg-muted/60';
+  return href ? <Link href={href} className={className}>{body}</Link> : <div className={className}>{body}</div>;
+}
+
+// Everything on Me is one grid of big icons: fewer words, one tap.
+function Tile({ href, icon: Icon, label, onClick, tone }: { href?: string; icon: typeof Package; label: string; onClick?: () => void; tone?: 'danger' }) {
+  const t = useT();
+  const className = 'flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border bg-card px-1 py-3 text-center shadow-sm transition hover:border-primary/40 hover:shadow-md';
+  const body = (
+    <>
+      <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', tone === 'danger' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary')}><Icon className="h-5 w-5" /></span>
+      <span className="line-clamp-2 w-full text-[11px] font-semibold leading-tight min-[360px]:text-xs">{t(label)}</span>
+    </>
+  );
   return href ? <Link href={href} className={className}>{body}</Link> : <button type="button" onClick={onClick} className={className}>{body}</button>;
 }
 
@@ -51,6 +66,11 @@ export default function MePage() {
     if (admin) api<{ level: number }>('/admin/me').then((d) => setAdminLevel(d.level)).catch(() => {});
   }, [admin]);
   const { wishlistItems } = useWishlist();
+  const on = useFeatures();
+  const [stats, setStats] = useState<Stats | null>(null);
+  useEffect(() => {
+    if (user) api<Stats>(`/profiles/${user.uid}`).then(setStats).catch(() => {});
+  }, [user]);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -75,6 +95,17 @@ export default function MePage() {
                 <p className="truncate text-xl font-bold">Welcome to Saligue</p>
                 <p className="line-clamp-2 text-sm text-muted-foreground">Browsing as a guest — your likes and saves are kept on this device.</p>
               </div>
+            </div>
+          )}
+          {user && stats && (
+            <div className="mt-4 flex divide-x rounded-xl border">
+              {role === 'seller' && <Stat value={stats.clients} label="Clients" href={`/profile?id=${user.uid}`} />}
+              {role === 'seller' && <Stat value={stats.items} label="Items" href="/dashboard/products" />}
+              {role === 'seller'
+                ? <Stat value={stats.rating ?? '—'} label="Rating" href="/dashboard/reviews" />
+                : <Stat value={stats.following} label="Following" href={`/profile?id=${user.uid}`} />}
+              {role !== 'seller' && <Stat value={wishlistItems.length} label="Saved" href="/my-account/saved" />}
+              <Stat value={stats.lessons ?? 0} label="Lessons" href="/learn" />
             </div>
           )}
         </CardContent>
@@ -108,40 +139,43 @@ export default function MePage() {
         </Link>
       )}
 
-      {user ? (
-        <Card className="divide-y overflow-hidden">
-          <Row href={`/profile?id=${user.uid}`} icon={CircleUserRound} label={role === 'seller' ? 'My shop profile' : 'My profile'} detail={role === 'seller' ? 'Bio, clients' : undefined} />
-          {role !== 'seller' && <Row href="/learn/new" icon={GraduationCap} label="Teach a lesson" />}
-          <Row href="/verify" icon={BadgeCheck} label="Get verified" detail="Optional" />
-          {role === 'seller'
-            ? <Row icon={Repeat} label="Switch to shopping" detail="Buy as a shopper" onClick={() => updateAccount({ role: 'buyer' }).then(() => router.push('/'))} />
-            : <Row href="/sell" icon={Store} label={shop ? 'Switch to my shop' : 'Start selling'} />}
-        </Card>
-      ) : (
-        <Card className="divide-y overflow-hidden">
-          <Row href="/orders" icon={Package} label="My orders" />
-          <Row href="/wishlist" icon={Bookmark} label="Saved" detail={String(wishlistItems.length)} />
-        </Card>
-      )}
+      {user && on('weekly') && <WeekCard />}
 
-      {user && (
-        <Card className="divide-y overflow-hidden">
-          <Row href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} icon={Settings} label="Settings" />
-          <Row
-            icon={LogOut}
-            label="Log out"
-            onClick={async () => {
-              await logout();
-              router.push('/');
-            }}
-          />
-        </Card>
-      )}
-
-      <Card className="divide-y overflow-hidden">
-        <Row href="/download" icon={Smartphone} label="Get the Android app" />
-        <Row href="/policies" icon={FileText} label="Policies" detail="Terms, privacy, monetization, ads…" />
-      </Card>
+      <div className="grid grid-cols-4 gap-2">
+        {user && role === 'seller' && (
+          <>
+            <Tile href="/sell" icon={PlusSquare} label="Add item" />
+            <Tile href="/live/studio" icon={Radio} label="Go live" />
+            <Tile href="/dashboard/messages" icon={MessageCircle} label="Messages" />
+            <Tile href="/dashboard/analytics" icon={TrendingUp} label="Stats" />
+          </>
+        )}
+        {user && role !== 'seller' && (
+          <>
+            <Tile href="/my-account/orders" icon={Package} label="Orders" />
+            <Tile href="/my-account/saved" icon={Bookmark} label="Saved" />
+            <Tile href="/my-account/messages" icon={MessageCircle} label="Messages" />
+            <Tile href="/my-account/coins" icon={Coins} label="Coins" />
+          </>
+        )}
+        {!user && (
+          <>
+            <Tile href="/orders" icon={Package} label="My orders" />
+            <Tile href="/wishlist" icon={Bookmark} label="Saved" />
+          </>
+        )}
+        {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
+        {user && <Tile href={`/profile?id=${user.uid}`} icon={CircleUserRound} label={role === 'seller' ? 'My shop profile' : 'My profile'} />}
+        {user && role !== 'seller' && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
+        {user && <Tile href="/verify" icon={BadgeCheck} label="Get verified" />}
+        {user && (role === 'seller'
+          ? <Tile icon={Repeat} label="Switch to shopping" onClick={() => updateAccount({ role: 'buyer' }).then(() => router.push('/'))} />
+          : <Tile href="/sell" icon={Store} label={shop ? 'Switch to my shop' : 'Start selling'} />)}
+        {user && <Tile href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} icon={Settings} label="Settings" />}
+        <Tile href="/download" icon={Smartphone} label="Android app" />
+        <Tile href="/policies" icon={FileText} label="Policies" />
+        {user && <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />}
+      </div>
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />
       <RegisterDialog open={registerOpen} onOpenChange={setRegisterOpen} onSwitchToLogin={() => { setRegisterOpen(false); setTimeout(() => setLoginOpen(true), 150); }} />

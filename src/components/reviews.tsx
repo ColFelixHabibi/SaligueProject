@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { BadgeCheck, Loader2, Star, Trash2 } from 'lucide-react';
+import { BadgeCheck, Loader2, Star, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -108,7 +108,7 @@ export function Reviews({ productId }: { productId: string }) {
               <Textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Fit, fabric, colour, delivery… what should other shoppers know?" className="min-h-24" />
               <div className="flex gap-2">
                 <Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Post review</Button>
-                <Button type="button" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => setEditing(false)} aria-label="Cancel" title="Cancel"><X className="h-5 w-5" /></Button>
               </div>
             </form>
           )}
@@ -123,7 +123,7 @@ export function Reviews({ productId }: { productId: string }) {
               <Stars rating={r.rating} />
               {r.text && <p className="whitespace-pre-wrap text-sm leading-relaxed">{r.text}</p>}
               {data.mine?.id === r.id && (
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" onClick={remove}><Trash2 className="mr-1 h-3.5 w-3.5" /> Delete</Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={remove} aria-label="Delete" title="Delete"><Trash2 className="h-4 w-4" /></Button>
               )}
             </div>
           ))}

@@ -13,6 +13,7 @@ import { CookieBanner } from '@/components/cookie-banner';
 import { AppUpdate } from '@/components/app-update';
 import { ConfirmHost } from '@/components/confirm-dialog';
 import { ShareHost } from '@/components/share-sheet';
+import { LookPickerHost } from '@/components/look-picker';
 import { NativeLinks } from '@/components/native-links';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
@@ -75,6 +76,7 @@ export default function RootLayout({
           <AppUpdate />
           <ConfirmHost />
           <ShareHost />
+          <LookPickerHost />
           <NativeLinks />
         </AuthProvider>
       </body>

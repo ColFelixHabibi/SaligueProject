@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import regionsData from '@/lib/regions.json';
 
-export type CountryRule = { mode: 'only' | 'except'; countries: string[] };
+export type CountryRule = { mode: 'only' | 'except'; countries: string[]; reason?: string | null };
 
 const UN: string[] = regionsData.un;
 const REGIONS = regionsData.regions as Record<string, string[]>;
@@ -34,6 +34,7 @@ export function FeatureCountries({ label, rule, onSave }: { label: string; rule?
   const [mode, setMode] = useState<'all' | 'only' | 'except'>(rule?.countries.length ? rule.mode : 'all');
   const [picked, setPicked] = useState<Set<string>>(new Set(rule?.countries ?? []));
   const [q, setQ] = useState('');
+  const [reason, setReason] = useState(rule?.reason ?? '');
   const [saving, setSaving] = useState(false);
   const names = useMemo(() => {
     let display: Intl.DisplayNames | null = null;
@@ -55,6 +56,7 @@ export function FeatureCountries({ label, rule, onSave }: { label: string; rule?
   const reset = () => {
     setMode(rule?.countries.length ? rule.mode : 'all');
     setPicked(new Set(rule?.countries ?? []));
+    setReason(rule?.reason ?? '');
     setQ('');
   };
   return (
@@ -62,6 +64,7 @@ export function FeatureCountries({ label, rule, onSave }: { label: string; rule?
       <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground" onClick={() => { reset(); setOpen(true); }}>
         <Globe2 className="h-4 w-4" /> {ruleSummary(rule)}
       </Button>
+      {rule?.reason && <span className="hidden max-w-[12rem] truncate text-xs text-muted-foreground sm:inline" title={rule.reason}>· {rule.reason}</span>}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[90dvh] max-w-[calc(100vw-1.5rem)] flex-col gap-3 rounded-2xl sm:max-w-lg">
           <DialogHeader>
@@ -93,13 +96,15 @@ export function FeatureCountries({ label, rule, onSave }: { label: string; rule?
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">{picked.size} of 195 selected · {mode === 'only' ? 'works only there' : 'works everywhere except there'}</p>
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={160} placeholder="Reason (optional), e.g. waiting for the payment licence" />
+              <p className="-mt-2 text-xs text-muted-foreground">Shown to people where it’s closed, and kept in the admin log.</p>
             </>
           )}
           <DialogFooter>
             <Button type="button" disabled={saving || (mode !== 'all' && picked.size === 0)} onClick={async () => {
               setSaving(true);
               try {
-                await onSave(mode === 'all' ? null : { mode, countries: [...picked] });
+                await onSave(mode === 'all' ? null : { mode, countries: [...picked], reason: reason.trim() || null });
                 setOpen(false);
               } finally {
                 setSaving(false);

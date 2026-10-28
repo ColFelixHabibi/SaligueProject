@@ -26,6 +26,7 @@ import { fileToImage, trimTransparent } from '@/lib/ai/canvas';
 import { removeBackground } from '@/lib/ai/segment';
 import { embedImage, warmUpSearch } from '@/lib/ai/embed';
 import { cn } from '@/lib/utils';
+import { noteSearch } from '@/lib/taste';
 
 type Sort = 'relevance' | 'newest' | 'price-asc' | 'price-desc' | 'rating' | 'popular';
 const SORTS: { value: Sort; label: string }[] = [
@@ -124,7 +125,10 @@ function SearchContent() {
       setResults(null);
       return;
     }
-    if (!query.imageEmbedding) setResults(keywordSearch(products, query));
+    if (!query.imageEmbedding) {
+      setResults(keywordSearch(products, query));
+      noteSearch(query.text);
+    }
     setBusy('AI is searching…');
     try {
       const found = await aiSearch(products, query, setBusy);
