@@ -1720,7 +1720,18 @@ route('GET', '/api/lives', ({ user }) => {
   return {
     enabled: liveSettings().enabled && featureOn('live'),
     lives: lives.map((l) => ({ l, s: score(l) })).sort((a, b) => b.s - a.s).map(({ l }) => liveOut(l)),
+    // While no one is live: the latest lives (their covers), so the page is never empty.
+    recent: lives.length ? [] : db.prepare("select * from lives where status = 'ended' and ended_at > ? order by ended_at desc limit 8").all(new Date(Date.now() - 14 * 86_400_000).toISOString()).map(liveOut),
   };
+});
+
+// Shops worth following (empty Live and Learn pages, new visitors): verified and busy shops first, nearby first.
+route('GET', '/api/shops/suggested', ({ user }) => {
+  const me = whereIs(user, visitorCountry());
+  return db.prepare("select u.*, count(p.id) as items, coalesce(sum(p.like_count), 0) as likes from users u join products p on p.seller_id = u.id and p.status = 'active' and p.hidden = 0 where u.role = 'seller' and u.suspended = 0 and u.id != ? group by u.id").all(user?.id ?? '')
+    .map((u) => ({ u, score: closeness(me, shopPlace(u.id)) + (u.verified ? 2 : 0) + Math.log1p(u.items) + Math.log1p(u.likes) * 0.5 + Math.log1p(followerCount(u.id)) }))
+    .sort((a, b) => b.score - a.score).slice(0, 8)
+    .map(({ u }) => ({ ...personOut(u), city: parse(u.shop)?.city ?? null, items: u.items, clients: followerCount(u.id), isClient: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, u.id)) }));
 });
 
 route('POST', '/api/lives', ({ user, body }) => {
