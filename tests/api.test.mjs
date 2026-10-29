@@ -206,3 +206,65 @@ describe('catalogue pages', () => {
     assert.equal((await call('/products/does-not-exist')).status, 404);
   });
 });
+
+// Signs in as a sample shop in the test database (sample shops have no password).
+async function sampleShop(productId) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(join(data, 'saligue.db'));
+  const sellerId = db.prepare('select seller_id from products where id = ?').get(productId).seller_id;
+  const token = `test-${Math.random().toString(36).slice(2)}${Date.now()}`;
+  db.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(token, sellerId, new Date().toISOString());
+  db.close();
+  return { token, id: sellerId };
+}
+
+describe('buyer protection', () => {
+  test('the buyer confirms it arrived; a reported problem holds the shop’s payment', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 0));
+    const shop = await sampleShop(product.id);
+    const a = await register('Careful Buyer');
+    const order = await call('/orders', { token: a.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery: { fullName: 'Careful Buyer', phone: '0780000001', city: 'Kigali', street: 'KN 2 Ave' } } });
+    const id = (await call('/orders', { token: a.token })).json[0].id;
+    assert.equal(order.status, 200);
+    // Not on its way yet: "I received it" is refused.
+    assert.equal((await call(`/orders/${id}`, { method: 'PATCH', token: a.token, body: { received: true } })).status, 400);
+    assert.equal((await call(`/orders/${id}`, { method: 'PATCH', token: shop.token, body: { status: 'shipped' } })).status, 200);
+    assert.equal((await call(`/orders/${id}`, { method: 'PATCH', token: a.token, body: { received: true } })).status, 200);
+    const delivered = (await call('/orders', { token: a.token })).json[0];
+    assert.equal(delivered.status, 'delivered');
+    assert.ok(delivered.receivedAt);
+    assert.equal((await call(`/orders/${id}/problem`, { token: a.token, body: { text: 'Wrong colour arrived' } })).status, 200);
+    assert.equal((await call('/orders', { token: a.token })).json[0].problem.status, 'open');
+    // The held order is not in what the shop is owed.
+    assert.equal((await call('/seller/sales', { token: shop.token })).json.open.orders, 0);
+  });
+});
+
+describe('comment controls and my data', () => {
+  test('a shop can turn comments off or allow only followers, and hide words', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official);
+    const shop = await sampleShop(product.id);
+    const a = await register('Visitor');
+    await call('/auth/me', { method: 'PATCH', token: shop.token, body: { commentMode: 'off' } });
+    assert.equal((await call(`/products/${product.id}/comments`, { token: a.token, body: { text: 'hello' } })).status, 403);
+    await call('/auth/me', { method: 'PATCH', token: shop.token, body: { commentMode: 'followers' } });
+    assert.equal((await call(`/products/${product.id}/comments`, { token: a.token, body: { text: 'hello' } })).status, 403);
+    // After following, the follower can comment.
+    assert.equal((await call(`/follow/${shop.id}`, { token: a.token, body: {} })).status, 200);
+    assert.equal((await call(`/products/${product.id}/comments`, { token: a.token, body: { text: 'hello as a follower' } })).status, 200);
+    await call('/auth/me', { method: 'PATCH', token: shop.token, body: { commentMode: 'everyone', hiddenWords: ['ugly'] } });
+    const c = await call(`/products/${product.id}/comments`, { token: a.token, body: { text: 'So ugly!' } });
+    assert.equal(c.status, 200);
+    assert.ok(!(await call(`/products/${product.id}/comments`)).json.some((x) => x.id === c.json.id));
+    assert.ok((await call(`/products/${product.id}/comments`, { token: a.token })).json.some((x) => x.id === c.json.id));
+  });
+  test('download my data gives one file with the account', async () => {
+    const a = await register('Data Owner');
+    const r = await fetch(`${base}/api/auth/me/export`, { headers: { Authorization: `Bearer ${a.token}` } });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-disposition') ?? '', /attachment/);
+    const file = await r.json();
+    assert.equal(file.account.id, a.id);
+    assert.ok(Array.isArray(file.orders) && Array.isArray(file.comments));
+  });
+});

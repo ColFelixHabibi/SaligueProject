@@ -1,7 +1,8 @@
 
 'use client';
 
-import { DeleteAccount } from '@/components/delete-account';
+import { DeleteAccount, DownloadData } from '@/components/delete-account';
+import { CommentControls } from '@/components/comment-controls';
 import { BlockedCard } from '@/components/blocked-card';
 
 import { PersonalisationCard } from '@/components/personalisation-card';
@@ -202,6 +203,8 @@ export default function BuyerSettingsPage() {
             </div>
         </CardContent>
       </Card>
+      <CommentControls />
+      <DownloadData />
       <DeleteAccount />
     </div>
   );

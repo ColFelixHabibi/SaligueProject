@@ -28,6 +28,8 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string; ic
   confirmed: { status: 'shipped', label: 'Mark as on the way', icon: Truck },
   shipped: { status: 'delivered', label: 'Mark as delivered', icon: Check },
 };
+// Buyer protection: orders paid online are marked delivered by the buyer (or 7 days after shipping), not the shop.
+const nextFor = (o: Order) => (o.status === 'shipped' && o.paymentMethod === 'online' ? undefined : NEXT[o.status]);
 const statusLabel = (s: string) => ORDER_STATUSES.find((x) => x.value === s)?.label ?? s;
 const STATUS_STYLE: Record<OrderStatus, string> = {
   placed: 'bg-primary text-primary-foreground',
@@ -40,7 +42,7 @@ const STATUS_STYLE: Record<OrderStatus, string> = {
 function OrderDetails({ order, onClose }: { order: Order; onClose: () => void }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
-  const next = NEXT[order.status];
+  const next = nextFor(order);
   const payment = PAYMENT_METHODS.find((m) => m.value === order.paymentMethod);
   const step = FLOW.indexOf(order.status);
 
@@ -94,7 +96,7 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
         <section className="space-y-2 rounded-xl border p-4">
           <h3 className="font-semibold">Customer</h3>
           <p className="font-medium">{order.delivery.fullName}</p>
-          <a href={`tel:${order.delivery.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 text-sm text-primary hover:underline"><Phone className="h-4 w-4" /> {order.delivery.phone}</a>
+          {order.delivery.phone && <a href={`tel:${order.delivery.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 text-sm text-primary hover:underline"><Phone className="h-4 w-4" /> {order.delivery.phone}</a>}
           {order.buyerEmail && <p className="text-sm text-muted-foreground">{order.buyerEmail}</p>}
           {order.paymentMethod !== 'pickup' ? (
             <p className="flex items-start gap-2 text-sm"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -132,6 +134,15 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
           )}
         </section>
 
+        {order.status === 'shipped' && order.paymentMethod === 'online' && (
+          <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">Paid online: the customer confirms it arrived, or it confirms itself 7 days after shipping. Then Saligue pays you (Sales).</p>
+        )}
+        {order.problem && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+            <p className="font-semibold">{order.problem.status === 'open' ? 'Problem reported: payment held while Saligue looks at it' : order.problem.status === 'refunded' ? 'Refunded to the customer' : 'Problem closed: payment released'}</p>
+            <p className="mt-0.5">“{order.problem.text}”</p>
+          </div>
+        )}
         {order.status !== 'cancelled' && order.status !== 'delivered' && (
           <Button variant="ghost" className="w-full text-destructive hover:text-destructive" disabled={saving}
             onClick={async () => (await ask({ title: 'Cancel this order?', description: 'The items go back in stock and the customer is told.', confirm: 'Cancel order', destructive: true })) && change({ status: 'cancelled' }, 'Order cancelled').then(onClose)}>
@@ -164,7 +175,7 @@ function OrdersManager() {
     return (orders ?? []).filter((o) =>
       (status === 'all' || o.status === status) &&
       (!unpaidOnly || (o.paymentStatus !== 'paid' && o.status !== 'cancelled')) &&
-      (!q || [shortOrderId(o.id), o.delivery.fullName, o.delivery.phone, ...o.items.map((i) => i.name)].join(' ').toLowerCase().includes(q))
+      (!q || [shortOrderId(o.id), o.delivery.fullName ?? '', o.delivery.phone ?? '', ...o.items.map((i) => i.name)].join(' ').toLowerCase().includes(q))
     );
   }, [orders, status, unpaidOnly, query]);
 
@@ -224,7 +235,7 @@ function OrdersManager() {
               </TableHeader>
               <TableBody>
                 {shown.map((o) => {
-                  const next = NEXT[o.status];
+                  const next = nextFor(o);
                   return (
                     <TableRow key={o.id} className="cursor-pointer" onClick={() => setOpen(o.id)}>
                       <TableCell>

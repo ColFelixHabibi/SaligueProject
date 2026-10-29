@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Gauge, Sparkles } from 'lucide-react';
+import { Gauge, Sparkles, HeartOff } from 'lucide-react';
 import { setDataSaver, useDataSaver } from '@/lib/data-saver';
+import { setHideLikes, useHideLikes } from '@/lib/hide-likes';
 import { BREAK_CHOICES, setBreakMinutes, useBreakMinutes } from '@/lib/break-reminder';
 import { Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ const KEY = 'saligue-cookie-choice';
 export function PersonalisationCard() {
   const { toast } = useToast();
   const saver = useDataSaver();
+  const hideLikes = useHideLikes();
   const breakMinutes = useBreakMinutes();
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -61,6 +63,10 @@ export function PersonalisationCard() {
         <div className="flex items-center justify-between gap-4 border-t pt-4">
           <Label htmlFor="data-saver" className="flex items-center gap-2 font-medium"><Gauge className="h-4 w-4 text-primary" /> Data saver <span className="font-normal text-muted-foreground">· videos play when you tap</span></Label>
           <Switch id="data-saver" checked={saver} onCheckedChange={setDataSaver} />
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t pt-4">
+          <Label htmlFor="hide-likes" className="flex items-center gap-2 font-medium"><HeartOff className="h-4 w-4 text-primary" /> Hide like counts <span className="font-normal text-muted-foreground">· less comparing</span></Label>
+          <Switch id="hide-likes" checked={hideLikes} onCheckedChange={setHideLikes} />
         </div>
         <div className="space-y-2 border-t pt-4">
           <p className="flex items-center gap-2 text-sm font-medium"><Moon className="h-4 w-4 text-primary" /> Break reminder</p>

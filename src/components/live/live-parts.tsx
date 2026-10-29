@@ -1,6 +1,7 @@
 'use client';
 
 import { RichText } from '@/components/rich-text';
+import { useHideLikes } from '@/lib/hide-likes';
 import { VerifiedBadge } from '@/components/verified-badge';
 
 import { useEffect, useRef, useState } from 'react';
@@ -108,6 +109,7 @@ export function Hearts({ bursts }: { bursts: Burst[] }) {
 
 /** Top bar: who is live, LIVE badge, how long, how many watching. */
 export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { live: Live; viewers: number; elapsed: string; onViewers?: () => void; children?: React.ReactNode }) {
+  const hideLikes = useHideLikes();
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10 pt-[calc(0.75rem+var(--sat))]">
       <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/35 p-1 pr-3 text-white backdrop-blur">
@@ -119,7 +121,8 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
         </Link>
         <div className="min-w-0 leading-tight">
           <p className="flex items-center gap-1 truncate text-sm font-bold">{live.sellerName}{live.official && <BadgeCheck className="h-3.5 w-3.5" />}{live.sellerVerified && <VerifiedBadge className="h-3.5 w-3.5" />}</p>
-          <p className="truncate text-[11px] text-white/80">{live.likeCount.toLocaleString()} likes</p>
+          {/* "Hide like counts" hides them for viewers; the host (studio, with onViewers) always sees them. */}
+          {(!hideLikes || onViewers) && <p className="truncate text-[11px] text-white/80">{live.likeCount.toLocaleString()} likes</p>}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">

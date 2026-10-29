@@ -116,6 +116,11 @@ export type Order = {
   paymentStatus: 'unpaid' | 'paid';
   paidAt?: string | null;
   status: OrderStatus;
+  shippedAt?: string | null;
+  // Buyer protection: when the buyer confirmed it arrived, and a problem they reported.
+  receivedAt?: string | null;
+  problem?: { text: string; at: string; status: 'open' | 'released' | 'refunded' } | null;
+  settled?: boolean;
   createdAt?: string | null;
 };
 

@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Trash2 } from 'lucide-react';
+import { FileDown, Loader2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ask } from '@/components/confirm-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
+import { saveImage } from '@/lib/save-file';
 import { logout } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
@@ -51,6 +52,39 @@ export function DeleteAccount({ seller }: { seller?: boolean }) {
         <Button variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove} disabled={busy}>
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />} {t('Delete my account')}
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Settings → Download my data: one file with everything Saligue keeps about you. */
+export function DownloadData() {
+  const t = useT();
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const token = getToken();
+      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/auth/me/export`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) throw new Error('export failed');
+      const url = URL.createObjectURL(await r.blob());
+      await saveImage(url, `saligue-my-data-${new Date().toISOString().slice(0, 10)}.json`);
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {
+      toast({ variant: 'destructive', title: t('Not downloaded'), description: t('Try again in a moment.') });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><FileDown className="h-5 w-5 text-primary" /> {t('Download my data')}</CardTitle>
+        <CardDescription>{t('One file with your account, orders, comments, messages, likes, follows, looks and history. Yours to keep.')}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button variant="outline" onClick={download} disabled={busy}>{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />} {t('Download my data')}</Button>
       </CardContent>
     </Card>
   );

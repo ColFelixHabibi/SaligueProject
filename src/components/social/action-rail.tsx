@@ -13,6 +13,7 @@ import { productHref } from '@/lib/links';
 import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useHideLikes } from '@/lib/hide-likes';
 
 function compact(n: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
@@ -38,6 +39,7 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
   const on = useFeatures();
   const liked = useLiked(product.id);
   const likeCount = Math.max(0, (product.likeCount ?? 0));
+  const hideLikes = useHideLikes();
 
   const run = (action: () => Promise<unknown>) => action().catch((error) => toast({ variant: 'destructive', title: 'Try again', description: friendlyError(error) }));
 
@@ -57,7 +59,7 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
     <div className={cn(overlay ? 'flex flex-col items-center gap-5 [@media(max-height:700px)]:gap-2.5' : 'flex flex-wrap items-center justify-between gap-x-1')}>
       <button type="button" className={button} onClick={() => run(() => toggleLike(product.id))} aria-pressed={liked} aria-label="Like" title="Like">
         <Heart className={cn(icon, liked && 'fill-primary text-primary')} />
-        {likeCount > 0 && <span>{compact(likeCount)}</span>}
+        {likeCount > 0 && !hideLikes && <span>{compact(likeCount)}</span>}
       </button>
       {on('comments') && <button type="button" className={button} onClick={onToggleComments} aria-expanded={commentsOpen} aria-label="Comments" title="Comments">
         <MessageCircle className={cn(icon, commentsOpen && 'fill-current')} />

@@ -10,10 +10,12 @@ import { SellerAvatar } from '@/components/seller-avatar';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useElapsed, useLives, type Live } from '@/lib/lives';
 import { SuggestedShops } from '@/components/suggested-shops';
+import { useHideLikes } from '@/lib/hide-likes';
 
 function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
   const elapsed = useElapsed(live.startedAt);
   const products = useProductStore((s) => s.products);
+  const hideLikes = useHideLikes();
   const cover = products.find((p) => p.id === (live.pinnedProductId ?? live.productIds[0]));
   return (
     <Link href={`/live/watch?id=${live.id}`} className="group relative block aspect-[9/14] overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-foreground shadow-md">
@@ -40,7 +42,7 @@ function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
         <div className="flex items-center gap-2">
           <SellerAvatar src={live.sellerAvatar} name={live.sellerName} className="h-7 w-7 ring-2 ring-primary" />
           <span className="min-w-0 flex-1 truncate text-sm">{live.sellerName}</span>
-          <span className="flex items-center gap-0.5 text-xs"><Heart className="h-3.5 w-3.5 fill-current" />{live.likeCount}</span>
+          {!hideLikes && <span className="flex items-center gap-0.5 text-xs"><Heart className="h-3.5 w-3.5 fill-current" />{live.likeCount}</span>}
         </div>
       </div>
     </Link>

@@ -28,7 +28,7 @@ export async function placeOrders(items: (Product & { quantity: number })[], del
   return ids;
 }
 
-export async function updateOrder(id: string, changes: Partial<Pick<Order, 'status' | 'paymentStatus'>>) {
+export async function updateOrder(id: string, changes: Partial<Pick<Order, 'status' | 'paymentStatus'>> & { received?: true }) {
   await api(`/orders/${id}`, { method: 'PATCH', body: changes });
 }
 

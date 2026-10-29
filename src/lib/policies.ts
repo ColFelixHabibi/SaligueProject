@@ -137,8 +137,9 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Buying',
             paragraphs: [
               'Prices are set by each shop and shown in US dollars unless stated otherwise. When you check out, one order is created for each shop in your bag.',
-              'Payment is made directly to the shop: by Mobile Money (MTN MoMo / Airtel Money) to the number of the shop, in cash on delivery, or at the shop when you pick the item up. Saligue does not hold or process your money.',
-              'Delivery times, returns and refunds are agreed with the shop. If a shop does not deliver what you paid for, contact the shop first, then tell us through Help & Support and we will help resolve it.',
+              'You can pay online (card or Mobile Money through Flutterwave, when available), or directly to the shop: by Mobile Money to the shop’s number, in cash on delivery, or at the shop when you pick the item up.',
+              'Buyer protection for online payments: Saligue keeps the money until you tap “I received it” in My orders. If you don’t, the order counts as received 7 days after the shop marks it shipped. Until then, and up to 14 days after delivery, you can tap “Problem with my order”: the shop is not paid for that order while Saligue looks at it with you both, and if the item never arrived or is not what was described, Saligue refunds you.',
+              'When you pay the shop directly, the money goes to the shop, not to Saligue. Delivery times, returns and refunds are agreed with the shop. If something goes wrong, contact the shop first, then report the problem in My orders or through Help & Support and we will help resolve it.',
             ],
           },
           {
@@ -245,7 +246,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Your rights',
             paragraphs: [
-              'You can see and change your details in your account settings. You can delete your account yourself in Settings → Delete my account: your profile, comments, likes, follows, looks, history and (for shops) items, lessons and replays are removed, and the account can’t sign in again. Orders already placed are kept for the shop’s accounts, without the buyer’s name, email, phone or address (a shop’s name stays on its customers’ receipts). You can also ask us for a copy of your information or to correct it through Help & Support.',
+              'You can see and change your details in your account settings. You can delete your account yourself in Settings → Delete my account: your profile, comments, likes, follows, looks, history and (for shops) items, lessons and replays are removed, and the account can’t sign in again. Orders already placed are kept for the shop’s accounts, without the buyer’s name, email, phone or address (a shop’s name stays on its customers’ receipts). You can download everything we keep about you at any time in Settings → Download my data (one file you can keep or take elsewhere). You can also ask us to correct your information through Help & Support.',
             ],
           },
           {

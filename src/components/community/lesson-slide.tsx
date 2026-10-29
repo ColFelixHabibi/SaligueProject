@@ -27,6 +27,7 @@ import { useSoundStore } from '@/hooks/use-sound';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useDataSaver } from '@/lib/data-saver';
+import { useHideLikes } from '@/lib/hide-likes';
 import { friendlyError } from '@/lib/errors';
 import { deleteLesson, likeLesson, reportLesson, topicOf, viewLesson, type Lesson } from '@/lib/lessons';
 import { absoluteUrl } from '@/lib/paths';
@@ -37,6 +38,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const saver = useDataSaver();
+  const hideLikes = useHideLikes();
   const { soundOn, unlocked, toggle } = useSoundStore();
   const slide = useRef<HTMLElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -206,7 +208,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
           <span className={round}><Heart className={cn('h-5 w-5 text-foreground', like.liked && 'fill-primary text-primary')} /></span>
-          {like.count > 0 && like.count}
+          {like.count > 0 && (!hideLikes || lesson.mine) && like.count}
         </button>
         {on('comments') && <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
           <span className={round}><MessageCircle className="h-5 w-5 text-foreground" /></span>

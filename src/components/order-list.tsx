@@ -5,7 +5,9 @@ import { friendlyError } from '@/lib/errors';
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { MapPin, Package, Phone } from 'lucide-react';
+import { AlertTriangle, MapPin, Package, PackageCheck, Phone, ShieldCheck } from 'lucide-react';
+import { ask } from '@/components/confirm-dialog';
+import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +23,16 @@ function statusLabel(status: string) {
   return ORDER_STATUSES.find((s) => s.value === status)?.label ?? status;
 }
 
+function ProblemNote({ problem }: { problem: NonNullable<Order['problem']> }) {
+  const text = problem.status === 'open' ? 'Problem reported: Saligue is looking at it' : problem.status === 'refunded' ? 'Refunded to the buyer' : 'Problem closed';
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+      <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" /> {text}</p>
+      <p className="mt-0.5">“{problem.text}”</p>
+    </div>
+  );
+}
+
 function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -28,6 +40,21 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
   const when = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Just now';
   const momo = order.shop?.whatsapp || order.shop?.phone;
 
+  const canReport = ['confirmed', 'shipped', 'delivered'].includes(order.status) && !order.problem && !order.settled
+    && (order.status !== 'delivered' || Date.now() - new Date(order.receivedAt ?? order.createdAt ?? 0).getTime() < 14 * 86_400_000);
+  const reportProblem = async () => {
+    const text = await ask({ title: 'What went wrong?', description: 'Saligue holds the shop’s payment for this order and looks at it with you and the shop.', input: { label: 'Wrong item, damaged, never arrived…' }, confirm: 'Report' });
+    if (typeof text !== 'string') return;
+    setSaving(true);
+    try {
+      await api(`/orders/${order.id}/problem`, { body: { text } });
+      toast({ title: 'Problem reported', description: 'Saligue will contact you.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Not sent', description: friendlyError(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
   const change = async (changes: Parameters<typeof updateOrder>[1]) => {
     setSaving(true);
     try {
@@ -103,15 +130,28 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
                   Cancel order
                 </Button>
               )}
+              {/* Buyer protection: the buyer says it arrived; until then (and 14 days after) a problem can be reported. */}
+              {['confirmed', 'shipped'].includes(order.status) && (
+                <Button size="sm" disabled={saving} onClick={() => change({ received: true })}><PackageCheck className="mr-1.5 h-4 w-4" /> I received it</Button>
+              )}
+              {canReport && (
+                <Button variant="outline" size="sm" disabled={saving} onClick={reportProblem}><AlertTriangle className="mr-1.5 h-4 w-4" /> Problem with my order</Button>
+              )}
             </div>
+            {order.paymentMethod === 'online' && order.paymentStatus === 'paid' && !order.problem && order.status !== 'delivered' && order.status !== 'cancelled' && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Saligue keeps your payment until you confirm it arrived.</p>
+            )}
+            {order.problem && <ProblemNote problem={order.problem} />}
           </>
         ) : (
           <>
             <div className="space-y-1 rounded-lg bg-muted/50 p-3 text-sm">
               <p className="font-semibold">{order.delivery.fullName}</p>
-              <a href={`tel:${order.delivery.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 hover:underline">
-                <Phone className="h-4 w-4" /> {order.delivery.phone}
-              </a>
+              {order.delivery.phone && (
+                <a href={`tel:${order.delivery.phone.replace(/[^\d+]/g, '')}`} className="flex items-center gap-2 hover:underline">
+                  <Phone className="h-4 w-4" /> {order.delivery.phone}
+                </a>
+              )}
               {order.paymentMethod !== 'pickup' && (
                 <p className="flex items-start gap-2">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
@@ -124,7 +164,10 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
               <Select value={order.status} onValueChange={(v) => change({ status: v as Order['status'] })} disabled={saving}>
                 <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ORDER_STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  {ORDER_STATUSES.map((s) => (
+                    // Orders paid online: the buyer confirms delivery (buyer protection).
+                    <SelectItem key={s.value} value={s.value} disabled={s.value === 'delivered' && order.paymentMethod === 'online' && order.status !== 'delivered'}>{s.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Button
@@ -137,6 +180,10 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
                 {order.paymentStatus === 'paid' ? 'Mark as not paid' : 'Mark as paid'}
               </Button>
             </div>
+            {order.paymentMethod === 'online' && order.status !== 'delivered' && order.status !== 'cancelled' && (
+              <p className="text-xs text-muted-foreground">Paid online: the buyer confirms delivery, or it confirms itself 7 days after you mark it shipped. Then Saligue pays you.</p>
+            )}
+            {order.problem && <ProblemNote problem={order.problem} />}
           </>
         )}
       </CardContent>

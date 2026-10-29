@@ -98,6 +98,9 @@ function publicUser(u) {
     email: u.email,
     displayName: u.display_name,
     username: u.username ?? null,
+    // Who may comment on this person's items and lessons, and words that hide a comment.
+    commentMode: u.comment_mode ?? 'everyone',
+    hiddenWords: parse(u.hidden_words) ?? [],
     role: u.role,
     official: !!u.official,
     // Runs the platform (Platform settings: email, payments, try-on). Set with `node server/admin.mjs admin <email>`.
@@ -302,6 +305,11 @@ function orderOut(r) {
     paymentStatus: r.payment_status,
     paidAt: r.paid_at ?? null,
     status: r.status,
+    shippedAt: r.shipped_at ?? null,
+    // Buyer protection: who confirmed it arrived ('buyer', or 'auto' 7 days after shipping), and a reported problem.
+    receivedAt: r.received_at ?? null,
+    problem: r.problem ? { text: r.problem, at: r.problem_at, status: r.problem_status } : null,
+    settled: !!r.settlement_id,
     createdAt: r.created_at,
   };
 }
@@ -518,6 +526,38 @@ route('DELETE', '/api/push', ({ user, url }) => {
   return { ok: true };
 });
 
+// Download my data: everything Saligue keeps about the person, as one JSON file (no lock-in).
+route('GET', '/api/auth/me/export', ({ user, res }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const id = user.id;
+  const all = (sql, ...args) => db.prepare(sql).all(...args);
+  const data = {
+    exportedAt: now(),
+    account: { ...publicUser(user), createdAt: user.created_at },
+    orders: all('select * from orders where buyer_id = ? or seller_id = ? order by created_at', id, id).map(orderOut),
+    items: user.role === 'seller' ? all('select * from products where seller_id = ?', id).map((r) => { const { embedding, ...p } = productOut(r); return p; }) : [],
+    lessons: all('select id, title, description, topic, language, video, created_at from lessons where user_id = ?', id),
+    lives: all('select id, title, description, status, started_at, ended_at, like_count, peak_viewers, replay_video from lives where seller_id = ?', id),
+    comments: all('select product_id, parent_id, text, created_at from comments where user_id = ?', id),
+    lessonComments: all('select lesson_id, parent_id, kind, text, created_at from lesson_comments where user_id = ?', id),
+    questions: all('select product_id, text, answer, created_at from product_questions where user_id = ?', id),
+    reviews: all('select product_id, rating, text, created_at from reviews where user_id = ?', id),
+    messagesSent: all('select m.conversation_id, m.text, m.product_id, m.order_id, m.created_at from messages m where m.sender_id = ? order by m.created_at', id),
+    following: all('select seller_id, created_at from follows where follower_id = ?', id),
+    followers: all('select count(*) as n from follows where seller_id = ?', id)[0].n,
+    likes: all('select product_id from likes where user_id = ?', id).map((r) => r.product_id),
+    saved: all('select product_id from wishlists where user_id = ?', id).map((r) => r.product_id),
+    looks: all('select * from looks where user_id = ?', id).map((l) => lookOut(l, true)),
+    searches: all('select q, created_at from searches where user_id = ? order by created_at', id),
+    whatYouShowedInterestIn: all('select product_id, kind, weight, created_at from interactions where user_id = ? order by created_at', id),
+    coins: all('select amount, reason, created_at from coins where user_id = ? order by created_at', id),
+    tips: all('select to_user, from_user, amount, share, message, status, created_at from tips where from_user = ? or to_user = ?', id, id),
+    notifications: all('select type, title, body, link, created_at from notifications where user_id = ? order by created_at desc limit 500', id),
+  };
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="saligue-my-data-${now().slice(0, 10)}.json"` });
+  res.end(JSON.stringify(data, null, 2));
+});
+
 // Deleting your account. Orders stay (the other side needs them for delivery and accounts), so the account is
 // emptied rather than removed: no name, email, photo, username, shop or password, and it can never sign in again.
 // What the person made or did on Saligue goes: comments, questions, likes, follows, looks, searches, history;
@@ -558,6 +598,14 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
     const name = String(body.displayName).trim().slice(0, 80);
     if (!name) fail(400, 'missing_name', 'Please enter your name.');
     db.prepare('update users set display_name = ? where id = ?').run(name, user.id);
+  }
+  if (body.commentMode !== undefined) {
+    if (!['everyone', 'followers', 'off'].includes(body.commentMode)) fail(400, 'invalid', 'Choose everyone, followers or off.');
+    db.prepare('update users set comment_mode = ? where id = ?').run(body.commentMode, user.id);
+  }
+  if (body.hiddenWords !== undefined) {
+    const words = [...new Set((Array.isArray(body.hiddenWords) ? body.hiddenWords : []).map((w) => String(w).trim().toLowerCase()).filter((w) => w.length >= 2))].slice(0, 100).map((w) => w.slice(0, 40));
+    db.prepare('update users set hidden_words = ? where id = ?').run(json(words), user.id);
   }
   if (body.username !== undefined) {
     if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
@@ -889,9 +937,24 @@ route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
 });
 
 // Comments
+// The owner's comment rules (shop or teacher): who may comment, and words that hide a comment from everyone.
+function commentRules(ownerId, author) {
+  if (ownerId === author.id) return { hidden: false };
+  const owner = db.prepare('select comment_mode, hidden_words, display_name, email, is_guest, role, shop from users where id = ?').get(ownerId);
+  const name = owner?.role === 'seller' ? shopNameOf(owner) : personNameOf(owner);
+  if (owner?.comment_mode === 'off') fail(403, 'comments_off', `${name} turned comments off.`);
+  if (owner?.comment_mode === 'followers' && !db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(author.id, ownerId)) fail(403, 'followers_only', `Only people who follow ${name} can comment. Follow first.`);
+  return { words: parse(owner?.hidden_words) ?? [] };
+}
+const hasHiddenWord = (text, words) => {
+  const t = ` ${String(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
+  return words.some((w) => t.includes(` ${w.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `));
+};
+
 // Comments are threads: anyone can reply to a comment or to a reply, as deep as they like (parentId).
-route('GET', '/api/products/([\\w-]+)/comments', ({ params }) =>
-  db.prepare('select c.*, u.username from comments c left join users u on u.id = c.user_id where c.product_id = ? and c.hidden = 0 order by c.created_at desc limit 500').all(params[0])
+// Hidden comments (hidden words, reports) are seen only by the person who wrote them.
+route('GET', '/api/products/([\\w-]+)/comments', ({ params, user }) =>
+  db.prepare('select c.*, u.username from comments c left join users u on u.id = c.user_id where c.product_id = ? and (c.hidden = 0 or c.user_id = ?) order by c.created_at desc limit 500').all(params[0], user?.id ?? '')
     .map((r) => ({ id: r.id, uid: r.user_id, name: r.name, username: r.username ?? null, parentId: r.parent_id ?? null, text: r.text, createdAt: r.created_at })));
 
 route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
@@ -903,12 +966,16 @@ route('POST', '/api/products/([\\w-]+)/comments', ({ user, params, body }) => {
   if (!product) fail(404, 'not_found', 'This item no longer exists.');
   if (blockedBetween(user.id, product.seller_id)) fail(403, 'blocked', 'You can’t comment here.');
   const name = user.is_guest ? 'Guest' : user.display_name || user.email?.split('@')[0] || 'Saligue user';
+  const rules = commentRules(product.seller_id, user);
   const recent = db.prepare('select count(*) as n from comments where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 60_000).toISOString()).n;
   if (recent >= 8) fail(429, 'too_many', 'Slow down a little — wait a minute.');
   const parent = body.parentId ? db.prepare('select id, user_id from comments where id = ? and product_id = ?').get(String(body.parentId), product.id) : null;
   if (body.parentId && !parent) fail(404, 'not_found', 'That comment was removed.');
   const id = randomUUID();
-  db.prepare('insert into comments (id, product_id, user_id, name, text, parent_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, parent?.id ?? null, now());
+  // A comment with one of the shop's hidden words is kept out of sight (the shop can still find it in reports).
+  const quiet = hasHiddenWord(text, rules.words ?? []);
+  db.prepare('insert into comments (id, product_id, user_id, name, text, parent_id, hidden, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(id, params[0], user.id, name.slice(0, 60), text, parent?.id ?? null, quiet ? 1 : 0, now());
+  if (quiet) return { id };
   if (parent && parent.user_id !== user.id && parent.user_id !== product.seller_id) {
     notify(parent.user_id, { type: 'message', title: `${name.slice(0, 60)} replied to you on ${product.name}`, body: text.slice(0, 140), link: product.official ? `/indeciana?item=${product.id}` : `/product?id=${product.id}`, email: false });
   }
@@ -1265,10 +1332,13 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
     // A payment confirmed by Flutterwave can't be undone by hand.
     if (body.paymentStatus === 'unpaid' && order.payment_ref) fail(400, 'paid_online', 'This order was paid online; the payment cannot be removed here.');
     if (order.status === 'cancelled' && body.status && body.status !== 'cancelled') fail(400, 'cancelled', 'A cancelled order cannot be reopened. Ask the buyer to order again.');
+    // Buyer protection: Saligue holds online payments, so the buyer (not the shop) says it arrived.
+    if (body.status === 'delivered' && order.payment_method === 'online' && order.status !== 'delivered') fail(403, 'buyer_confirms', 'For orders paid online, the buyer confirms delivery (or it confirms itself 7 days after you mark it shipped).');
     transaction(() => {
       db.prepare('update orders set status = coalesce(?, status), payment_status = coalesce(?, payment_status), paid_at = case when ? = \'paid\' then coalesce(paid_at, ?) when ? = \'unpaid\' then null else paid_at end where id = ?')
         .run(body.status ?? null, body.paymentStatus ?? null, body.paymentStatus ?? null, now(), body.paymentStatus ?? null, order.id);
       if (body.status === 'cancelled' && order.status !== 'cancelled') restock(order);
+      if (body.status === 'shipped' && order.status !== 'shipped') db.prepare('update orders set shipped_at = ? where id = ?').run(now(), order.id);
     });
     if (body.status === 'delivered' && order.status !== 'delivered') rewardReferral(order);
     const code = order.id.slice(0, 6).toUpperCase();
@@ -1278,6 +1348,12 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
     if (body.paymentStatus === 'paid' && order.payment_status !== 'paid') {
       notify(order.buyer_id, { type: 'order', title: `Payment received for order #${code}`, body: `The shop confirmed your payment of ${money(order.total)}. Thank you!`, link: '/orders' });
     }
+  } else if (order.buyer_id === user.id && body.received === true) {
+    // "I received it": the order is delivered and the shop can be paid.
+    if (!['confirmed', 'shipped'].includes(order.status)) fail(400, 'not_on_its_way', 'This order is not on its way yet.');
+    db.prepare("update orders set status = 'delivered', received_at = ? where id = ?").run(now(), order.id);
+    notify(order.seller_id, { type: 'sale', title: `Order #${order.id.slice(0, 6).toUpperCase()} arrived`, body: `${order.buyer_name} confirmed they received it.`, link: '/dashboard/orders' });
+    rewardReferral(order);
   } else if (order.buyer_id === user.id) {
     if (order.status !== 'placed' || body.status !== 'cancelled' || body.paymentStatus !== undefined) fail(403, 'forbidden', 'You can only cancel an order that has not been confirmed.');
     if (order.payment_status === 'paid') fail(403, 'paid', 'This order is already paid. Message the shop to cancel it and get your money back.');
@@ -1290,6 +1366,55 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
   broadcast('orders');
   return { ok: true };
 });
+
+// "Problem with my order": up to 14 days after delivery (and before the shop is paid). Holds the shop's payment
+// for this order until Saligue releases it or refunds the buyer.
+route('POST', '/api/orders/([\\w-]+)/problem', ({ user, params, body }) => {
+  const order = db.prepare('select * from orders where id = ?').get(params[0]);
+  if (!order || order.buyer_id !== user?.id) fail(404, 'not_found', 'Order not found.');
+  if (!['confirmed', 'shipped', 'delivered'].includes(order.status)) fail(400, 'too_early', 'Message the shop, or cancel the order while it is not confirmed.');
+  if (order.problem_status === 'open') fail(409, 'already', 'You already reported a problem. Saligue is looking at it.');
+  if (order.settlement_id) fail(409, 'settled', 'The shop has been paid for this order. Message the shop or Help & Support.');
+  if (order.status === 'delivered' && Date.now() - new Date(order.received_at ?? order.created_at).getTime() > 14 * 86_400_000) fail(409, 'too_late', 'Problems can be reported up to 14 days after delivery.');
+  const text = String(body.text ?? '').trim().slice(0, 600);
+  if (text.length < 5) fail(400, 'empty', 'Say what went wrong.');
+  db.prepare("update orders set problem = ?, problem_at = ?, problem_status = 'open' where id = ?").run(text, now(), order.id);
+  const code = order.id.slice(0, 6).toUpperCase();
+  notify(order.seller_id, { type: 'sale', title: `Problem reported on order #${code}`, body: text.slice(0, 140), link: '/dashboard/orders' });
+  for (const a of db.prepare("select id from users where admin = 1 and (admin_level = 1 or admin_perms like '%money%')").all()) {
+    notify(a.id, { type: 'account', title: `Order problem #${code}`, body: text.slice(0, 140), link: '/admin', email: false });
+  }
+  broadcast('orders');
+  return { ok: true };
+});
+// Admin → Money: open problems. Release (the shop gets paid as usual) or refund (Saligue returns the buyer's money).
+route('GET', '/api/admin/order-problems', ({ user }) => {
+  requireAdmin(user, 'money');
+  return db.prepare("select * from orders where problem_status = 'open' order by problem_at").all().map((o) => ({ ...orderOut(o), shopName: parse(o.shop)?.name ?? 'Shop' }));
+});
+route('POST', '/api/admin/order-problems/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  const order = db.prepare("select * from orders where id = ? and problem_status = 'open'").get(params[0]);
+  if (!order) fail(404, 'not_found', 'No open problem on this order.');
+  const refund = body.decision === 'refund';
+  db.prepare(`update orders set problem_status = ?${refund ? ", status = 'cancelled'" : ''} where id = ?`).run(refund ? 'refunded' : 'released', order.id);
+  const code = order.id.slice(0, 6).toUpperCase();
+  notify(order.buyer_id, { type: 'order', title: refund ? `Order #${code}: you will be refunded` : `Order #${code}: problem closed`, body: refund ? `Saligue sends ${money(order.total)} back to you by Mobile Money.` : 'Saligue looked at it with the shop. Message the shop if anything is still wrong.', link: '/orders' });
+  notify(order.seller_id, { type: 'sale', title: refund ? `Order #${code} was refunded to the buyer` : `Order #${code}: problem closed`, body: refund ? 'No payment for this order.' : 'Your payment for it is released.', link: '/dashboard/orders' });
+  logAdmin(user, refund ? 'order refunded' : 'order released', `#${code} ${money(order.total)}`);
+  broadcast('orders');
+  return { ok: true };
+});
+// Online-paid orders shipped 7 days ago without a problem count as received.
+function autoReceive() {
+  const due = db.prepare("select * from orders where payment_method = 'online' and payment_status = 'paid' and status = 'shipped' and shipped_at < ? and coalesce(problem_status, '') != 'open'").all(new Date(Date.now() - 7 * 86_400_000).toISOString());
+  for (const o of due) {
+    db.prepare("update orders set status = 'delivered', received_at = ? where id = ?").run(now(), o.id);
+    notify(o.buyer_id, { type: 'order', title: `Order #${o.id.slice(0, 6).toUpperCase()} counted as received`, body: 'It was shipped 7 days ago. Something wrong? Report a problem within 14 days.', link: '/orders' });
+    rewardReferral(o);
+  }
+}
+setInterval(autoReceive, 60 * 60_000).unref();
 
 // ---------------------------------------------------------------------------
 // Messages: buyers talk directly with sellers (one conversation per buyer and shop), live and by email.
@@ -2847,10 +2972,10 @@ route('PUT', '/api/lessons/([\\w-]+)/captions', ({ user, params, body }) => {
 route('GET', '/api/captions/status', () => ({ available: captionsAvailable(), languages: AUTO_LANGUAGES }));
 
 // Comments and questions on a lesson. Questions the teacher replied to show as answered.
-route('GET', '/api/lessons/([\\w-]+)/comments', ({ params }) => {
+route('GET', '/api/lessons/([\\w-]+)/comments', ({ params, user }) => {
   const lesson = db.prepare('select user_id from lessons where id = ?').get(params[0]);
   if (!lesson) fail(404, 'not_found', 'This lesson is not available.');
-  const rows = db.prepare('select c.*, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar from lesson_comments c join users u on u.id = c.user_id where c.lesson_id = ? and c.hidden = 0 order by c.created_at limit 500').all(params[0]);
+  const rows = db.prepare('select c.*, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar from lesson_comments c join users u on u.id = c.user_id where c.lesson_id = ? and (c.hidden = 0 or c.user_id = ?) order by c.created_at limit 500').all(params[0], user?.id ?? '');
   const out = rows.map((c) => ({ id: c.id, uid: c.user_id, name: c.role === 'seller' ? shopNameOf(c) : personNameOf(c), avatar: c.avatar ?? null, parentId: c.parent_id, kind: c.kind, text: c.text, teacher: c.user_id === lesson.user_id, createdAt: c.created_at }));
   const answered = new Set(out.filter((c) => c.teacher && c.parentId).map((c) => c.parentId));
   return out.map((c) => ({ ...c, answered: c.kind === 'question' && answered.has(c.id) }));
@@ -2867,10 +2992,13 @@ route('POST', '/api/lessons/([\\w-]+)/comments', ({ user, params, body }) => {
   const parent = body.parentId ? db.prepare('select id, user_id from lesson_comments where id = ? and lesson_id = ?').get(String(body.parentId), lesson.id) : null;
   if (body.parentId && !parent) fail(404, 'not_found', 'That comment was removed.');
   const kind = body.kind === 'question' && !parent ? 'question' : 'comment';
+  const rules = commentRules(lesson.user_id, user);
   const recent = db.prepare('select count(*) as n from lesson_comments where user_id = ? and created_at > ?').get(user.id, new Date(Date.now() - 60_000).toISOString()).n;
   if (recent >= 8) fail(429, 'too_many', 'Slow down a little — wait a minute.');
   const id = randomUUID();
-  db.prepare('insert into lesson_comments (id, lesson_id, user_id, parent_id, kind, text, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, lesson.id, user.id, parent?.id ?? null, kind, text, now());
+  const quiet = hasHiddenWord(text, rules.words ?? []);
+  db.prepare('insert into lesson_comments (id, lesson_id, user_id, parent_id, kind, text, hidden, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(id, lesson.id, user.id, parent?.id ?? null, kind, text, quiet ? 1 : 0, now());
+  if (quiet) return { id };
   broadcast('lesson_comments', { lessonId: lesson.id });
   notifyMentions(text, user, { where: `on "${lesson.title}"`, link: `/learn?lesson=${lesson.id}` });
   const who = personNameOf(user);
@@ -3298,7 +3426,8 @@ function saleFee(sellerId, total) {
 }
 // Delivered sales not settled yet: what Saligue owes the shop (paid online) and what the shop owes (paid to the shop).
 function openSales(sellerId) {
-  const rows = db.prepare("select id, total, fee, payment_method, payment_status, created_at from orders where seller_id = ? and status = 'delivered' and settlement_id is null order by created_at").all(sellerId);
+  // Orders with an open problem wait until Saligue decides (refunded ones are cancelled).
+  const rows = db.prepare("select id, total, fee, payment_method, payment_status, created_at from orders where seller_id = ? and status = 'delivered' and settlement_id is null and coalesce(problem_status, '') != 'open' order by created_at").all(sellerId);
   const online = rows.filter((o) => o.payment_method === 'online' && o.payment_status === 'paid');
   const direct = rows.filter((o) => !(o.payment_method === 'online' && o.payment_status === 'paid'));
   const toShop = online.reduce((sum, o) => sum + o.total - o.fee, 0);
@@ -3328,7 +3457,7 @@ route('GET', '/api/seller/sales', ({ user }) => {
 // Admin → Money: shops with sales to settle, and recording a settlement (money sent either way by Mobile Money).
 route('GET', '/api/admin/settlements', ({ user }) => {
   requireAdmin(user, 'money');
-  const sellers = db.prepare("select distinct seller_id from orders where status = 'delivered' and settlement_id is null").all();
+  const sellers = db.prepare("select distinct seller_id from orders where status = 'delivered' and settlement_id is null and coalesce(problem_status, '') != 'open'").all();
   return {
     commission: commission(),
     shops: sellers.map(({ seller_id }) => {

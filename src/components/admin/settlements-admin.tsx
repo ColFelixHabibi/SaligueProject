@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, HandCoins, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, HandCoins, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -72,6 +72,50 @@ export function SettlementsAdmin() {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type Problem = { id: string; shopName: string; buyerName: string; total: number; paymentMethod: string; problem: { text: string; at: string } };
+
+/** Admin → Money: problems buyers reported on orders (the shop's payment is held). Release, or refund the buyer. */
+export function OrderProblemsAdmin() {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<Problem[] | null>(null);
+  const load = useCallback(() => api<Problem[]>('/admin/order-problems').then(setRows).catch(() => setRows([])), []);
+  useEffect(() => void load(), [load]);
+  const decide = async (p: Problem, decision: 'release' | 'refund') => {
+    if (decision === 'refund' && !(await ask({ title: `Refund ${formatPrice(p.total)} to ${p.buyerName}?`, description: 'Send the money back by Mobile Money first, then confirm here. The shop is not paid for this order.', confirm: 'Refunded' }))) return;
+    try {
+      await api(`/admin/order-problems/${p.id}`, { body: { decision } });
+      toast({ title: decision === 'refund' ? 'Marked as refunded' : 'Payment released' });
+      void load();
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Not done', description: friendlyError(error) });
+    }
+  };
+  if (!rows?.length) return null;
+  return (
+    <Card className="border-amber-300">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /> Order problems</CardTitle>
+        <CardDescription>The shop’s payment for these orders is held. Talk with both sides, then release it or refund the buyer.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((p) => (
+          <div key={p.id} className="flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-semibold">#{p.id.slice(0, 6).toUpperCase()} · {p.shopName} · {formatPrice(p.total)} ({p.paymentMethod.replace(/_/g, ' ')})</p>
+              <p className="text-xs text-muted-foreground">{p.buyerName} · {new Date(p.problem.at).toLocaleDateString()}</p>
+              <p className="mt-1">“{p.problem.text}”</p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => decide(p, 'release')}>Release</Button>
+              <Button size="sm" variant="outline" className="text-destructive" onClick={() => decide(p, 'refund')}>Refund</Button>
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
