@@ -1,6 +1,8 @@
 'use client';
 
 import { useLiveRecorder, type RecordSource } from '@/lib/live-recorder';
+import { PlanLive } from '@/components/live/plan-live';
+import { ComingUp } from '@/components/live/coming-up';
 import { absoluteUrl } from '@/lib/paths';
 import { shareLink } from '@/components/share-sheet';
 import { ExpandableText } from '@/components/expandable-text';
@@ -251,8 +253,10 @@ function Setup() {
         <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={starting || !title.trim()}>
           {starting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Radio className="mr-2 h-5 w-5" />} Go live now
         </Button>
-        <p className="text-center text-xs text-muted-foreground">Your browser asks to use the camera and microphone — tap Allow. Your past customers get a notification that you are live.</p>
+        <p className="text-center text-xs text-muted-foreground">Your browser asks to use the camera and microphone — tap Allow. Your followers, past customers and everyone who asked to be reminded get a notification that you are live.</p>
       </form>
+      <PlanLive />
+      <ComingUp seller={authUid ?? undefined} />
     </div>
   );
 }

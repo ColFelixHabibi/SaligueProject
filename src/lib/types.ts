@@ -119,7 +119,10 @@ export type Order = {
   shippedAt?: string | null;
   // Buyer protection: when the buyer confirmed it arrived, and a problem they reported.
   receivedAt?: string | null;
-  problem?: { text: string; at: string; status: 'open' | 'released' | 'refunded' } | null;
+  receivedBy?: 'buyer' | 'code' | 'auto' | null;
+  // Only in the buyer's own orders: the code they give at handover (proof of delivery).
+  deliveryCode?: string;
+  problem?: { text: string; at: string; status: 'open' | 'released' | 'refunded'; shopReply?: string | null } | null;
   settled?: boolean;
   createdAt?: string | null;
 };

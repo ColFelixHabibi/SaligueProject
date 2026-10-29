@@ -5,7 +5,7 @@ import { friendlyError } from '@/lib/errors';
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, MapPin, Package, PackageCheck, Phone, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, KeyRound, MapPin, Package, PackageCheck, Phone, ShieldCheck } from 'lucide-react';
 import { ask } from '@/components/confirm-dialog';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +29,7 @@ function ProblemNote({ problem }: { problem: NonNullable<Order['problem']> }) {
     <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
       <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle className="h-4 w-4" /> {text}</p>
       <p className="mt-0.5">“{problem.text}”</p>
+      {problem.shopReply && <p className="mt-1 text-xs"><b>The shop:</b> “{problem.shopReply}”</p>}
     </div>
   );
 }
@@ -40,8 +41,9 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
   const when = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Just now';
   const momo = order.shop?.whatsapp || order.shop?.phone;
 
+  // Up to 14 days after delivery; 2 days when it was handed over with the code (delivery is proven).
   const canReport = ['confirmed', 'shipped', 'delivered'].includes(order.status) && !order.problem && !order.settled
-    && (order.status !== 'delivered' || Date.now() - new Date(order.receivedAt ?? order.createdAt ?? 0).getTime() < 14 * 86_400_000);
+    && (order.status !== 'delivered' || Date.now() - new Date(order.receivedAt ?? order.createdAt ?? 0).getTime() < (order.receivedBy === 'code' ? 2 : 14) * 86_400_000);
   const reportProblem = async () => {
     const text = await ask({ title: 'What went wrong?', description: 'Saligue holds the shop’s payment for this order and looks at it with you and the shop.', input: { label: 'Wrong item, damaged, never arrived…' }, confirm: 'Report' });
     if (typeof text !== 'string') return;
@@ -138,6 +140,16 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
                 <Button variant="outline" size="sm" disabled={saving} onClick={reportProblem}><AlertTriangle className="mr-1.5 h-4 w-4" /> Problem with my order</Button>
               )}
             </div>
+            {order.deliveryCode && ['confirmed', 'shipped'].includes(order.status) && (
+              <div className="flex items-center gap-3 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-3">
+                <KeyRound className="h-6 w-6 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="font-semibold">Handover code</p>
+                  <p className="text-xs text-muted-foreground">Give it only when you have the order in your hands.</p>
+                </div>
+                <span className="font-mono text-2xl font-extrabold tracking-[0.3em] text-primary">{order.deliveryCode}</span>
+              </div>
+            )}
             {order.paymentMethod === 'online' && order.paymentStatus === 'paid' && !order.problem && order.status !== 'delivered' && order.status !== 'cancelled' && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><ShieldCheck className="h-4 w-4 text-emerald-600" /> Saligue keeps your payment until you confirm it arrived.</p>
             )}

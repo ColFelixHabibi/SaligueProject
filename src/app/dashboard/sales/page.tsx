@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Gift, HandCoins, Loader2, Smartphone } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Check, Clock, Gift, HandCoins, Loader2, ShieldCheck, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,9 @@ type Sales = {
   freeUntil: string | null;
   official: boolean;
   open: { orders: number; onlineSales: number; directSales: number; fees: number; balance: number };
+  onHold: number;
+  trusted: boolean;
+  payoutRequestedAt: string | null;
   thisMonth: { orders: number; total: number; fees: number };
   momo: { number: string; name: string } | null;
   saligueMomo: { number: string | null; name: string };
@@ -60,6 +63,10 @@ export default function SalesPage() {
       <Card>
         <CardHeader><CardTitle className="text-lg">To settle</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
+          {data.onHold > 0 && (
+            <p className="flex items-center gap-2 rounded-xl bg-muted p-3"><Clock className="h-5 w-5 shrink-0 text-amber-600" /> <span><b>{formatPrice(data.onHold)}</b> paid online, waiting for delivery. Enter the customer’s handover code when you deliver: the money is ready the same day.</span></p>
+          )}
+          {data.trusted && <p className="flex items-center gap-2 text-xs font-semibold text-emerald-700"><ShieldCheck className="h-4 w-4" /> Trusted shop: orders without a code confirm themselves after 3 days (not 7).</p>}
           {data.open.orders === 0 ? <p className="text-muted-foreground">Nothing yet. Delivered orders appear here.</p> : (
             <>
               <p className="text-muted-foreground">{data.open.orders} delivered orders · paid online {formatPrice(data.open.onlineSales)} · paid to you {formatPrice(data.open.directSales)} · fees {formatPrice(data.open.fees)}</p>
@@ -70,6 +77,23 @@ export default function SalesPage() {
                   <p>{b >= 0 ? 'Saligue sends you this by Mobile Money.' : `Send this to Saligue${data.saligueMomo.number ? ` on Mobile Money ${data.saligueMomo.number} (${data.saligueMomo.name})` : ''}, with your shop name as the reference.`}</p>
                 </div>
               </div>
+              {b > 0 && (
+                data.payoutRequestedAt
+                  ? <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><Check className="h-4 w-4" /> Payout requested {new Date(data.payoutRequestedAt).toLocaleString()}. Saligue sends it soon.</p>
+                  : <Button className="h-12 w-full text-base" disabled={busy || !data.momo} onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api('/seller/payout-request', { body: {} });
+                      toast({ title: 'Payout requested', description: 'Saligue sends it to your Mobile Money.' });
+                      void load();
+                    } catch (error) {
+                      toast({ variant: 'destructive', title: 'Not sent', description: friendlyError(error) });
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}><HandCoins className="mr-2 h-5 w-5" /> Request payout now</Button>
+              )}
+              {b > 0 && !data.momo && <p className="text-xs text-amber-700">Add your Mobile Money number below first.</p>}
             </>
           )}
         </CardContent>

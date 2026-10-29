@@ -7,7 +7,8 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, formatDistanceToNow } from 'date-fns';
-import { Check, CircleDollarSign, Download, MapPin, Phone, Search, Truck, XCircle } from 'lucide-react';
+import { Check, CircleDollarSign, Download, KeyRound, MapPin, Phone, Search, Truck, XCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,6 +44,8 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const next = nextFor(order);
+  const [code, setCode] = useState('');
+  const [reply, setReply] = useState('');
   const payment = PAYMENT_METHODS.find((m) => m.value === order.paymentMethod);
   const step = FLOW.indexOf(order.status);
 
@@ -134,13 +137,50 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
           )}
         </section>
 
-        {order.status === 'shipped' && order.paymentMethod === 'online' && (
-          <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">Paid online: the customer confirms it arrived, or it confirms itself 7 days after shipping. Then Saligue pays you (Sales).</p>
+        {['confirmed', 'shipped'].includes(order.status) && (
+          // The customer's handover code: proof of delivery, so the shop can be paid the same day.
+          <form className="space-y-2 rounded-xl border-2 border-primary/30 p-4" onSubmit={async (e) => {
+            e.preventDefault();
+            setSaving(true);
+            try {
+              await api(`/orders/${order.id}/handover`, { body: { code } });
+              toast({ title: 'Delivered', description: order.paymentMethod === 'online' ? 'The payment is ready for you in Sales.' : undefined });
+              setCode('');
+            } catch (error) {
+              toast({ variant: 'destructive', title: 'Not confirmed', description: friendlyError(error) });
+            } finally {
+              setSaving(false);
+            }
+          }}>
+            <p className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4 text-primary" /> Handover code</p>
+            <p className="text-xs text-muted-foreground">When you hand the order over, ask the customer for the 4-digit code in their My orders. It proves delivery{order.paymentMethod === 'online' ? ', and your payment is ready the same day' : ''}.</p>
+            <div className="flex gap-2">
+              <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000" className="h-11 w-28 text-center font-mono text-lg tracking-[0.3em]" />
+              <Button type="submit" className="h-11" disabled={saving || code.length !== 4}><Check className="mr-1.5 h-4 w-4" /> Delivered</Button>
+            </div>
+            {order.paymentMethod === 'online' && <p className="text-xs text-muted-foreground">No code? The customer can tap “I received it”, or it confirms itself 7 days after shipping (3 days for trusted shops).</p>}
+          </form>
         )}
         {order.problem && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
             <p className="font-semibold">{order.problem.status === 'open' ? 'Problem reported: payment held while Saligue looks at it' : order.problem.status === 'refunded' ? 'Refunded to the customer' : 'Problem closed: payment released'}</p>
             <p className="mt-0.5">“{order.problem.text}”</p>
+            {order.problem.shopReply && <p className="mt-1 text-xs"><b>Your answer:</b> “{order.problem.shopReply}”</p>}
+            {order.problem.status === 'open' && (
+              <form className="mt-2 flex gap-2" onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  await api(`/orders/${order.id}/reply`, { body: { text: reply } });
+                  toast({ title: 'Answer sent to Saligue' });
+                  setReply('');
+                } catch (error) {
+                  toast({ variant: 'destructive', title: 'Not sent', description: friendlyError(error) });
+                }
+              }}>
+                <Input value={reply} onChange={(e) => setReply(e.target.value)} maxLength={600} placeholder="Your side (e.g. delivered on Monday, photo sent)" className="h-9 bg-background" />
+                <Button type="submit" size="sm" className="h-9" disabled={reply.trim().length < 3}>Send</Button>
+              </form>
+            )}
           </div>
         )}
         {order.status !== 'cancelled' && order.status !== 'delivered' && (

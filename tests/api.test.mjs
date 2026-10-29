@@ -268,3 +268,52 @@ describe('comment controls and my data', () => {
     assert.ok(Array.isArray(file.orders) && Array.isArray(file.comments));
   });
 });
+
+describe('seller protection', () => {
+  test('the handover code proves delivery at once; a wrong code is refused; the shop never sees it', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 0));
+    const shop = await sampleShop(product.id);
+    const a = await register('Code Buyer');
+    await call('/orders', { token: a.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery: { fullName: 'Code Buyer', phone: '0780000002', city: 'Kigali', street: 'KN 3 Ave' } } });
+    const mine = (await call('/orders', { token: a.token })).json[0];
+    assert.match(mine.deliveryCode, /^\d{4}$/);
+    const theirs = (await call('/orders?as=seller', { token: shop.token })).json.find((o) => o.id === mine.id);
+    assert.equal(theirs.deliveryCode, undefined);
+    await call(`/orders/${mine.id}`, { method: 'PATCH', token: shop.token, body: { status: 'confirmed' } });
+    const wrong = mine.deliveryCode === '1234' ? '4321' : '1234';
+    assert.equal((await call(`/orders/${mine.id}/handover`, { token: shop.token, body: { code: wrong } })).status, 400);
+    assert.equal((await call(`/orders/${mine.id}/handover`, { token: shop.token, body: { code: mine.deliveryCode } })).status, 200);
+    const done = (await call('/orders', { token: a.token })).json[0];
+    assert.equal(done.status, 'delivered');
+    assert.equal(done.receivedBy, 'code');
+    // The shop can answer a reported problem.
+    assert.equal((await call(`/orders/${mine.id}/problem`, { token: a.token, body: { text: 'Button missing' } })).status, 200);
+    assert.equal((await call(`/orders/${mine.id}/reply`, { token: shop.token, body: { text: 'We will send a new button today' } })).status, 200);
+    assert.equal((await call('/orders', { token: a.token })).json[0].problem.shopReply, 'We will send a new button today');
+  });
+});
+
+describe('reasons to come back', () => {
+  test('a price drop reaches people who saved the item, once a week', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && p.price > 5);
+    const shop = await sampleShop(product.id);
+    const a = await register('Bargain Hunter');
+    assert.equal((await call(`/me/cart/${product.id}`, { method: 'PUT', token: a.token, body: { quantity: 1 } })).status, 200);
+    assert.equal((await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { price: product.price - 1 } })).status, 200);
+    await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { price: product.price - 2 } });
+    const drops = (await call('/me/notifications', { token: a.token })).json.filter((n) => /^Price drop/.test(n.title));
+    assert.equal(drops.length, 1);
+  });
+  test('a shop plans a live and people ask to be reminded', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official);
+    const shop = await sampleShop(product.id);
+    const a = await register('Live Fan');
+    const at = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    const plan = await call('/live-schedules', { token: shop.token, body: { title: 'New kitenge', startsAt: at } });
+    assert.equal(plan.status, 200);
+    assert.equal((await call('/live-schedules', { token: a.token, body: { title: 'x y z', startsAt: at } })).status, 403);
+    const r = await call(`/live-schedules/${plan.json.id}/remind`, { token: a.token, body: {} });
+    assert.equal(r.json.reminded, true);
+    assert.equal((await call(`/live-schedules?seller=${shop.id}`)).json[0].reminders, 1);
+  });
+});

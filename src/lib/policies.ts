@@ -138,7 +138,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: [
               'Prices are set by each shop and shown in US dollars unless stated otherwise. When you check out, one order is created for each shop in your bag.',
               'You can pay online (card or Mobile Money through Flutterwave, when available), or directly to the shop: by Mobile Money to the shop’s number, in cash on delivery, or at the shop when you pick the item up.',
-              'Buyer protection for online payments: Saligue keeps the money until you tap “I received it” in My orders. If you don’t, the order counts as received 7 days after the shop marks it shipped. Until then, and up to 14 days after delivery, you can tap “Problem with my order”: the shop is not paid for that order while Saligue looks at it with you both, and if the item never arrived or is not what was described, Saligue refunds you.',
+              'Buyer protection for online payments: Saligue keeps the money until the order reaches you. Every order has a 4-digit handover code in My orders: give it to the shop only when you have the order in your hands (that confirms delivery). Without the code, you tap “I received it”, or the order counts as received 7 days after the shop marks it shipped (3 days for trusted shops with at least 5 clean deliveries). You can tap “Problem with my order” until then and up to 14 days after delivery (2 days when you gave the code): the shop is not paid for that order while Saligue looks at it with you both, and if the item never arrived or is not what was described, Saligue refunds you.',
               'When you pay the shop directly, the money goes to the shop, not to Saligue. Delivery times, returns and refunds are agreed with the shop. If something goes wrong, contact the shop first, then report the problem in My orders or through Help & Support and we will help resolve it.',
             ],
           },
@@ -154,7 +154,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Fees for shops',
             paragraphs: [
               'Listing items, going live and selling are free to start. Saligue takes a fee of 5% of each delivered order, fixed on the order when it is placed. A new shop pays no fee during its first 90 days. There is no monthly charge.',
-              'Orders paid online: Saligue receives the payment and sends the shop the order total minus the fee by Mobile Money. Orders paid to the shop directly (Mobile Money to the shop, cash on delivery, pickup): the shop sends Saligue the fee. Seller Center → Sales shows every amount.',
+              'Orders paid online: Saligue receives the payment and sends the shop the order total minus the fee by Mobile Money, once the order is delivered (the same day when the customer’s handover code is entered). Shops can tap “Request payout now” in Sales. Orders paid to the shop directly (Mobile Money to the shop, cash on delivery, pickup): the shop sends Saligue the fee. Seller Center → Sales shows every amount.',
               'Saligue tells shops at least 30 days before it raises the fee; a change never affects orders already placed.',
             ],
           },

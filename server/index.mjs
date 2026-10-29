@@ -1,7 +1,7 @@
 // Saligue server: the app's own API and database (SQLite file), and the website itself, from one address.
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
@@ -308,7 +308,8 @@ function orderOut(r) {
     shippedAt: r.shipped_at ?? null,
     // Buyer protection: who confirmed it arrived ('buyer', or 'auto' 7 days after shipping), and a reported problem.
     receivedAt: r.received_at ?? null,
-    problem: r.problem ? { text: r.problem, at: r.problem_at, status: r.problem_status } : null,
+    receivedBy: r.received_by ?? null,
+    problem: r.problem ? { text: r.problem, at: r.problem_at, status: r.problem_status, shopReply: r.shop_reply ?? null } : null,
     settled: !!r.settlement_id,
     createdAt: r.created_at,
   };
@@ -778,9 +779,38 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
   if (keys.length) {
     db.prepare(`update products set ${keys.map((k) => `${k} = ?`).join(', ')} where id = ?`).run(...keys.map((k) => fields[k]), params[0]);
     broadcast('products');
+    alertInterested(before, db.prepare('select * from products where id = ?').get(params[0]));
   }
   return { ok: true };
 });
+
+// Useful reasons to come back (not tricks): people who saved an item, put it in their cart or in a look hear
+// when its price drops or it is back in stock. At most once a week per person, item and kind.
+function alertInterested(before, after) {
+  if (!after || after.status !== 'active' || after.hidden) return;
+  const cheaper = Number(after.price) < Number(before.price);
+  const back = before.stock === 0 && (after.stock === null || after.stock > 0);
+  if (!cheaper && !back) return;
+  const kind = back ? 'back' : 'price';
+  const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  const people = db.prepare(`select user_id from wishlists where product_id = ?
+    union select user_id from cart_items where product_id = ?
+    union select user_id from cart_history where product_id = ? and added_at > ?
+    union select k.user_id from look_items li join looks k on k.id = li.look_id where li.kind = 'product' and li.ref_id = ?`).all(after.id, after.id, after.id, since, after.id);
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const link = after.official ? `/indeciana?item=${after.id}` : `/product?id=${after.id}`;
+  for (const { user_id } of people) {
+    if (user_id === after.seller_id) continue;
+    const u = db.prepare('select is_guest, suspended from users where id = ?').get(user_id);
+    if (!u || u.is_guest || u.suspended) continue;
+    const last = db.prepare('select sent_at from product_alerts where user_id = ? and product_id = ? and kind = ?').get(user_id, after.id, kind);
+    if (last && last.sent_at > weekAgo) continue;
+    db.prepare('insert into product_alerts (user_id, product_id, kind, sent_at) values (?, ?, ?, ?) on conflict (user_id, product_id, kind) do update set sent_at = excluded.sent_at').run(user_id, after.id, kind, now());
+    notify(user_id, back
+      ? { type: 'product', title: `Back in stock: ${after.name}`, body: `${money(after.price)} · it was sold out.`, link, email: false }
+      : { type: 'product', title: `Price drop: ${after.name}`, body: `Now ${money(after.price)} (was ${money(before.price)}).`, link, email: false });
+  }
+}
 
 route('DELETE', '/api/products/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
@@ -1272,10 +1302,12 @@ route('POST', '/api/orders', ({ user, body }) => {
     return [...groups].map(([sellerId, group]) => {
       const id = randomUUID();
       const total = Math.round(group.total * 100) / 100;
-      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, fee, created_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      // The handover code: only the buyer sees it; the shop enters it when handing the order over (proof of delivery).
+      const code = String(randomInt(1000, 10000));
+      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, fee, delivery_code, created_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, user.id, user.display_name || String(delivery.fullName), user.email || '', sellerId, group.shop,
-        json(group.items), total, json(delivery), body.paymentMethod, saleFee(sellerId, total), now()
+        json(group.items), total, json(delivery), body.paymentMethod, saleFee(sellerId, total), code, now()
       );
       return { id, sellerId, group };
     });
@@ -1318,8 +1350,11 @@ route('POST', '/api/orders', ({ user, body }) => {
 
 route('GET', '/api/orders', ({ user, url }) => {
   if (!user) return [];
-  const column = url.searchParams.get('as') === 'seller' ? 'seller_id' : 'buyer_id';
-  return db.prepare(`select * from orders where ${column} = ? order by created_at desc`).all(user.id).map(orderOut);
+  const seller = url.searchParams.get('as') === 'seller';
+  const column = seller ? 'seller_id' : 'buyer_id';
+  // The handover code is the buyer's to give: the shop never sees it in the order.
+  return db.prepare(`select * from orders where ${column} = ? order by created_at desc`).all(user.id)
+    .map((o) => ({ ...orderOut(o), deliveryCode: seller ? undefined : o.delivery_code ?? undefined }));
 });
 
 route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
@@ -1351,7 +1386,7 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
   } else if (order.buyer_id === user.id && body.received === true) {
     // "I received it": the order is delivered and the shop can be paid.
     if (!['confirmed', 'shipped'].includes(order.status)) fail(400, 'not_on_its_way', 'This order is not on its way yet.');
-    db.prepare("update orders set status = 'delivered', received_at = ? where id = ?").run(now(), order.id);
+    db.prepare("update orders set status = 'delivered', received_at = ?, received_by = 'buyer' where id = ?").run(now(), order.id);
     notify(order.seller_id, { type: 'sale', title: `Order #${order.id.slice(0, 6).toUpperCase()} arrived`, body: `${order.buyer_name} confirmed they received it.`, link: '/dashboard/orders' });
     rewardReferral(order);
   } else if (order.buyer_id === user.id) {
@@ -1367,6 +1402,48 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
   return { ok: true };
 });
 
+// The shop enters the buyer's handover code: delivered right away, and the shop can be paid the same day.
+route('POST', '/api/orders/([\\w-]+)/handover', ({ user, params, body }) => {
+  const order = db.prepare('select * from orders where id = ?').get(params[0]);
+  if (!order || order.seller_id !== user?.id) fail(404, 'not_found', 'Order not found.');
+  if (!['confirmed', 'shipped'].includes(order.status)) fail(400, 'not_on_its_way', 'Confirm the order first.');
+  const tries = handoverTries.get(order.id) ?? 0;
+  if (tries >= 5) fail(429, 'too_many', 'Too many wrong codes. Ask the customer to tap “I received it” instead.');
+  if (String(body.code ?? '').trim() !== order.delivery_code) {
+    handoverTries.set(order.id, tries + 1);
+    fail(400, 'wrong_code', 'This is not the customer’s code. Ask them to read it from My orders.');
+  }
+  db.prepare("update orders set status = 'delivered', received_at = ?, received_by = 'code', shipped_at = coalesce(shipped_at, ?) where id = ?").run(now(), now(), order.id);
+  notify(order.buyer_id, { type: 'order', title: `Order #${order.id.slice(0, 6).toUpperCase()} was handed to you`, body: 'Something wrong with it? Report it in My orders within 2 days.', link: '/orders' });
+  rewardReferral(order);
+  broadcast('orders');
+  return { ok: true };
+});
+const handoverTries = new Map();
+
+// The shop's side of a reported problem (shown to Saligue with the buyer's words).
+route('POST', '/api/orders/([\\w-]+)/reply', ({ user, params, body }) => {
+  const order = db.prepare('select * from orders where id = ?').get(params[0]);
+  if (!order || order.seller_id !== user?.id) fail(404, 'not_found', 'Order not found.');
+  if (order.problem_status !== 'open') fail(400, 'no_problem', 'There is no open problem on this order.');
+  const text = String(body.text ?? '').trim().slice(0, 600);
+  if (text.length < 3) fail(400, 'empty', 'Write your answer.');
+  db.prepare('update orders set shop_reply = ? where id = ?').run(text, order.id);
+  broadcast('orders');
+  return { ok: true };
+});
+
+// The shop asks to be paid now (Seller Center → Sales): the request shows first in Admin → Money.
+route('POST', '/api/seller/payout-request', ({ user }) => {
+  if (!user || user.role !== 'seller') fail(403, 'forbidden', 'For shops only.');
+  if (openSales(user.id).balance <= 0) fail(400, 'nothing', 'Nothing to pay out yet.');
+  db.prepare('update users set payout_requested_at = ? where id = ?').run(now(), user.id);
+  for (const a of db.prepare("select id from users where admin = 1 and (admin_level = 1 or admin_perms like '%money%')").all()) {
+    notify(a.id, { type: 'account', title: `Payout requested: ${shopNameOf(user)}`, body: money(openSales(user.id).balance), link: '/admin', email: false });
+  }
+  return { ok: true };
+});
+
 // "Problem with my order": up to 14 days after delivery (and before the shop is paid). Holds the shop's payment
 // for this order until Saligue releases it or refunds the buyer.
 route('POST', '/api/orders/([\\w-]+)/problem', ({ user, params, body }) => {
@@ -1375,7 +1452,9 @@ route('POST', '/api/orders/([\\w-]+)/problem', ({ user, params, body }) => {
   if (!['confirmed', 'shipped', 'delivered'].includes(order.status)) fail(400, 'too_early', 'Message the shop, or cancel the order while it is not confirmed.');
   if (order.problem_status === 'open') fail(409, 'already', 'You already reported a problem. Saligue is looking at it.');
   if (order.settlement_id) fail(409, 'settled', 'The shop has been paid for this order. Message the shop or Help & Support.');
-  if (order.status === 'delivered' && Date.now() - new Date(order.received_at ?? order.created_at).getTime() > 14 * 86_400_000) fail(409, 'too_late', 'Problems can be reported up to 14 days after delivery.');
+  // Handed over with the code: delivery is proven, so the window is short (2 days, for an item not as described).
+  const days = order.received_by === 'code' ? 2 : 14;
+  if (order.status === 'delivered' && Date.now() - new Date(order.received_at ?? order.created_at).getTime() > days * 86_400_000) fail(409, 'too_late', `Problems can be reported up to ${days} days after delivery.`);
   const text = String(body.text ?? '').trim().slice(0, 600);
   if (text.length < 5) fail(400, 'empty', 'Say what went wrong.');
   db.prepare("update orders set problem = ?, problem_at = ?, problem_status = 'open' where id = ?").run(text, now(), order.id);
@@ -1406,11 +1485,15 @@ route('POST', '/api/admin/order-problems/([\\w-]+)', ({ user, params, body }) =>
   return { ok: true };
 });
 // Online-paid orders shipped 7 days ago without a problem count as received.
+// Trusted shops (5 delivered orders, no refunded problem) wait 3 days instead of 7.
+const trustedShop = (sellerId) => db.prepare("select count(*) as n from orders where seller_id = ? and status = 'delivered'").get(sellerId).n >= 5
+  && !db.prepare("select 1 from orders where seller_id = ? and problem_status = 'refunded'").get(sellerId);
 function autoReceive() {
-  const due = db.prepare("select * from orders where payment_method = 'online' and payment_status = 'paid' and status = 'shipped' and shipped_at < ? and coalesce(problem_status, '') != 'open'").all(new Date(Date.now() - 7 * 86_400_000).toISOString());
+  const due = db.prepare("select * from orders where payment_method = 'online' and payment_status = 'paid' and status = 'shipped' and shipped_at < ? and coalesce(problem_status, '') != 'open'").all(new Date(Date.now() - 3 * 86_400_000).toISOString())
+    .filter((o) => trustedShop(o.seller_id) || Date.now() - new Date(o.shipped_at).getTime() > 7 * 86_400_000);
   for (const o of due) {
-    db.prepare("update orders set status = 'delivered', received_at = ? where id = ?").run(now(), o.id);
-    notify(o.buyer_id, { type: 'order', title: `Order #${o.id.slice(0, 6).toUpperCase()} counted as received`, body: 'It was shipped 7 days ago. Something wrong? Report a problem within 14 days.', link: '/orders' });
+    db.prepare("update orders set status = 'delivered', received_at = ?, received_by = 'auto' where id = ?").run(now(), o.id);
+    notify(o.buyer_id, { type: 'order', title: `Order #${o.id.slice(0, 6).toUpperCase()} counted as received`, body: 'It was shipped a few days ago. Something wrong? Report a problem within 14 days.', link: '/orders' });
     rewardReferral(o);
   }
 }
@@ -2105,10 +2188,15 @@ route('POST', '/api/lives', ({ user, body }) => {
   db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now());
   broadcast('lives');
-  // Tell the shop's past customers (in the app, not by email).
+  // Tell the shop's followers, past customers and whoever asked to be reminded (once each, in the app).
   const shopName = shopNameOf(user);
-  const customers = db.prepare("select distinct buyer_id from orders where seller_id = ? and status != 'cancelled' limit 500").all(user.id);
-  for (const { buyer_id } of customers) notify(buyer_id, { type: 'message', title: `${shopName} is live now`, body: title, link: `/live/watch?id=${id}`, email: false });
+  const planned = db.prepare('select id from live_schedules where seller_id = ? and live_id is null and starts_at between ? and ? order by starts_at limit 1')
+    .get(user.id, new Date(Date.now() - 3 * 3_600_000).toISOString(), new Date(Date.now() + 3 * 3_600_000).toISOString());
+  if (planned) db.prepare('update live_schedules set live_id = ? where id = ?').run(id, planned.id);
+  const people = db.prepare(`select follower_id as uid from follows where seller_id = ?
+    union select buyer_id from orders where seller_id = ? and status != 'cancelled'
+    union select user_id from live_reminders where schedule_id = ? limit 5000`).all(user.id, user.id, planned?.id ?? '');
+  for (const { uid } of people) if (uid !== user.id) notify(uid, { type: 'message', title: `${shopName} is live now`, body: title, link: `/live/watch?id=${id}`, email: false });
   return liveOut(db.prepare('select * from lives where id = ?').get(id));
 });
 
@@ -2182,6 +2270,65 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   if (body.viewers === undefined || Object.keys(body).length > 1) liveEvent(live.id, { type: 'updated', live: fresh });
   return fresh;
 });
+
+// Scheduled lives: a shop announces a live ahead; people tap "Remind me" (15 minutes before, and when it starts).
+function scheduleOut(s, viewer) {
+  const seller = db.prepare('select id, display_name, email, is_guest, role, shop, avatar, verified from users where id = ?').get(s.seller_id);
+  return {
+    id: s.id, title: s.title, startsAt: s.starts_at, liveId: s.live_id ?? null,
+    sellerId: s.seller_id, sellerName: seller ? shopNameOf(seller) : 'Shop', sellerAvatar: seller?.avatar ?? null, sellerVerified: !!seller?.verified,
+    reminders: db.prepare('select count(*) as n from live_reminders where schedule_id = ?').get(s.id).n,
+    reminded: !!(viewer && db.prepare('select 1 from live_reminders where schedule_id = ? and user_id = ?').get(s.id, viewer.id)),
+  };
+}
+route('GET', '/api/live-schedules', ({ user, url }) => {
+  const seller = url.searchParams.get('seller');
+  const since = new Date(Date.now() - 2 * 3_600_000).toISOString();
+  return db.prepare(`select * from live_schedules where live_id is null and starts_at > ?${seller ? ' and seller_id = ?' : ''} order by starts_at limit 30`)
+    .all(...[since, ...(seller ? [seller] : [])]).map((x) => scheduleOut(x, user));
+});
+route('POST', '/api/live-schedules', ({ user, body }) => {
+  needFeature('live');
+  if (!user || user.role !== 'seller') fail(403, 'forbidden', 'Only shops can plan lives.');
+  const title = String(body.title ?? '').trim().slice(0, 100);
+  const at = new Date(String(body.startsAt ?? ''));
+  if (title.length < 3) fail(400, 'invalid', 'Say what the live is about.');
+  if (!(at.getTime() > Date.now() + 10 * 60_000) || at.getTime() > Date.now() + 30 * 86_400_000) fail(400, 'invalid', 'Choose a time from 10 minutes to 30 days from now.');
+  if (db.prepare('select count(*) as n from live_schedules where seller_id = ? and live_id is null and starts_at > ?').get(user.id, now()).n >= 10) fail(400, 'too_many', 'Up to 10 planned lives at once.');
+  const id = randomUUID();
+  db.prepare('insert into live_schedules (id, seller_id, title, starts_at, created_at) values (?, ?, ?, ?, ?)').run(id, user.id, title, at.toISOString(), now());
+  broadcast('lives');
+  return scheduleOut(db.prepare('select * from live_schedules where id = ?').get(id), user);
+});
+route('DELETE', '/api/live-schedules/([\\w-]+)', ({ user, params }) => {
+  const x = db.prepare('select * from live_schedules where id = ?').get(params[0]);
+  if (!x || x.seller_id !== user?.id) fail(404, 'not_found', 'This planned live does not exist.');
+  for (const { user_id } of db.prepare('select user_id from live_reminders where schedule_id = ?').all(x.id)) {
+    notify(user_id, { type: 'message', title: `Live cancelled: ${x.title}`, body: 'The shop cancelled this planned live.', link: `/profile?id=${x.seller_id}`, email: false });
+  }
+  db.prepare('delete from live_schedules where id = ?').run(x.id);
+  broadcast('lives');
+  return { ok: true };
+});
+route('POST', '/api/live-schedules/([\\w-]+)/remind', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to get a reminder.');
+  const x = db.prepare('select * from live_schedules where id = ?').get(params[0]);
+  if (!x) fail(404, 'not_found', 'This planned live does not exist.');
+  const had = db.prepare('delete from live_reminders where schedule_id = ? and user_id = ?').run(x.id, user.id).changes;
+  if (!had) db.prepare('insert into live_reminders (schedule_id, user_id, created_at) values (?, ?, ?)').run(x.id, user.id, now());
+  return scheduleOut(x, user);
+});
+// 15 minutes before: "starting soon" to those who asked.
+setInterval(() => {
+  const soon = db.prepare('select * from live_schedules where live_id is null and soon_sent_at is null and starts_at between ? and ?').all(now(), new Date(Date.now() + 15 * 60_000).toISOString());
+  for (const x of soon) {
+    db.prepare('update live_schedules set soon_sent_at = ? where id = ?').run(now(), x.id);
+    const seller = db.prepare('select display_name, email, is_guest, role, shop from users where id = ?').get(x.seller_id);
+    for (const { user_id } of db.prepare('select user_id from live_reminders where schedule_id = ?').all(x.id)) {
+      notify(user_id, { type: 'message', title: `${shopNameOf(seller)} goes live in 15 minutes`, body: x.title, link: '/live', email: false });
+    }
+  }
+}, 60_000).unref();
 
 // Live replays (see the recording upload in the HTTP handler below).
 const replaySeq = new Map();
@@ -3447,6 +3594,10 @@ route('GET', '/api/seller/sales', ({ user }) => {
     freeUntil: user.official ? null : freeUntil(user),
     official: !!user.official,
     open: openSales(user.id),
+    // Paid online but not yet confirmed received (or with a problem): on its way to "ready".
+    onHold: Math.round(db.prepare("select coalesce(sum(total - fee), 0) as n from orders where seller_id = ? and payment_method = 'online' and payment_status = 'paid' and settlement_id is null and (status in ('confirmed', 'shipped') or (status = 'delivered' and problem_status = 'open'))").get(user.id).n * 100) / 100,
+    trusted: trustedShop(user.id),
+    payoutRequestedAt: user.payout_requested_at ?? null,
     thisMonth: { orders: thisMonth.n, total: Math.round(thisMonth.total * 100) / 100, fees: Math.round(thisMonth.fees * 100) / 100 },
     momo: account ? { number: account.momo_number, name: account.momo_name } : null,
     saligueMomo: { number: adSettings().momoNumber ?? null, name: adSettings().momoName ?? 'Saligue' },
@@ -3464,8 +3615,8 @@ route('GET', '/api/admin/settlements', ({ user }) => {
       const u = db.prepare('select * from users where id = ?').get(seller_id);
       const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(seller_id) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(seller_id);
       const { ids, ...open } = openSales(seller_id);
-      return { sellerId: seller_id, shop: u ? shopNameOf(u) : 'Shop', momoNumber: acc?.momo_number ?? parse(u?.shop)?.phone ?? null, momoName: acc?.momo_name ?? null, ...open };
-    }).filter((s) => s.orders > 0).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)),
+      return { sellerId: seller_id, shop: u ? shopNameOf(u) : 'Shop', momoNumber: acc?.momo_number ?? parse(u?.shop)?.phone ?? null, momoName: acc?.momo_name ?? null, requestedAt: u?.payout_requested_at ?? null, ...open };
+    }).filter((s) => s.orders > 0).sort((a, b) => (b.requestedAt ? 1 : 0) - (a.requestedAt ? 1 : 0) || Math.abs(b.balance) - Math.abs(a.balance)),
     recent: db.prepare('select s.*, u.shop, u.display_name, u.email, u.is_guest, u.role from shop_settlements s join users u on u.id = s.seller_id order by s.created_at desc limit 30').all()
       .map((r) => ({ id: r.id, shop: shopNameOf(r), amount: r.amount, orders: r.orders, reference: r.reference, createdAt: r.created_at })),
   };
@@ -3478,6 +3629,7 @@ route('POST', '/api/admin/settlements/([\\w-]+)', ({ user, params, body }) => {
   const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
   transaction(() => {
     db.prepare('insert into shop_settlements (id, seller_id, amount, orders, reference, created_at) values (?, ?, ?, ?, ?, ?)').run(id, params[0], open.balance, open.orders, reference, now());
+    db.prepare('update users set payout_requested_at = null where id = ?').run(params[0]);
     const mark = db.prepare('update orders set settlement_id = ? where id = ?');
     for (const o of open.ids) mark.run(id, o);
   });

@@ -35,6 +35,7 @@ import { updateAccount } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
 import { topicOf, useLessons } from '@/lib/lessons';
 import { withMedia, type Live } from '@/lib/lives';
+import { ComingUp } from '@/components/live/coming-up';
 import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -203,6 +204,8 @@ function ProfileView({ id }: { id: string }) {
         )}
       </div>
       {isBlocked && <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-muted-foreground">You blocked this account. Unblock it from ⋯ or Settings.</p>}
+
+      {profile.isShop && !isBlocked && <ComingUp seller={profile.id} className="mt-5" />}
 
       <div className="mt-6 flex border-b">
         {tabs.map((t) => (

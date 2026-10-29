@@ -10,6 +10,7 @@ import { SellerAvatar } from '@/components/seller-avatar';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useElapsed, useLives, type Live } from '@/lib/lives';
 import { SuggestedShops } from '@/components/suggested-shops';
+import { ComingUp } from '@/components/live/coming-up';
 import { useHideLikes } from '@/lib/hide-likes';
 
 function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
@@ -61,6 +62,7 @@ export default function LivesPage() {
       {role === 'seller' && (
         <Button className="h-12 w-full rounded-full md:hidden" asChild><Link href="/live/studio"><Radio className="mr-2 h-5 w-5" /> Go live</Link></Button>
       )}
+      <ComingUp />
       {!lives ? (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="aspect-[9/14] rounded-2xl" />)}</div>
       ) : lives.lives.length === 0 ? (

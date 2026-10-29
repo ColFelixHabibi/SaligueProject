@@ -527,6 +527,33 @@ db.exec(`
     primary key (kind, comment_id, user_id)
   );
 
+  -- Price-drop and back-in-stock alerts already sent (one per person, item and kind a week).
+  create table if not exists product_alerts (
+    user_id text not null references users(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    kind text not null,
+    sent_at text not null,
+    primary key (user_id, product_id, kind)
+  );
+
+  -- Lives announced ahead ("Friday 18:00: new kitenge"), and who asked to be reminded.
+  create table if not exists live_schedules (
+    id text primary key,
+    seller_id text not null references users(id) on delete cascade,
+    title text not null,
+    starts_at text not null,
+    soon_sent_at text,
+    live_id text,
+    created_at text not null
+  );
+  create index if not exists live_schedules_time on live_schedules(starts_at);
+  create table if not exists live_reminders (
+    schedule_id text not null references live_schedules(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (schedule_id, user_id)
+  );
+
   -- Questions to a shop about an item; the shop's answer is shown to every later shopper.
   create table if not exists product_questions (
     id text primary key,
@@ -643,6 +670,7 @@ for (const [table, column, type] of [
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['users', 'comment_mode', "text not null default 'everyone'"], ['users', 'hidden_words', "text not null default '[]'"],
+  ['orders', 'delivery_code', 'text'], ['orders', 'received_by', 'text'], ['orders', 'shop_reply', 'text'], ['users', 'payout_requested_at', 'text'],
   ['orders', 'shipped_at', 'text'], ['orders', 'received_at', 'text'], ['orders', 'problem', 'text'], ['orders', 'problem_at', 'text'], ['orders', 'problem_status', 'text'],
   ['comments', 'parent_id', 'text'], ['comments', 'hidden', 'integer not null default 0'], ['lesson_comments', 'hidden', 'integer not null default 0'],
   ['lives', 'replay_video', 'text'], ['lives', 'replay_poster', 'text'], ['lives', 'replay_duration', 'integer'], ['lives', 'replay_status', 'text'], ['lives', 'replay_started_at', 'text'],

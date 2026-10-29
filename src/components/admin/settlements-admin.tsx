@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { formatPrice } from '@/lib/orders';
 
-type Shop = { sellerId: string; shop: string; momoNumber: string | null; momoName: string | null; orders: number; onlineSales: number; directSales: number; fees: number; balance: number };
+type Shop = { sellerId: string; shop: string; momoNumber: string | null; momoName: string | null; requestedAt: string | null; orders: number; onlineSales: number; directSales: number; fees: number; balance: number };
 type Data = { commission: { rate: number; freeDays: number }; shops: Shop[]; recent: { id: string; shop: string; amount: number; orders: number; reference: string | null; createdAt: string }[] };
 
 /** Admin → Money: delivered sales to settle with each shop (Saligue pays out online sales minus its fee, or collects its fee). */
@@ -49,7 +49,7 @@ export function SettlementsAdmin() {
         {data?.shops.map((s) => (
           <div key={s.sellerId} className="flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1 text-sm">
-              <p className="font-semibold">{s.shop}</p>
+              <p className="font-semibold">{s.shop}{s.requestedAt && <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">Payout requested</span>}</p>
               <p className="text-xs text-muted-foreground">{s.orders} orders · online {formatPrice(s.onlineSales)} · direct {formatPrice(s.directSales)} · fees {formatPrice(s.fees)}</p>
               <p className="text-xs text-muted-foreground">{s.momoNumber ? `MoMo ${s.momoNumber}${s.momoName ? ` (${s.momoName})` : ''}` : 'No Mobile Money number yet'}</p>
             </div>
@@ -77,7 +77,7 @@ export function SettlementsAdmin() {
   );
 }
 
-type Problem = { id: string; shopName: string; buyerName: string; total: number; paymentMethod: string; problem: { text: string; at: string } };
+type Problem = { id: string; shopName: string; buyerName: string; total: number; paymentMethod: string; receivedBy: string | null; problem: { text: string; at: string; shopReply?: string | null } };
 
 /** Admin → Money: problems buyers reported on orders (the shop's payment is held). Release, or refund the buyer. */
 export function OrderProblemsAdmin() {
@@ -109,6 +109,8 @@ export function OrderProblemsAdmin() {
               <p className="font-semibold">#{p.id.slice(0, 6).toUpperCase()} · {p.shopName} · {formatPrice(p.total)} ({p.paymentMethod.replace(/_/g, ' ')})</p>
               <p className="text-xs text-muted-foreground">{p.buyerName} · {new Date(p.problem.at).toLocaleDateString()}</p>
               <p className="mt-1">“{p.problem.text}”</p>
+              {p.problem.shopReply && <p className="mt-1 text-xs"><b>Shop:</b> “{p.problem.shopReply}”</p>}
+              {p.receivedBy === 'code' && <p className="mt-1 text-xs font-semibold text-emerald-700">Handed over with the customer’s code (delivery proven).</p>}
             </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => decide(p, 'release')}>Release</Button>
