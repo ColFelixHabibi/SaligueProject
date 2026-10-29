@@ -3,7 +3,7 @@
 
 import { ExpandableText } from '@/components/expandable-text';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { BadgeCheck, ShoppingBag, Wand2 } from 'lucide-react';
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ShopAddress } from '@/components/shop-address';
 import { ActionRail } from '@/components/social/action-rail';
 import { CommentsPanel } from '@/components/social/comments-panel';
-import { useProductStore } from '@/hooks/use-product-store';
+import { useProductStore, ensureProduct } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { categoryLabel } from '@/lib/categories';
@@ -49,6 +49,11 @@ function IndecianaStore() {
   const categories = useMemo(() => [...new Set(collection.map((p) => p.category))], [collection]);
   const shown = filter ? collection.filter((p) => p.category === filter) : collection;
   const selected = collection.find((p) => p.id === params.get('item')) ?? collection[0];
+  // A shared link to an item not loaded yet: fetch it alone.
+  useEffect(() => {
+    const item = params.get('item');
+    if (item && !collection.some((p) => p.id === item)) void ensureProduct(item);
+  }, [params, collection]);
 
   const select = (id: string) => {
     setCommentsOpen(false);

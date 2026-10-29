@@ -605,7 +605,9 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 // once real shops list enough real items.
 const SAMPLES_HIDE_AT = 12;
 const soldCount = (productId) => db.prepare("select coalesce(sum(json_extract(i.value, '$.quantity')), 0) as n from orders o, json_each(o.items) i where o.status != 'cancelled' and json_extract(i.value, '$.productId') = ?").get(productId).n;
-route('GET', '/api/products', ({ user }) => {
+// ?limit=250&offset=0: a page (newest first), so the catalogue shows at once and the rest follows. Without
+// limit: everything (older app versions).
+route('GET', '/api/products', ({ user, url }) => {
   const rows = db.prepare("select p.*, u.avatar as seller_avatar, u.verified as seller_verified, u.email like '%@demo.saligue.app' as sample from products p left join users u on u.id = p.seller_id where p.hidden = 0 or p.seller_id = ? order by p.created_at desc")
     .all(user?.id ?? '');
   const real = rows.filter((r) => !r.sample && r.status === 'active').length;
@@ -617,8 +619,15 @@ route('GET', '/api/products', ({ user }) => {
   return rows
     .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
     .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)))
-    .map(({ embedding, ...p }) => p);
+    .map(({ embedding, ...p }) => p)
+    .slice(...pageOf(url));
 });
+function pageOf(url) {
+  const limit = Number(url.searchParams.get('limit'));
+  if (!(limit > 0)) return [0];
+  const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0));
+  return [offset, offset + Math.min(1000, Math.floor(limit))];
+}
 
 // Every item's AI fingerprint, rounded to whole numbers (−127…127, 512 bytes each, base64): about 6× smaller,
 // still precise enough for "looks like" and search. The ETag lets phones skip the download when nothing changed.
@@ -642,6 +651,14 @@ route('GET', '/api/products/fingerprints', ({ req, res }) => {
   }
   res.writeHead(200, { 'Content-Type': 'application/json', ETag: fingerprintCache.etag, 'Cache-Control': 'no-cache' });
   res.end(fingerprintCache.body);
+});
+
+// One item (a shared link to an item the catalogue hasn't loaded yet).
+route('GET', '/api/products/([\\w-]+)', ({ user, params }) => {
+  const r = db.prepare("select p.*, u.avatar as seller_avatar, u.verified as seller_verified, u.email like '%@demo.saligue.app' as sample from products p left join users u on u.id = p.seller_id where p.id = ? and (p.hidden = 0 or p.seller_id = ?)").get(params[0], user?.id ?? '');
+  if (!r) fail(404, 'not_found', 'This item no longer exists.');
+  const { embedding, ...p } = productOut(r);
+  return r.sample ? { ...p, sample: true } : p;
 });
 
 // Saligue is for fashion only: clothes, shoes, bags and accessories, each with its exact type.

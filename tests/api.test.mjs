@@ -192,3 +192,17 @@ describe('safety and privacy', () => {
     assert.ok((await call('/usernames?q=kigali')).json.some((p) => p.isShop));
   });
 });
+
+describe('catalogue pages', () => {
+  test('the list comes in pages, and one item can be fetched alone', async () => {
+    const all = (await call('/products')).json;
+    const first = (await call('/products?limit=5&offset=0')).json;
+    const second = (await call('/products?limit=5&offset=5')).json;
+    assert.equal(first.length, 5);
+    assert.deepEqual([...first, ...second].map((p) => p.id), all.slice(0, 10).map((p) => p.id));
+    const one = await call(`/products/${all[7].id}`);
+    assert.equal(one.json.id, all[7].id);
+    assert.equal(one.json.embedding, undefined);
+    assert.equal((await call('/products/does-not-exist')).status, 404);
+  });
+});

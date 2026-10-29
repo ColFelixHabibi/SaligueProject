@@ -18,7 +18,7 @@ import { DressedCard } from '@/components/mirror/dressed-card';
 import { OutfitStudio, PhotoInputs } from '@/components/mirror/outfit-studio';
 import { parseClothes, type Parsing } from '@/lib/ai/parse';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
-import { useProductStore } from '@/hooks/use-product-store';
+import { useProductStore, ensureProduct } from '@/hooks/use-product-store';
 import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { useToast } from '@/hooks/use-toast';
 import type { Product } from '@/lib/types';
@@ -63,7 +63,7 @@ function Mirror() {
   useEffect(() => {
     if (!itemId || wornFrom.current === itemId || !isInitialized) return;
     const product = products.find((p) => p.id === itemId && p.status === 'active');
-    if (!product) return;
+    if (!product) return void ensureProduct(itemId);
     wornFrom.current = itemId;
     restoreOutfit();
     wear(product);

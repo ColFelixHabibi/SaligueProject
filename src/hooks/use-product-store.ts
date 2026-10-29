@@ -7,6 +7,8 @@ import { api, mediaUrl, onServerEvent } from '@/lib/api';
 interface ProductState {
   products: Product[];
   isInitialized: boolean;
+  // Every page of the catalogue has arrived.
+  complete: boolean;
   error: string | null;
   addProduct: (item: Omit<Product, 'id'>) => Promise<string>;
   updateProduct: (id: string, updatedProduct: Product) => Promise<void>;
@@ -32,15 +34,40 @@ function loadFingerprints() {
   return fingerprintsLoading;
 }
 
+const withMediaUrls = (p: Product): Product => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) });
+
+// The catalogue in pages of 250 (newest first): the first page shows at once, the rest arrive in the background.
+const PAGE = 250;
+let loadRun = 0;
 async function reload() {
-  const products = (await api<Product[]>('/products')).map((p) => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) }));
-  useProductStore.setState({ products: withFingerprints(products), isInitialized: true, error: null });
-  void loadFingerprints();
+  const run = ++loadRun;
+  let all: Product[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const page = (await api<Product[]>(`/products?limit=${PAGE}&offset=${offset}`)).map(withMediaUrls);
+    // A newer reload started (an item changed): this one stops.
+    if (run !== loadRun) return;
+    all = offset ? [...all, ...page] : page;
+    useProductStore.setState({ products: withFingerprints(all), isInitialized: true, error: null, complete: page.length < PAGE });
+    if (!offset) void loadFingerprints();
+    if (page.length < PAGE) return;
+  }
+}
+
+/** One item that may not be loaded yet (a shared link): fetched alone and added to the catalogue. */
+export async function ensureProduct(id: string) {
+  if (useProductStore.getState().products.some((p) => p.id === id)) return;
+  try {
+    const p = withMediaUrls(await api<Product>(`/products/${id}`));
+    useProductStore.setState((s) => (s.products.some((x) => x.id === id) ? s : { products: withFingerprints([...s.products, p]) }));
+  } catch {
+    // Gone: the page says so.
+  }
 }
 
 export const useProductStore = create<ProductState>()(() => ({
   products: [],
   isInitialized: false,
+  complete: false,
   error: null,
   addProduct: async (item) => {
     const { id } = await api<{ id: string }>('/products', { body: item });

@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Layers, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
 import ProductCard from '@/components/product-card';
-import { useProductStore } from '@/hooks/use-product-store';
+import { ensureProduct, useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -53,6 +53,10 @@ export default function ProductView({ id }: { id: string | null }) {
   
   const allProducts = [...products];
   const product = allProducts.find((p) => p.id === id);
+  // A shared link to an item not loaded yet: fetch it alone.
+  useEffect(() => {
+    if (id && isInitialized && !product) void ensureProduct(id);
+  }, [id, isInitialized, product]);
 
   // Find related products (same category, different item, active)
   const relatedProducts = product

@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { DollarSign, Tag, Palette, Shirt, Building, Info, Phone, Loader2, Boxes } from 'lucide-react';
-import { useProductStore } from '@/hooks/use-product-store';
+import { ensureProduct, useProductStore } from '@/hooks/use-product-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 
 import { useAuth } from '@/components/auth/auth-provider';
@@ -56,6 +56,9 @@ export default function EditProductView({ id }: { id: string | null }) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
     const product = products.find(p => p.id === id);
+    useEffect(() => {
+      if (id && !product) void ensureProduct(id);
+    }, [id, product]);
 
 
     useEffect(() => {
