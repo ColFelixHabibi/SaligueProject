@@ -35,6 +35,11 @@ export type Live = {
   // Watch again after the live: ready when the recording is saved.
   replay?: { video: string; poster: string | null; duration: number | null; startedAt?: string } | null;
   replayStatus?: 'recording' | 'processing' | 'ready' | 'none' | null;
+  // How people on camera share the screen, and who records the replay (the server, or the host's phone).
+  layout?: 'side' | 'grid';
+  recorder?: 'server' | 'phone';
+  // Live-only deals running now, by item.
+  deals?: Record<string, { price: number; was: number; until: string }>;
 };
 
 export type LivePoll = { id: string; question: string; open: boolean; total: number; options: { text: string; votes: number }[] };

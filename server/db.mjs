@@ -387,7 +387,7 @@ db.exec(`
   create table if not exists interactions (
     user_id text not null references users(id) on delete cascade,
     product_id text not null references products(id) on delete cascade,
-    kind text not null,                 -- view | dwell | wear | cart | message | share | skip
+    kind text not null,                 -- view | dwell | complete | wear | cart | message | share | skip | less
     weight real not null,
     created_at text not null
   );
@@ -653,6 +653,40 @@ db.exec(`
     unique (user_id, period)
   );
 
+  -- Share & earn (shares.mjs): who opened an item from someone's shared link (the latest sharer wins),
+  -- and the reward each delivered sale from such a link earns the sharer (paid by Saligue, not by the shop).
+  create table if not exists share_visits (
+    user_id text not null references users(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    sharer_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (user_id, product_id)
+  );
+  create table if not exists share_rewards (
+    id text primary key,
+    order_id text not null references orders(id) on delete cascade,
+    product_id text not null,
+    sharer_id text not null references users(id) on delete cascade,
+    sale real not null,                 -- dollars: the item's price x quantity in that order
+    amount real not null,               -- dollars: the reward, fixed when the order is placed
+    -- Orders paid to the shop directly (cash, Mobile Money to the shop, pickup) are checked by an admin first:
+    -- no money reached Saligue, so a shop and two accounts could otherwise fake a sale and collect the reward.
+    approved_at text,
+    rejected_at text,
+    payout_id text,
+    created_at text not null,
+    unique (order_id, product_id)
+  );
+  create index if not exists share_rewards_sharer on share_rewards(sharer_id, created_at desc);
+
+  -- The days each person (or guest) used Saligue: launch numbers only (daily/monthly users, who comes back).
+  create table if not exists active_days (
+    user_id text not null references users(id) on delete cascade,
+    day text not null,                  -- YYYY-MM-DD
+    primary key (user_id, day)
+  );
+  create index if not exists active_days_day on active_days(day);
+
   -- How often each item is opened per day, for the seller's dashboard.
   create table if not exists product_views (
     product_id text not null references products(id) on delete cascade,
@@ -670,6 +704,8 @@ for (const [table, column, type] of [
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['users', 'comment_mode', "text not null default 'everyone'"], ['users', 'hidden_words', "text not null default '[]'"],
+  ['products', 'deal_price', 'real'], ['products', 'deal_until', 'text'], ['products', 'deal_live_id', 'text'], ['users', 'media', 'integer not null default 0'],
+  ['lives', 'egress_id', 'text'], ['lives', 'recorder', "text not null default 'phone'"], ['lives', 'layout', "text not null default 'side'"],
   ['orders', 'delivery_code', 'text'], ['orders', 'received_by', 'text'], ['orders', 'shop_reply', 'text'], ['users', 'payout_requested_at', 'text'],
   ['orders', 'shipped_at', 'text'], ['orders', 'received_at', 'text'], ['orders', 'problem', 'text'], ['orders', 'problem_at', 'text'], ['orders', 'problem_status', 'text'],
   ['comments', 'parent_id', 'text'], ['comments', 'hidden', 'integer not null default 0'], ['lesson_comments', 'hidden', 'integer not null default 0'],

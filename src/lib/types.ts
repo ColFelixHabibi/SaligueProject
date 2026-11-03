@@ -5,6 +5,8 @@ export type Product = {
   // A sample item that fills Saligue while it is new (not a real shop’s listing).
   sample?: boolean;
   price: number;
+  // A live-only deal running now: the usual price, when it ends and the live it belongs to.
+  deal?: { was: number; until: string; liveId: string | null };
   // Original photo as uploaded by the seller (JPEG data URL).
   image: string;
   // The item with its background removed (transparent WebP/PNG data URL), used for dressing.

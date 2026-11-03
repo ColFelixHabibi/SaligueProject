@@ -35,8 +35,8 @@ async function squarePhoto(file: File): Promise<string> {
 }
 
 /** The account's profile photo: shown with the shop on every item, in chats and on orders. */
-// With children: just the photo (tap to change) beside them, e.g. the account card on Me.
-export function ProfilePhotoField({ name, required, className, onSaved, children }: { name?: string | null; required?: boolean; className?: string; onSaved?: () => void; children?: React.ReactNode }) {
+// With children: just the photo (tap to change) beside them. photoOnly: the big photo alone (the top of Me).
+export function ProfilePhotoField({ name, required, className, onSaved, children, photoOnly }: { name?: string | null; required?: boolean; className?: string; onSaved?: () => void; children?: React.ReactNode; photoOnly?: boolean }) {
   const { toast } = useToast();
   const avatar = useUserRoleStore((s) => s.avatar);
   const input = useRef<HTMLInputElement>(null);
@@ -67,7 +67,7 @@ export function ProfilePhotoField({ name, required, className, onSaved, children
   return (
     <div className={cn('flex items-center gap-4', className)}>
       <button type="button" onClick={() => input.current?.click()} className="group relative shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Change profile photo">
-        <Avatar className={cn(children ? 'h-16 w-16 border-2' : 'h-20 w-20 border-2', avatar ? 'border-primary' : 'border-dashed border-muted-foreground/40')}>
+        <Avatar className={cn(photoOnly ? 'h-24 w-24 border-2' : children ? 'h-16 w-16 border-2' : 'h-20 w-20 border-2', avatar ? 'border-primary' : 'border-dashed border-muted-foreground/40')}>
           <AvatarImage src={avatar ?? undefined} alt="" className="object-cover" />
           <AvatarFallback className="bg-primary/10 text-primary">
             {name ? <span className="text-2xl font-bold">{name.charAt(0).toUpperCase()}</span> : <Store className="h-8 w-8" />}
@@ -77,7 +77,7 @@ export function ProfilePhotoField({ name, required, className, onSaved, children
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
         </span>
       </button>
-      {children ?? <div className="min-w-0 space-y-1.5">
+      {photoOnly ? null : children ?? <div className="min-w-0 space-y-1.5">
         <p className="font-semibold">Profile photo{required && !avatar && <span className="text-destructive"> *</span>}</p>
         <p className="text-sm text-muted-foreground">
           {required ? 'Buyers see it next to your shop on every item and in messages. Your face or your shop logo.' : 'Shown in messages and on your orders.'}

@@ -10,7 +10,7 @@ import { useBlockedIds } from '@/lib/blocks';
 import { mixSponsored, useSponsored } from '@/lib/ads';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { MapPin, PlusCircle, Radio, Users } from 'lucide-react';
+import { Loader2, MapPin, PlusCircle, Radio, RefreshCw, Users } from 'lucide-react';
 import { LessonFeed } from '@/components/community/lesson-feed';
 import { LessonSlide } from '@/components/community/lesson-slide';
 import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
@@ -26,7 +26,8 @@ import { retryProducts, useProductStore } from '@/hooks/use-product-store';
 import { useLikesStore } from '@/hooks/use-likes';
 import { useWishlistStore } from '@/hooks/use-wishlist';
 import { forYou, similarTo } from '@/lib/recommend';
-import { interests } from '@/lib/taste';
+import { interests, sendInterestsNow } from '@/lib/taste';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 import { api } from '@/lib/api';
 import { useCartStore } from '@/hooks/use-cart-store';
 import { useOrders } from '@/lib/orders';
@@ -132,6 +133,15 @@ export default function ForYouPage() {
   }, [feed, byId, hidden, mode, followingIds, city, blocked]);
   // Which item is on screen, for the panel beside the feed on computers.
   const scroller = useRef<HTMLDivElement>(null);
+  // Pull down at the top (or tap For You again): a fresh mix, counting what was just watched.
+  const refresh = async () => {
+    await sendInterestsNow();
+    const d = await api<{ items: { id: string; reason: string | null }[] }>(`/feed?r=${Date.now().toString(36)}`);
+    setServerFeed(d.items);
+    if (mode === 'following') setFollowingIds(new Set(await api<string[]>('/me/following')));
+    scroller.current?.scrollTo({ top: 0 });
+  };
+  const { pull, refreshing, ready } = usePullToRefresh(scroller, refresh, mode !== 'learn');
   const [current, setCurrent] = useState<string | null>(null);
   const [wide, setWide] = useState(false);
   useEffect(() => {
@@ -167,13 +177,27 @@ export default function ForYouPage() {
   return (
     // Computers (lg): the feed column with a panel beside it about the item on screen; phones: the feed only.
     <div className="lg:flex lg:h-dvh lg:justify-center lg:gap-6 lg:bg-muted/50 lg:px-6">
-    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
+    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
+      {/* Pull to refresh: the spinner follows the finger, and turns once a refresh starts. */}
+      <div className="pointer-events-none sticky top-0 z-[60] flex h-0 justify-center" aria-live="polite">
+        {(pull > 0 || refreshing) && (
+          <span className="mt-14 flex h-10 w-10 items-center justify-center rounded-full bg-background/95 shadow-md" style={{ transform: `translateY(${pull * 0.6}px)`, opacity: Math.min(1, pull / 50) || 1 }}>
+            {refreshing ? <Loader2 className="h-5 w-5 animate-spin text-primary" aria-label={tr('Refreshing')} /> : <RefreshCw className={cn('h-5 w-5', ready ? 'text-primary' : 'text-muted-foreground')} style={{ transform: `rotate(${pull * 2.5}deg)` }} />}
+          </span>
+        )}
+      </div>
       {/* Says what this page is: a feed picked for you (Explore is the shop, the Fitting Room is for trying on). */}
       {/* What to watch: chosen by the viewer, not only by the algorithm. */}
       <div className="pointer-events-none sticky top-0 z-50 flex h-0 items-start justify-center">
         <nav className="pointer-events-auto mt-2 flex items-center gap-0.5 rounded-full bg-background/95 p-1 text-[13px] font-semibold shadow-md backdrop-blur">
           {tabs.map((t) => (
-            <button key={t.value} type="button" onClick={() => setMode(t.value)} aria-pressed={mode === t.value}
+            <button key={t.value} type="button" aria-pressed={mode === t.value}
+              onClick={() => {
+                if (mode !== t.value) return setMode(t.value);
+                if (t.value === 'learn' || refreshing) return;
+                scroller.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                void refresh().catch(() => {});
+              }}
               className={cn('rounded-full px-2.5 py-1', mode === t.value ? 'bg-primary text-primary-foreground' : 'text-foreground/70')}>{tr(t.label)}</button>
           ))}
         </nav>

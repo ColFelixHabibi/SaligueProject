@@ -1,6 +1,7 @@
 'use client';
 
 import { RichText } from '@/components/rich-text';
+import { DealTag } from '@/components/live/deal-tag';
 import { useHideLikes } from '@/lib/hide-likes';
 import { VerifiedBadge } from '@/components/verified-badge';
 
@@ -36,7 +37,7 @@ export function useVideoShape(video: React.RefObject<HTMLVideoElement | null>) {
   return wide;
 }
 
-function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
+function VideoView({ tile, cover, small }: { tile: Tile; cover?: boolean; small?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
   const backdrop = useRef<HTMLVideoElement>(null);
   const audio = useRef<HTMLAudioElement>(null);
@@ -59,18 +60,22 @@ function VideoView({ tile, cover }: { tile: Tile; cover?: boolean }) {
         </div>
       )}
       {!tile.isLocal && <audio ref={audio} autoPlay />}
-      {tile.role === 'guest' && (
-        <span className="absolute left-2 top-16 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold text-white">{tile.name}{tile.isLocal ? ' (you)' : ''}</span>
+      {tile.role === 'guest' && (small
+        ? <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-3 text-[10px] font-semibold text-white">{tile.name}{tile.isLocal ? ' (you)' : ''}</span>
+        : <span className="absolute left-2 top-16 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold text-white">{tile.name}{tile.isLocal ? ' (you)' : ''}</span>
       )}
       {!tile.audio && tile.role !== 'viewer' && (
-        <span className="absolute right-2 top-2 rounded-full bg-black/55 p-1 text-white"><MicOff className="h-3.5 w-3.5" /></span>
+        <span className={cn('absolute rounded-full bg-black/55 text-white', small ? 'right-1 top-1 p-0.5' : 'right-2 top-2 p-1')}><MicOff className={small ? 'h-3 w-3' : 'h-3.5 w-3.5'} /></span>
       )}
     </div>
   );
 }
 
-/** Host full screen; up to three guests share the screen with the host, like TikTok and Instagram multi-guest lives. */
-export function LiveStage({ tiles, waiting, fill, cover }: { tiles: Tile[]; waiting: string; fill?: boolean; cover?: string | null }) {
+/**
+ * Host full screen. Guests on camera either sit in small tiles down the right side ('side', like TikTok multi-guest
+ * lives) or share the screen equally ('grid'). The host chooses; the server's recording uses the same layout.
+ */
+export function LiveStage({ tiles, waiting, fill, cover, layout = 'side' }: { tiles: Tile[]; waiting: string; fill?: boolean; cover?: string | null; layout?: 'side' | 'grid' }) {
   // Until the video arrives: the live's cover (whole, on a soft blurred copy of itself), like TikTok.
   if (!tiles.length || !tiles.some((t) => t.video)) {
     return (
@@ -84,11 +89,27 @@ export function LiveStage({ tiles, waiting, fill, cover }: { tiles: Tile[]; wait
             <span className="absolute inset-0 bg-black/30" />
           </>
         )}
-        <span className="relative flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold backdrop-blur"><Radio className="h-4 w-4 animate-pulse text-primary" /> {waiting}</span>
+        {waiting && <span className="relative flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold backdrop-blur"><Radio className="h-4 w-4 animate-pulse text-primary" /> {waiting}</span>}
       </div>
     );
   }
   if (tiles.length === 1) return <VideoView tile={tiles[0]} cover={fill} />;
+  if (layout === 'side') {
+    const [host, ...guests] = tiles;
+    return (
+      <div className="relative h-full w-full bg-black">
+        <VideoView tile={host} cover={fill} />
+        {/* Sized by the screen's height, so three guests still end above the buttons at the bottom. */}
+        <div className="absolute right-2 top-[calc(5rem+var(--sat))] z-[5] flex flex-col gap-1.5">
+          {guests.map((t) => (
+            <div key={t.identity} className="aspect-[3/4] h-[min(13dvh,150px)] overflow-hidden rounded-xl shadow-lg ring-1 ring-white/25">
+              <VideoView tile={t} cover small />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={cn('grid h-full w-full gap-0.5 bg-black', tiles.length === 2 ? 'grid-rows-2' : 'grid-cols-2 grid-rows-2')}>
       {tiles.map((t) => <VideoView key={t.identity} tile={t} cover={fill} />)}
@@ -238,7 +259,7 @@ export function useDoubleTapHeart(onHeart: () => void) {
 }
 
 /** The item the host is showing right now, with Buy and Try on (live shopping). */
-export function PinnedProduct({ product, onBuy, compact }: { product: Product; onBuy?: () => void; compact?: boolean }) {
+export function PinnedProduct({ product, onBuy, onTryOn, deal, compact }: { product: Product; onBuy?: () => void; onTryOn?: () => void; deal?: { price: number; was: number; until: string }; compact?: boolean }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-white/95 p-2 pr-3 text-foreground shadow-lg">
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -246,16 +267,19 @@ export function PinnedProduct({ product, onBuy, compact }: { product: Product; o
       <div className="min-w-0 flex-1">
         <p className="text-[10px] font-bold uppercase tracking-wide text-primary">Now showing</p>
         <p className="truncate text-sm font-semibold">{product.name}</p>
-        <p className="text-sm font-extrabold">{formatPrice(Number(product.price))}{product.stock != null && product.stock <= 3 && <span className="ml-2 text-xs font-semibold text-amber-600">{product.stock === 0 ? 'Sold out' : `${product.stock} left`}</span>}</p>
+        <p className="text-sm font-extrabold">{formatPrice(deal?.price ?? Number(product.price))}{product.stock != null && product.stock <= 3 && <span className="ml-2 text-xs font-semibold text-amber-600">{product.stock === 0 ? 'Sold out' : `${product.stock} left`}</span>}</p>
+        {deal && <DealTag was={deal.was} until={deal.until} />}
       </div>
       {!compact && (
         <div className="flex shrink-0 flex-col gap-1">
           <button type="button" onClick={onBuy} disabled={product.stock === 0} className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground disabled:opacity-50">
             <ShoppingBag className="h-3.5 w-3.5" /> Buy
           </button>
-          <Link href={`/mirror?item=${product.id}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">
-            <Wand2 className="h-3.5 w-3.5" /> Try on
-          </Link>
+          {onTryOn ? (
+            <button type="button" onClick={onTryOn} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Try on</button>
+          ) : (
+            <Link href={`/mirror?item=${product.id}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Try on</Link>
+          )}
         </div>
       )}
     </div>
@@ -357,7 +381,7 @@ export function PollBubble({ poll, myVote, onVote, onManage, lower }: { poll: Li
 }
 
 /** Every item in the live as a strip that scrolls sideways, each with Buy and Try on (live shopping). */
-export function ProductStrip({ products, pinnedId, onBuy }: { products: Product[]; pinnedId?: string | null; onBuy: (id: string) => void }) {
+export function ProductStrip({ products, pinnedId, onBuy, onTryOn, deals }: { products: Product[]; pinnedId?: string | null; onBuy: (id: string) => void; onTryOn?: (p: Product) => void; deals?: Live['deals'] }) {
   return (
     <div className="-mx-3 flex snap-x snap-mandatory gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {products.map((p) => (
@@ -366,11 +390,14 @@ export function ProductStrip({ products, pinnedId, onBuy }: { products: Product[
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={p.cutout || p.image} alt="" className="aspect-square w-full rounded-xl bg-muted object-contain p-1" />
             <p className="mt-1 truncate text-xs font-semibold">{p.name}</p>
-            <p className="text-xs font-extrabold">{formatPrice(Number(p.price))}</p>
+            <p className="text-xs font-extrabold">{formatPrice(deals?.[p.id]?.price ?? Number(p.price))}</p>
+            {deals?.[p.id] && <DealTag was={deals[p.id].was} until={deals[p.id].until} className="text-[10px]" />}
           </Link>
           <div className="mt-1.5 grid grid-cols-2 gap-1">
             <button type="button" onClick={() => onBuy(p.id)} disabled={p.stock === 0} aria-label={`Buy ${p.name}`} className="flex items-center justify-center rounded-full bg-primary py-1.5 text-primary-foreground disabled:opacity-50"><ShoppingBag className="h-4 w-4" /></button>
-            <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>
+            {onTryOn
+              ? <button type="button" onClick={() => onTryOn(p)} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></button>
+              : <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>}
           </div>
         </div>
       ))}

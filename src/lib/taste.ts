@@ -6,9 +6,9 @@
 // Nothing is recorded when the shopper chose "Essential only" in the cookie banner.
 import { api, getToken } from './api';
 
-export type Signal = 'view' | 'dwell' | 'wear' | 'cart' | 'message' | 'skip' | 'share' | 'less';
+export type Signal = 'view' | 'dwell' | 'complete' | 'wear' | 'cart' | 'message' | 'skip' | 'share' | 'less';
 
-const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, skip: -0.4, share: 2, less: -4 };
+const WEIGHTS: Record<Signal, number> = { view: 1, dwell: 0.6, complete: 1.5, wear: 2.5, cart: 3, message: 3, skip: -0.4, share: 2, less: -4 };
 const KEY = 'saligue-taste-v1';
 // Interest fades: a signal from three weeks ago counts about a third.
 const HALF_LIFE_DAYS = 14;
@@ -40,10 +40,10 @@ function allowed() {
 // Sent in small batches, and when the app goes to the background.
 let queue: { productId: string; kind: Signal; times: number }[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
-function flush(leaving = false) {
+function flush(leaving = false): Promise<unknown> {
   if (timer) clearTimeout(timer);
   timer = null;
-  if (!queue.length) return;
+  if (!queue.length) return Promise.resolve();
   const events = queue.splice(0, 100);
   if (leaving) {
     const token = getToken();
@@ -53,10 +53,12 @@ function flush(leaving = false) {
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ events }),
     }).catch(() => {});
-  } else {
-    api('/interactions', { body: { events } }).catch(() => {});
+    return Promise.resolve();
   }
+  return api('/interactions', { body: { events } }).catch(() => {});
 }
+/** Sends what the shopper just did right away (before refreshing the feed, so it counts). */
+export const sendInterestsNow = () => flush();
 if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush(true));
 }

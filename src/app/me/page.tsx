@@ -1,6 +1,12 @@
 
 'use client';
 
+import { ProfileHeader, type Profile } from '@/components/profile-header';
+import { profileHref } from '@/components/profile-avatar';
+import { shareLink } from '@/components/share-sheet';
+import { absoluteUrl } from '@/lib/paths';
+import { Skeleton } from '@/components/ui/skeleton';
+
 import { LanguagePicker } from '@/components/language-picker';
 
 import { useT } from '@/lib/i18n';
@@ -10,9 +16,9 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, Coins, Layers, UserPlus, FileText, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp } from 'lucide-react';
+import { Bookmark, ChevronRight, Coins, FileText, HandCoins, Layers, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp, UserPlus } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
-import { BadgeCheck, CircleUserRound, GraduationCap, Smartphone } from 'lucide-react';
+import { BadgeCheck, CircleUserRound, GraduationCap, Share2, Smartphone } from 'lucide-react';
 import { updateAccount } from '@/lib/auth-actions';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -20,26 +26,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
-import { useWishlist } from '@/hooks/use-wishlist';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { logout } from '@/lib/auth-actions';
 import { useFeatures } from '@/lib/features';
 import { WeekCard } from '@/components/week-card';
 import { PushCard } from '@/components/push-card';
 
-type Stats = { clients: number; following: number; items: number; lessons: number; rating: number | null };
-
-function Stat({ value, label, href }: { value: string | number; label: string; href?: string }) {
-  const t = useT();
-  const body = (
-    <>
-      <span className="block text-lg font-extrabold leading-tight">{value}</span>
-      <span className="block truncate text-[11px] text-muted-foreground">{t(label)}</span>
-    </>
-  );
-  const className = 'min-w-0 flex-1 rounded-xl px-1 py-2 text-center transition hover:bg-muted/60';
-  return href ? <Link href={href} className={className}>{body}</Link> : <div className={className}>{body}</div>;
-}
 
 // Everything on Me is one grid of big icons: fewer words, one tap.
 function Tile({ href, icon: Icon, label, onClick, tone }: { href?: string; icon: typeof Package; label: string; onClick?: () => void; tone?: 'danger' }) {
@@ -66,11 +58,11 @@ export default function MePage() {
   useEffect(() => {
     if (admin) api<{ level: number }>('/admin/me').then((d) => setAdminLevel(d.level)).catch(() => {});
   }, [admin]);
-  const { wishlistItems } = useWishlist();
   const on = useFeatures();
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<Profile | null>(null);
+  const t = useT();
   useEffect(() => {
-    if (user) api<Stats>(`/profiles/${user.uid}`).then(setStats).catch(() => {});
+    if (user) api<Profile>(`/profiles/${user.uid}`).then(setStats).catch(() => {});
   }, [user]);
   const [loginOpen, setLoginOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -78,46 +70,33 @@ export default function MePage() {
   return (
     <div className="mx-auto max-w-xl space-y-4 px-3 py-4 min-[360px]:px-4 md:space-y-6 md:py-10">
       <LanguagePicker className="justify-center" />
-      <Card>
-        <CardContent className="p-4 min-[360px]:p-5">
-          {/* One photo: tap it to change it. */}
-          {user ? (
-            <ProfilePhotoField name={shop?.name ?? user.displayName} required={role === 'seller'}>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xl font-bold">{user.displayName || 'My account'}</p>
-                {user.username && <p className="truncate text-sm font-semibold text-primary">@{user.username}</p>}
-                <p className="line-clamp-2 text-sm text-muted-foreground">{role === 'seller' ? `Seller${shop ? ` · ${shop.name}` : ''}` : user.email}</p>
-                {role === 'seller' && !photo && <p className="text-xs font-semibold text-primary">Tap the photo to add your face or shop logo</p>}
-              </div>
-            </ProfilePhotoField>
-          ) : (
-            <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16"><AvatarFallback className="bg-primary/10 text-2xl font-bold text-primary">S</AvatarFallback></Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xl font-bold">Welcome to Saligue</p>
-                <p className="line-clamp-2 text-sm text-muted-foreground">Browsing as a guest — your likes and saves are kept on this device.</p>
-              </div>
+      {/* The same top as your public profile (and every shop's), so Me and Profile look alike. */}
+      {user && stats ? (
+        <ProfileHeader profile={{ ...stats, avatar: photo ?? null }}
+          avatar={<ProfilePhotoField photoOnly name={shop?.name ?? user.displayName} required={role === 'seller'} />}
+          statHref={{ items: '/dashboard/products', clients: `/profile?id=${user.uid}`, following: `/profile?id=${user.uid}`, likes: `/profile?id=${user.uid}` }}>
+          <Button asChild variant="secondary" className="h-10 flex-1 rounded-full"><Link href={`/profile?id=${user.uid}`}><CircleUserRound className="mr-2 h-4 w-4" /> {t(role === 'seller' ? 'My shop profile' : 'My profile')}</Link></Button>
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full" aria-label="Share profile"
+            onClick={() => shareLink({ title: stats.name, text: `${stats.name} on Saligue`, url: absoluteUrl(profileHref(user.uid)) })}><Share2 className="h-4 w-4" /></Button>
+          <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-4 w-4" /></Link></Button>
+        </ProfileHeader>
+      ) : user ? (
+        <Skeleton className="mx-auto h-64 w-full max-w-sm rounded-2xl" />
+      ) : (
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4 min-[360px]:p-5">
+            <Avatar className="h-16 w-16"><AvatarFallback className="bg-primary/10 text-2xl font-bold text-primary">S</AvatarFallback></Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xl font-bold">Welcome to Saligue</p>
+              <p className="line-clamp-2 text-sm text-muted-foreground">Browsing as a guest — your likes and saves are kept on this device.</p>
             </div>
-          )}
-          {user && stats && (
-            <div className="mt-4 flex divide-x rounded-xl border">
-              {role === 'seller' && <Stat value={stats.clients} label="Clients" href={`/profile?id=${user.uid}`} />}
-              {role === 'seller' && <Stat value={stats.items} label="Items" href="/dashboard/products" />}
-              {role === 'seller'
-                ? <Stat value={stats.rating ?? '—'} label="Rating" href="/dashboard/reviews" />
-                : <Stat value={stats.following} label="Following" href={`/profile?id=${user.uid}`} />}
-              {role !== 'seller' && <Stat value={wishlistItems.length} label="Saved" href="/my-account/saved" />}
-              <Stat value={stats.lessons ?? 0} label="Lessons" href="/learn" />
-            </div>
-          )}
-        </CardContent>
-        {!user && (
+          </CardContent>
           <div className="grid grid-cols-2 gap-2 px-5 pb-5">
             <Button onClick={() => setRegisterOpen(true)}>Create account</Button>
             <Button variant="outline" onClick={() => setLoginOpen(true)}>Log in</Button>
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
 
       {/* Each kind of account has its own dashboard (like Instagram's Professional dashboard). */}
       {user && (
@@ -168,14 +147,13 @@ export default function MePage() {
           </>
         )}
         {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
+        {user && on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
         {user && <Tile href="/invite" icon={UserPlus} label="Bring a shop" />}
-        {user && <Tile href={`/profile?id=${user.uid}`} icon={CircleUserRound} label={role === 'seller' ? 'My shop profile' : 'My profile'} />}
         {user && role !== 'seller' && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
         {user && <Tile href="/verify" icon={BadgeCheck} label="Get verified" />}
         {user && (role === 'seller'
           ? <Tile icon={Repeat} label="Switch to shopping" onClick={() => updateAccount({ role: 'buyer' }).then(() => router.push('/'))} />
           : <Tile href="/sell" icon={Store} label={shop ? 'Switch to my shop' : 'Start selling'} />)}
-        {user && <Tile href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} icon={Settings} label="Settings" />}
         <Tile href="/download" icon={Smartphone} label="Android app" />
         <Tile href="/policies" icon={FileText} label="Policies" />
         {user && <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />}

@@ -39,7 +39,7 @@ export default function SalesPage() {
   if (!data) return <Skeleton className="h-96 rounded-2xl" />;
 
   const free = data.official || (data.freeUntil && data.freeUntil > new Date().toISOString());
-  const pct = `${Math.round(data.rate * 1000) / 10}%`;
+  const pct = `${Math.round(data.rate * 10000) / 100}%`;
   const b = data.open.balance;
 
   return (

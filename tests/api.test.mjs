@@ -13,7 +13,9 @@ const root = new URL('..', import.meta.url).pathname;
 const data = mkdtempSync(join(tmpdir(), 'saligue-test-'));
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
-const env = { ...process.env, SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '' };
+const env = { ...process.env, SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
+  // Live works against a LiveKit that is not there; no server recorder answers, so hosts' phones record.
+  LIVEKIT_URL: 'ws://127.0.0.1:9', LIVEKIT_API_KEY: 'test', LIVEKIT_API_SECRET: 'test-secret', LIVEKIT_API_URL: 'http://127.0.0.1:9', EGRESS_HEALTH_PORT: '9' };
 let server;
 
 async function call(path, { method, body, token, headers = {} } = {}) {
@@ -315,5 +317,161 @@ describe('reasons to come back', () => {
     const r = await call(`/live-schedules/${plan.json.id}/remind`, { token: a.token, body: {} });
     assert.equal(r.json.reminded, true);
     assert.equal((await call(`/live-schedules?seller=${shop.id}`)).json[0].reminders, 1);
+  });
+});
+
+describe('profiles, lives and the admin log', () => {
+  test('a profile counts the hearts on everything the shop shares', async () => {
+    const product = (await call('/products?limit=1')).json[0];
+    const shop = await sampleShop(product.id);
+    const profile = await call(`/profiles/${shop.id}`);
+    assert.equal(profile.status, 200);
+    assert.equal(typeof profile.json.likes, 'number');
+    assert.ok(profile.json.likes >= 0);
+  });
+
+  test('a live starts in the side layout, the host can switch it, and the phone records when the server cannot', async () => {
+    const product = (await call('/products?limit=1')).json[0];
+    const shop = await sampleShop(product.id);
+    const live = await call('/lives', { token: shop.token, body: { title: 'New arrivals', productIds: [product.id] } });
+    assert.equal(live.status, 200, JSON.stringify(live.json));
+    assert.equal(live.json.layout, 'side');
+    assert.equal(live.json.recorder, 'phone');
+    const changed = await call(`/lives/${live.json.id}`, { method: 'PATCH', token: shop.token, body: { layout: 'grid' } });
+    assert.equal(changed.json.layout, 'grid');
+    assert.equal((await call(`/lives/${live.json.id}`, { method: 'PATCH', token: shop.token, body: { layout: 'nonsense' } })).json.layout, 'grid');
+    await call(`/lives/${live.json.id}/end`, { token: shop.token, body: {} });
+  });
+
+  test('changing the money rules logs only what changed, in words, with tidy numbers', async () => {
+    const admin = await register('Rules Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare("update users set admin = 1, admin_level = 1 where id = ?").run(admin.id);
+    db.close();
+    const saved = await call('/admin/rules', { method: 'PUT', token: admin.token, body: { saleFee: 0.57 / 100, freeDays: 60 } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    assert.equal(saved.json.saleFee, 0.0057);
+    const log = await call('/admin/log', { token: admin.token });
+    const line = log.json.find((r) => r.action === 'rules changed');
+    assert.ok(line, 'logged');
+    assert.match(line.detail, /Sale fee .*% → 0\.57%/);
+    assert.match(line.detail, /Free days for new shops \d+ → 60/);
+    assert.doesNotMatch(line.detail, /[{}]/);
+  });
+});
+
+describe('share & earn', () => {
+  test('a sale from a shared link pays the sharer once delivered and checked; own links and cancelled orders earn nothing', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 1));
+    const shop = await sampleShop(product.id);
+    const sharer = await register('Style Sharer');
+    const buyer = await register('Friend Buyer');
+    // Opening your own link, or a link from the shop itself, records nothing.
+    assert.equal((await call('/share/visit', { token: sharer.token, body: { via: sharer.id, product: product.id } })).json.recorded, 0);
+    assert.equal((await call('/share/visit', { token: buyer.token, body: { via: shop.id, product: product.id } })).json.recorded, 0);
+    assert.equal((await call('/share/visit', { token: buyer.token, body: { via: sharer.id, product: product.id } })).json.recorded, 1);
+    const delivery = { fullName: 'Friend Buyer', phone: '0780000009', city: 'Kigali', street: 'KN 9 Ave' };
+    await call('/orders', { token: buyer.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery } });
+    let mine = (await call('/me/shares', { token: sharer.token })).json;
+    assert.equal(mine.rewards.length, 1);
+    assert.equal(mine.rewards[0].state, 'pending');
+    assert.ok(mine.pending > 0 && mine.ready === 0);
+    // Delivered with the handover code, but paid in cash: no money reached Saligue, so an admin checks it first.
+    const order = (await call('/orders', { token: buyer.token })).json[0];
+    await call(`/orders/${order.id}`, { method: 'PATCH', token: shop.token, body: { status: 'confirmed' } });
+    assert.equal((await call(`/orders/${order.id}/handover`, { token: shop.token, body: { code: order.deliveryCode } })).status, 200);
+    mine = (await call('/me/shares', { token: sharer.token })).json;
+    assert.equal(mine.rewards[0].state, 'review');
+    assert.equal(mine.ready, 0);
+    const admin = await register('Shares Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const queue = (await call('/admin/shares', { token: admin.token })).json;
+    const waiting = queue.review.find((r) => r.sharer === 'Style Sharer');
+    assert.ok(waiting && waiting.buyerAgeDays === 0 && waiting.paymentMethod === 'cash_on_delivery');
+    assert.equal((await call(`/admin/shares/review/${waiting.id}`, { token: admin.token, body: { decision: 'approve' } })).status, 200);
+    // Approved: ready to be paid, capped per item.
+    mine = (await call('/me/shares', { token: sharer.token })).json;
+    assert.equal(mine.rewards[0].state, 'earned');
+    assert.equal(mine.ready, Math.min(mine.cap, Math.round(product.price * mine.rate * 100) / 100));
+    // The admin pays it once the sharer has a Mobile Money number.
+    assert.ok((await call('/admin/shares', { token: admin.token })).json.due.some((d) => d.userId === sharer.id));
+    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: {} })).status, 400);
+    await call('/me/tips/account', { method: 'PUT', token: sharer.token, body: { momoNumber: '0780000010', momoName: 'Style Sharer' } });
+    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: { reference: 'MM123' } })).status, 200);
+    mine = (await call('/me/shares', { token: sharer.token })).json;
+    assert.equal(mine.ready, 0);
+    assert.equal(mine.rewards[0].state, 'paid');
+    // A second order from the same link that is cancelled earns nothing.
+    await call('/orders', { token: buyer.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery } });
+    const second = (await call('/orders', { token: buyer.token })).json.find((o) => o.id !== order.id);
+    await call(`/orders/${second.id}`, { method: 'PATCH', token: buyer.token, body: { status: 'cancelled' } });
+    mine = (await call('/me/shares', { token: sharer.token })).json;
+    assert.ok(mine.rewards.some((r) => r.state === 'void'));
+    assert.equal(mine.pending, 0);
+  });
+});
+
+describe('launch numbers', () => {
+  test('admins see each launch number with its target; too few people says so', async () => {
+    const admin = await register('Launch Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const visitor = await register('Launch Visitor');
+    assert.equal((await call('/admin/launch', { token: visitor.token })).status, 403);
+    const r = await call('/admin/launch', { token: admin.token });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    // Using the app today counts.
+    assert.ok(r.json.trackingSince);
+    const all = r.json.groups.flatMap((g) => g.metrics);
+    assert.ok(all.find((m) => m.key === 'dau').value >= 2);
+    assert.equal(all.find((m) => m.key === 'd7').status, 'none');
+    assert.ok(all.every((m) => ['good', 'warn', 'bad', 'none'].includes(m.status) && m.target));
+    assert.equal(r.json.ready.length, 4);
+  });
+});
+
+describe('for you', () => {
+  test('a new post nobody has seen gets a first audience early in the feed', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
+    const active = db.prepare("select id, seller_id from products where status = 'active' and hidden = 0 and official = 0").all();
+    db.prepare('update products set created_at = ?').run(old);
+    const fresh = active.at(-1);
+    db.prepare('update products set created_at = ? where id = ?').run(new Date().toISOString(), fresh.id);
+    db.close();
+    const shopper = await register('Feed Shopper');
+    const feed = (await call('/feed', { token: shopper.token })).json;
+    const at = feed.items.findIndex((x) => x.id === fresh.id);
+    assert.ok(at >= 0 && at <= 5, `new post at ${at}`);
+    assert.ok(feed.items[at].reason);
+  });
+});
+
+describe('try-on photos', () => {
+  test('realistic try-on is refused until the person confirms the photo is of them', async () => {
+    const a = await register('Mirror User');
+    const r = await call('/ai/tryon', { token: a.token, body: { person: 'data:image/jpeg;base64,AAAA', garment: 'data:image/jpeg;base64,AAAA', category: 'top' } });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error.code, 'consent_needed');
+  });
+  test('finished looks are deleted after 24 hours', async () => {
+    const { mkdirSync, writeFileSync, utimesSync, existsSync } = await import('node:fs');
+    const dir = join(data, 'tryon-cache');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'old-look.txt');
+    writeFileSync(file, 'free\ndata:image/jpeg;base64,AAAA');
+    const twoDays = (Date.now() - 48 * 3_600_000) / 1000;
+    utimesSync(file, twoDays, twoDays);
+    // The server sweeps at start; a fresh import of the module runs the same sweep.
+    const sweep = spawnSync(process.execPath, ['--no-warnings', '-e', "await import('./server/tryon.mjs'); process.exit(0)"], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(sweep.status, 0, sweep.stderr);
+    assert.equal(existsSync(file), false);
   });
 });

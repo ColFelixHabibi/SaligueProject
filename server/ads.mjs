@@ -6,7 +6,8 @@
 //
 // Monetization: approved creators share `creatorShare` of each month's ad income, split by points:
 //   points = item views + 50 × delivered items sold + 5 × new followers   (all in that month)
-// Eligibility (strict, like X and Meta): 1,000 followers and 50,000 item views in 90 days, plus the basics (see eligibility()).
+// Eligibility: REQUIREMENTS below unless an admin changed them (Admin → Policies & rules), plus the basics
+// (see eligibility()). New creators earn before that through Share & earn (shares.mjs), which has no minimum.
 import { randomUUID } from 'node:crypto';
 import { db, json, now, parse, transaction } from './db.mjs';
 

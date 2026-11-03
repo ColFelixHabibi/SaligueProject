@@ -3,6 +3,7 @@
 import { api } from '@/lib/api';
 import { context2d, createCanvas, fitWithin, loadImage } from './canvas';
 import { LookRejected, keepOnlyChanged } from './composite';
+import { ensureTryOnConsent } from './consent';
 
 // Saligue AI Studio: Saligue's own GPU server (ai-server/) running Leffa and SDXL Inpainting.
 // Its address comes from a ?ai= link, this device's saved setting, or the app setting INDECIANA saved on the server.
@@ -172,14 +173,17 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
+      if (!(await ensureTryOnConsent())) throw new Error('Realistic try-on needs a photo of you. Confirm it is you to continue.');
       const padded = await padToShape(await toJpeg(personUrl), isUnlimited() ? 2 / 3 : 3 / 4);
       const body = { person: padded.url, garment: await toJpeg(garmentUrl), category, description };
       for (let tries = 0; tries < 2; tries++) {
         const variant = attempts.get(key) ?? 0;
-        const image = (await getStudio()) ? await call('/api/tryon', { ...body, variant }) : (await api<{ image: string }>('/ai/tryon', { body: { ...body, variant } })).image;
+        const look = (await getStudio()) ? { image: await call('/api/tryon', { ...body, variant }), finished: false } : await api<{ image: string; finished?: boolean }>('/ai/tryon', { body: { ...body, variant, consent: 'self' } });
+        const image = look.image;
         // The paid try-on (fal.ai FASHN) returns a finished, clean photo: shown as it is. Cutting out "only what
         // changed" was made for the free models, and on a good picture it leaves halos around the garment.
-        if (isUnlimited()) return cropBack(image, padded);
+        // The server says which AI really drew it: when the paid one is down, a free model's picture is checked.
+        if (look.finished) return cropBack(image, padded);
         try {
           return await cropBack(await keepOnlyChanged(body.person, image, category), padded);
         } catch (error) {

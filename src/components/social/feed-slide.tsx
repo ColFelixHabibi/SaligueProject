@@ -85,6 +85,8 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
       since = null;
       if (seconds >= 3) noteInterest(product.id, 'dwell', Math.min(3, seconds / 3));
       else if (seconds < 1) noteInterest(product.id, 'skip');
+      // Watched the whole video (it loops, so time on screen tells): a strong sign, and a launch number.
+      if (product.videoDuration && seconds >= Math.max(1, product.videoDuration * 0.9)) noteInterest(product.id, 'complete');
     };
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.intersectionRatio >= 0.6) since ??= Date.now();
@@ -95,7 +97,7 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
       observer.disconnect();
       finish();
     };
-  }, [product.id, ref]);
+  }, [product.id, product.videoDuration, ref]);
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
@@ -200,6 +202,7 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
             {user && on('looks') && <DropdownMenuItem onClick={() => addToLook({ kind: 'product', id: product.id })}><Layers className="mr-2 h-4 w-4" /> {t('Add to a look')}</DropdownMenuItem>}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> {t('Show less like this')}</DropdownMenuItem>
+            <DropdownMenuItem asChild><Link href="/how-feed-works"><HelpCircle className="mr-2 h-4 w-4" /> {t('How For You works')}</Link></DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 

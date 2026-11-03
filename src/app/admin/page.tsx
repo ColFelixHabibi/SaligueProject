@@ -1,6 +1,7 @@
 'use client';
 
-import { CoinsAdmin, TipsAdmin } from '@/components/admin/tips-admin';
+import { CoinsAdmin, SharesAdmin, TipsAdmin } from '@/components/admin/tips-admin';
+import { LaunchAdmin } from '@/components/admin/launch-admin';
 
 import { AppealsAdmin } from '@/components/admin/appeals-admin';
 import { CommentReportsAdmin } from '@/components/admin/comment-reports-admin';
@@ -10,7 +11,7 @@ import { OrderProblemsAdmin, SettlementsAdmin } from '@/components/admin/settlem
 import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Scale, ScrollText, Server, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -485,9 +486,10 @@ export default function AdminPage() {
   };
   const tabs: { value: string; label: string; icon: LucideIcon; show: boolean; body: React.ReactNode }[] = [
     { value: 'overview', label: 'Overview', icon: LayoutDashboard, show: true, body: <OverviewAdmin open={open} /> },
+    { value: 'launch', label: 'Launch', icon: Rocket, show: true, body: <LaunchAdmin /> },
     { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <div className="space-y-6"><CommentReportsAdmin /><AppealsAdmin /></div> },
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
-    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <OrderProblemsAdmin />}{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <OrderProblemsAdmin />}{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <SharesAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
     { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },

@@ -157,7 +157,22 @@ export function falKey() {
 }
 
 /** Whether a paid, unlimited try-on provider is switched on. */
-export const unlimitedTryOn = () => !!falKey() || !!ownAi();
+// When fal.ai refuses (no balance left, key removed), it is skipped for a while and the admins are told once.
+let paidDownUntil = 0;
+let paidDownTold = 0;
+let onPaidDown = () => {};
+/** Called when the paid try-on stops working (e.g. the fal.ai balance is used up), at most twice a day. */
+export const whenPaidTryOnDown = (fn) => { onPaidDown = fn; };
+const paidUp = () => !!falKey() && paidDownUntil < Date.now();
+function paidRefused(error) {
+  if (!/\((401|402|403)\)|balance|locked/i.test(String(error?.message ?? error))) return;
+  paidDownUntil = Date.now() + 30 * 60_000;
+  if (Date.now() - paidDownTold > 12 * 3_600_000) {
+    paidDownTold = Date.now();
+    onPaidDown(String(error?.message ?? error));
+  }
+}
+export const unlimitedTryOn = () => paidUp() || !!ownAi();
 
 const FAL_CATEGORY = { top: 'tops', outerwear: 'tops', bottom: 'bottoms', dress: 'one-pieces' };
 const FAL_QUEUE = (process.env.FAL_QUEUE_URL || 'https://queue.fal.run').replace(/\/+$/, '');
@@ -200,24 +215,53 @@ async function fashn(person, garment, category, variant = 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Looks already made are kept (data/tryon-cache), so the same photo and garment are never paid for twice.
+// Looks already made are kept (data/tryon-cache) for a day, so the same photo and garment are not paid for twice
+// while the shopper is trying things on. They show a person's body, so they are deleted after CACHE_HOURS.
 // ---------------------------------------------------------------------------
 
 const CACHE_DIR = join(DATA_DIR, 'tryon-cache');
 const CACHE_MAX = 3000;
+const CACHE_HOURS = 24;
+const expired = (file) => Date.now() - statSync(file).mtimeMs > CACHE_HOURS * 3_600_000;
 mkdirSync(CACHE_DIR, { recursive: true });
 // Which AI makes the looks now: a look made by the free models is never reused once a better one is connected.
-const engine = () => (ownAi() ? 'own' : falKey() ? 'fashn' : 'free');
-const cacheKey = (person, garment, category, variant) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}|${engine()}`).digest('hex').slice(0, 40);
+const engine = () => (ownAi() ? 'own' : paidUp() ? 'fashn' : 'free');
+const cacheKey = (person, garment, category, variant, by = engine()) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}|${by}`).digest('hex').slice(0, 40);
 
+// Each kept look starts with the AI that made it ("fashn\n data:…"); older ones are only the picture.
 function fromCache(key) {
   const file = join(CACHE_DIR, `${key}.txt`);
-  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+  if (!existsSync(file)) return null;
+  if (expired(file)) {
+    try {
+      unlinkSync(file);
+    } catch {
+      // Already gone.
+    }
+    return null;
+  }
+  const text = readFileSync(file, 'utf8');
+  const cut = text.indexOf('\n');
+  return text.startsWith('data:') ? { image: text, by: 'free' } : { image: text.slice(cut + 1), by: text.slice(0, cut) };
 }
 
-function toCache(key, image) {
+// Every hour (and at start), looks older than CACHE_HOURS are deleted, including ones never asked for again.
+function sweepCache() {
   try {
-    writeFileSync(join(CACHE_DIR, `${key}.txt`), image);
+    for (const f of readdirSync(CACHE_DIR)) {
+      const file = join(CACHE_DIR, f);
+      if (expired(file)) unlinkSync(file);
+    }
+  } catch (error) {
+    console.error('Could not clear old looks:', error.message);
+  }
+}
+sweepCache();
+setInterval(sweepCache, 3_600_000).unref();
+
+function toCache(key, look) {
+  try {
+    writeFileSync(join(CACHE_DIR, `${key}.txt`), `${look.by}\n${look.image}`);
     const files = readdirSync(CACHE_DIR);
     if (files.length > CACHE_MAX) {
       files.map((f) => ({ f, t: statSync(join(CACHE_DIR, f)).mtimeMs })).sort((a, b) => a.t - b.t)
@@ -237,7 +281,10 @@ async function kolors(person, garment, variant = 0) {
   return download(url);
 }
 
-/** Returns the person wearing the garment, as a JPEG/PNG data URL. */
+/**
+ * Returns the person wearing the garment (a JPEG/PNG data URL) and which AI made it: 'fashn' or 'own' give a
+ * finished photo; 'free' models sometimes change other clothes too, so the app checks those pictures.
+ */
 export async function tryOn(person, garment, category, description = '', variant = 0) {
   toBlob(person);
   toBlob(garment);
@@ -250,10 +297,11 @@ export async function tryOn(person, garment, category, description = '', variant
   // One line per try-on (never the photos), so failures can be explained later: journalctl -u saligue | grep Try-on
   const started = Date.now();
   try {
-    const image = await makeLook(person, garment, category, description, variant);
-    toCache(key, image);
-    console.log(`Try-on ${category}: done in ${Math.round((Date.now() - started) / 1000)} s`);
-    return image;
+    const look = await makeLook(person, garment, category, description, variant);
+    // Kept under the AI that really made it (a free model's look is never passed off as the paid one's).
+    toCache(cacheKey(person, garment, category, variant, look.by), look);
+    console.log(`Try-on ${category}: done by ${look.by} in ${Math.round((Date.now() - started) / 1000)} s`);
+    return look;
   } catch (error) {
     console.log(`Try-on ${category}: failed after ${Math.round((Date.now() - started) / 1000)} s: ${String(error?.message ?? error).slice(0, 160)}`);
     throw error;
@@ -263,24 +311,25 @@ export async function tryOn(person, garment, category, description = '', variant
 async function makeLook(person, garment, category, description, variant) {
   if (ownAi()) {
     try {
-      return await ownAiTryOn(person, garment, category, variant);
+      return { image: await ownAiTryOn(person, garment, category, variant), by: 'own' };
     } catch (error) {
       console.error('Own AI server failed, trying the backups:', String(error?.message ?? error).slice(0, 200));
     }
   }
   let paidError = null;
-  if (falKey()) {
+  if (paidUp()) {
     try {
-      return await fashn(person, garment, category, variant);
+      return { image: await fashn(person, garment, category, variant), by: 'fashn' };
     } catch (error) {
       paidError = error;
+      paidRefused(error);
       console.error('FASHN try-on failed, trying the free models:', error.message);
     }
   }
   let first;
   if (available(SPACE)) {
     try {
-      return await leffa(person, garment, category, variant);
+      return { image: await leffa(person, garment, category, variant), by: 'free' };
     } catch (error) {
       first = error;
       rest(SPACE, error);
@@ -290,7 +339,7 @@ async function makeLook(person, garment, category, description, variant) {
   if (category === 'top' || category === 'outerwear') {
     if (available(FALLBACK_SPACE)) {
       try {
-        return await idmVton(person, garment, description, variant);
+        return { image: await idmVton(person, garment, description, variant), by: 'free' };
       } catch (error) {
         rest(FALLBACK_SPACE, error);
         clients.delete(FALLBACK_SPACE);
@@ -301,7 +350,7 @@ async function makeLook(person, garment, category, description, variant) {
     // Turn it on with TRYON_USE_KOLORS=1 only to experiment; the app's look check still guards every picture.
     if (process.env.TRYON_USE_KOLORS === '1') {
       try {
-        return await kolors(person, garment, variant);
+        return { image: await kolors(person, garment, variant), by: 'free' };
       } catch (error) {
         clients.delete(LAST_SPACE);
         console.error('Realistic try-on last fallback failed:', error?.message ?? error);

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { BadgeCheck, ChevronRight, Coins, Cookie, FileText, Lock, Megaphone } from 'lucide-react';
+import { BadgeCheck, ChevronRight, Coins, Cookie, FileText, Lock, Megaphone, Sparkles } from 'lucide-react';
 
 export const metadata: Metadata = { title: 'Policies · Saligue' };
 
@@ -8,8 +8,9 @@ const POLICIES = [
   { href: '/terms', title: 'Terms of Service', text: 'The rules for using Saligue.', icon: FileText },
   { href: '/privacy', title: 'Privacy Policy', text: 'What we collect and the choices you have.', icon: Lock },
   { href: '/cookies', title: 'Cookie Policy', text: 'What is stored on your device and why.', icon: Cookie },
-  { href: '/monetization-policy', title: 'Monetization Policy', text: 'How creators earn: requirements, points, tips, payouts.', icon: Coins },
+  { href: '/monetization-policy', title: 'Monetization Policy', text: 'How creators earn: Share & earn, tips, ad income, payouts.', icon: Coins },
   { href: '/ads-policy', title: 'Ads Policy', text: 'Sponsored items: prices, review and rules.', icon: Megaphone },
+  { href: '/how-feed-works', title: 'How For You works', text: 'How the feed picks what you see, and how to steer it.', icon: Sparkles },
   { href: '/verification-policy', title: 'Verification Policy', text: 'The optional blue check ($2.53 per month) and how documents are protected.', icon: BadgeCheck },
 ];
 

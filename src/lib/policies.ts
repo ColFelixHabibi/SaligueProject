@@ -8,17 +8,30 @@ export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'pri
 export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   monetization: {
         title: "Monetization Policy",
-        updated: "23 October 2026",
-        intro: "Saligue shares its advertising income with the shops that make Saligue worth visiting. Like the creator programs of the biggest platforms, it is open only to established shops and comes with clear rules.",
+        updated: "3 November 2026",
+        intro: "There are three ways to earn on Saligue. Share & earn and tips are open to everyone from the first day. The ad income program is for established shops. Each comes with clear rules.",
         sections: [
           {
-            heading: 'Who can join',
+            heading: 'Ad income program: who can join',
             paragraphs: [
               'A seller account with a profile photo and full shop address, active for at least 4 months (120 days).',
               'At least 10,000 clients (people who follow your shop).',
               'At least 5,000,000 views of your items in the last 90 days.',
               'No items removed for breaking Saligue’s rules in the last 90 days.',
               'When you meet every requirement, apply in Seller Center → Earnings. INDECIANA reviews each application and may refuse shops that seem to have bought clients or views.',
+            ],
+          },
+          {
+            heading: 'Share & earn (open to everyone)',
+            paragraphs: [
+              'Anyone with an account earns when people buy from the links they share, with no minimum number of followers or views. Tap Share on any item or look while you are logged in: the link carries your name.',
+              'If someone opens your link and buys that item within 7 days, you earn 3% of the item’s price, up to $5 per item. If they open several people’s links to the same item, the last link they opened counts.',
+              'Saligue pays this reward from its own income. The shop pays nothing extra and the buyer pays the same price.',
+              'You earn only when the order is delivered with no open problem. Cancelled or refunded orders earn nothing. Your own purchases, and items from your own shop, never earn a reward.',
+              'Orders paid online count as soon as they are delivered. Orders paid in cash, by Mobile Money to the shop or at pickup are checked by Saligue first, because Saligue did not receive that money. Saligue may refuse a reward for a sale that does not look real.',
+              'You are responsible for any taxes on your rewards.',
+              'Me → Share & earn shows every sale from your links and what is on its way, ready or paid. Add your Mobile Money number there; Saligue sends what is ready to it.',
+              'Sharing links in spam, or buying through your own links with another account, leads to the loss of unpaid rewards and removal from Saligue.',
             ],
           },
           {
@@ -32,7 +45,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             ],
           },
           {
-            heading: 'How much you earn',
+            heading: 'Ad income program: how much you earn',
             paragraphs: [
               'Each month, 50% of Saligue’s advertising income is shared among all monetized shops.',
               'Your share depends on points you earn that month: 1 point per item view, 50 points per item sold and delivered, and 5 points per new client. Your earnings = the creators’ pool × your points ÷ all creators’ points.',
@@ -115,7 +128,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   terms: {
         title: "Terms of Service",
-        updated: "7 October 2026",
+        updated: "3 November 2026",
         intro: "These terms apply when you use Saligue, the fashion marketplace by INDECIANA, on the web or in the app. By creating an account or using Saligue you accept them. If you do not agree, please do not use Saligue.",
         sections: [
           {
@@ -153,7 +166,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Fees for shops',
             paragraphs: [
-              'Listing items, going live and selling are free to start. Saligue takes a fee of 5% of each delivered order, fixed on the order when it is placed. A new shop pays no fee during its first 90 days. There is no monthly charge.',
+              'Listing items, going live and selling are free to start. Saligue takes a fee of 0.57% of each delivered order, fixed on the order when it is placed. A new shop pays no fee during its first 90 days. There is no monthly charge.',
               'Orders paid online: Saligue receives the payment and sends the shop the order total minus the fee by Mobile Money, once the order is delivered (the same day when the customer’s handover code is entered). Shops can tap “Request payout now” in Sales. Orders paid to the shop directly (Mobile Money to the shop, cash on delivery, pickup): the shop sends Saligue the fee. Seller Center → Sales shows every amount.',
               'Saligue tells shops at least 30 days before it raises the fee; a change never affects orders already placed.',
             ],
@@ -162,6 +175,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'The Fitting Room and AI features',
             paragraphs: [
               'The Fitting Room shows how items could look on you. It is a preview made by artificial intelligence, not a guarantee of fit, size or colour. Always check the size details of an item.',
+              'Use only photos of yourself in the Fitting Room. Uploading a photo of someone else, of a child, or using the pictures it makes to embarrass or deceive anyone is not allowed and can lead to your account being closed.',
               'Suggestions such as "Complete the look" are made automatically from the items in stock and may include items from INDECIANA.',
             ],
           },
@@ -189,7 +203,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   privacy: {
         title: "Privacy Policy",
-        updated: "16 October 2026",
+        updated: "3 November 2026",
         intro: "This policy explains what information Saligue by INDECIANA collects, why, and the choices you have. We collect only what Saligue needs to work, and we never sell your personal information.",
         sections: [
           {
@@ -204,6 +218,8 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'Profile photo: sellers add a profile photo, shown publicly with their shop.',
               'Lives: a live is recorded on the host’s phone so people can watch it again (a replay on the shop’s profile). It shows what viewers saw: the host and any guest who joined on camera, with their sound. Guests are told before they join. The host can delete a replay at any time.',
               'Support: the messages you send us.',
+              'The days you use Saligue (the date only, not what you did or for how long): counted in Saligue’s own totals, such as how many people come back after a week. Never shown to anyone, and deleted with your account.',
+              'Links you share: when you share an item or a look while logged in, the link carries your account number, so you can earn from purchases it brings (Share & earn). Whoever opens it is linked to you for that item for 7 days. Only the totals of your sales are shown to you, never who bought.',
               'Your country: worked out on Saligue’s own server from your internet address (IP Geolocation by DB-IP, db-ip.com), never sent to anyone else. It decides which features are available where you are, and helps show you lives and shops close to you first. Your city comes only from addresses you gave us (a delivery address or your shop). It is not shown to anyone.',
             ],
           },
@@ -211,7 +227,9 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Your photo in the Fitting Room',
             paragraphs: [
               'The photo you add in the Fitting Room is processed by AI on your own device and kept only on that device. It is not uploaded to Saligue.',
-              'To show you really wearing clothes (tops, jackets, trousers, dresses), the Fitting Room sends your photo and the garment picture to the realistic try-on AI when you search or put clothes on. Until Saligue runs its own AI server, this uses the open Leffa and IDM-VTON models hosted on Hugging Face, which receive the two pictures only to create that image. Shoes, hats, glasses and bags are placed on your device without sending anything. Remove your photo at any time with the bin button.',
+              'To show you really wearing clothes (tops, jackets, trousers, dresses), the Fitting Room sends your photo and the garment picture to the realistic try-on AI when you put clothes on. Depending on which is working, that is Saligue’s own AI server, FASHN through fal.ai, or the open Leffa, IDM-VTON and Kolors models hosted on Hugging Face. Each receives the two pictures only to create that image. Shoes, hats, glasses and bags are placed on your device without sending anything. Remove your photo at any time with the bin button.',
+              'Saligue does not keep your photo. The finished picture is kept on Saligue’s server for at most 24 hours, so trying the same item again is instant, and then deleted.',
+              'Before your first photo, the Fitting Room asks you to confirm it is a photo of you. Using photos of other people, or of children, is not allowed.',
             ],
           },
           {

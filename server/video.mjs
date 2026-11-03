@@ -112,16 +112,23 @@ mkdirSync(REPLAY_DIR, { recursive: true });
 export const replayFile = (liveId) => join(REPLAY_DIR, `${liveId.replace(/[^\w-]/g, '')}.part`);
 export const MAX_REPLAY_BYTES = 1500 * 1024 * 1024;
 
-/** Turns a finished recording into /media/live-<id>.mp4 and a poster. Returns null when it has no video. */
-export async function processReplay(liveId) {
-  const src = replayFile(liveId);
+export const serverRecordingFile = (liveId) => join(REPLAY_DIR, `live-${liveId.replace(/[^\w-]/g, '')}.mp4`);
+
+/**
+ * Turns a live's recording into /media/live-<id>.mp4 and a poster: the server's recording (already MP4, kept as it
+ * is) or the phone's pieces. Returns null when it has no video.
+ */
+export async function processReplay(liveId, fromServer = false) {
+  const src = fromServer ? serverRecordingFile(liveId) : replayFile(liveId);
   if (!existsSync(src) || statSync(src).size < 50_000) return null;
   const base = `live-${liveId.replace(/[^\w-]/g, '')}`;
   const video = join(MEDIA_DIR, `${base}.mp4`);
   const poster = join(MEDIA_DIR, `${base}.jpg`);
   try {
-    // Recordings from browsers often have no length in their header: re-encode (720p, small) and read the length after.
-    await run('ffmpeg', [
+    // The server's recording is already H.264/AAC: only moved so it starts playing at once. Recordings from
+    // browsers often have no length in their header: re-encode (720p, small) and read the length after.
+    if (fromServer) await run('ffmpeg', ['-y', '-i', src, '-c', 'copy', '-movflags', '+faststart', video], 30 * 60_000);
+    else await run('ffmpeg', [
       '-y', '-fflags', '+genpts', '-i', src,
       '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-pix_fmt', 'yuv420p', '-profile:v', 'main',

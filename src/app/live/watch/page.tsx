@@ -27,6 +27,8 @@ import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { answerInvite, askToJoin, muteInLive, removeLiveComment, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, votePoll, type LiveComment } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
+import type { Product } from '@/lib/types';
+import { LiveTryOn } from '@/components/live/live-try-on';
 import { cn } from '@/lib/utils';
 
 const REACTIONS = ['🔥', '😍', '👏'];
@@ -104,6 +106,8 @@ function Watch() {
 
   const featured = useMemo(() => (live?.productIds ?? []).map((pid) => products.find((p) => p.id === pid)).filter(Boolean) as typeof products, [live?.productIds, products]);
   const pinned = products.find((p) => p.id === live?.pinnedProductId) ?? null;
+  // Try on during the live: a panel over the stream (the live keeps playing).
+  const [trying, setTrying] = useState<Product | null>(null);
   const pinnedComment = comments.find((c) => c.id === live?.pinnedCommentId) ?? null;
 
   const send = async (e: React.FormEvent) => {
@@ -226,7 +230,7 @@ function Watch() {
       <div onPointerUp={tap.onPointerUp} className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         {tap.layer}
         <GiftBanner gift={gift} />
-        <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
+        <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
           <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
         ) : (
@@ -270,7 +274,9 @@ function Watch() {
               </button>
             </div>
           </div>
-          {bagOpen && featured.length > 0 ? <ProductStrip products={featured} pinnedId={live.pinnedProductId} onBuy={buy} /> : pinned && <PinnedProduct product={pinned} onBuy={() => buy(pinned.id)} />}
+          {bagOpen && featured.length > 0
+            ? <ProductStrip products={featured} pinnedId={live.pinnedProductId} onBuy={buy} onTryOn={setTrying} deals={live.deals} />
+            : pinned && <PinnedProduct product={pinned} onBuy={() => buy(pinned.id)} onTryOn={() => setTrying(pinned)} deal={live.deals?.[pinned.id]} />}
           {invited && !isGuest && (
             <div className="flex items-center gap-2 rounded-2xl bg-white/95 p-3 text-sm text-foreground shadow-lg">
               <Video className="h-5 w-5 shrink-0 text-primary" />
@@ -326,6 +332,7 @@ function Watch() {
       </Sheet>
 
       {id && <GiftSheet liveId={id} open={giftsOpen} onOpenChange={setGiftsOpen} signedIn={!!user} />}
+      <LiveTryOn product={trying} price={trying ? live.deals?.[trying.id]?.price : undefined} onClose={() => setTrying(null)} onBuy={buy} />
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
         <SheetContent side="bottom" className="rounded-t-3xl">

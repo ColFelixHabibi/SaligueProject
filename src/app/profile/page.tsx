@@ -39,26 +39,9 @@ import { ComingUp } from '@/components/live/coming-up';
 import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { formatPrice } from '@/lib/orders';
 
-type Person = { id: string; name: string; avatar: string | null; isShop: boolean; official: boolean; verified?: boolean };
-type Profile = Person & {
-  username?: string | null;
-  bio: string;
-  verifiedType?: string | null;
-  shop: { city: string; country: string; hours: string | null; phone: string; whatsapp: string | null; street: string; district: string | null; landmark: string | null; mapUrl: string | null } | null;
-  email: string | null;
-  clients: number;
-  following: number;
-  items: number;
-  lessons: number;
-  rating: number | null;
-  ratingCount: number;
-  liveId: string | null;
-  isClient: boolean;
-  mine: boolean;
-};
-
-const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
+import { ProfileHeader, compact, type Person, type Profile } from '@/components/profile-header';
 
 /** A shop's or teacher's page: photo, bio, clients, and everything they sell and teach. */
 function ProfileView({ id }: { id: string }) {
@@ -110,13 +93,7 @@ function ProfileView({ id }: { id: string }) {
   if (error) return <p className="p-10 text-center text-muted-foreground">{error}</p>;
   if (!profile) return <Skeleton className="mx-auto mt-6 h-[70vh] max-w-2xl rounded-2xl" />;
 
-  const stats = [
-    { label: t('Items'), value: profile.items, onClick: () => setTab('items') },
-    { label: t('Clients'), value: profile.clients, onClick: () => openList('clients') },
-    { label: t('Following'), value: profile.following, onClick: () => openList('following') },
-    ...(profile.lessons > 0 || !profile.isShop ? [{ label: t('Lessons'), value: profile.lessons, onClick: () => setTab('lessons') }] : []),
-  ];
-  const round = 'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-background transition hover:bg-muted';
+  const round = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background transition hover:bg-muted';
   const tabs = [
     { value: 'items', icon: Grid3x3, label: 'Items', count: items.length, show: profile.isShop },
     { value: 'videos', icon: Play, label: 'Videos', count: videos.length, show: profile.isShop },
@@ -127,82 +104,52 @@ function ProfileView({ id }: { id: string }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-24 pt-6">
-      <div className="flex items-center gap-5">
-        {profile.liveId ? (
-          <Link href={`/live/watch?id=${profile.liveId}`} className="relative" aria-label={`${profile.name} is live: watch`}>
-            <span className="block rounded-full bg-gradient-to-tr from-primary to-[#e30613] p-[3px]"><SellerAvatar src={profile.avatar} name={profile.name} className="h-24 w-24 ring-4 ring-background" /></span>
-            <span className="absolute -bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-md bg-primary px-1.5 text-[10px] font-extrabold text-primary-foreground ring-2 ring-background"><Radio className="h-3 w-3" /> LIVE</span>
-          </Link>
-        ) : (
-          <ProfileAvatar id={profile.id} name={profile.name} src={profile.avatar} size="lg" />
-        )}
-        <div className={cn('grid flex-1 gap-1 text-center', stats.length === 4 ? 'grid-cols-4' : 'grid-cols-3')}>
-          {stats.map((s) => (
-            <button key={s.label} type="button" onClick={s.onClick} disabled={!s.onClick} className="rounded-xl py-1 transition hover:bg-muted disabled:hover:bg-transparent">
-              <p className="text-lg font-extrabold leading-tight">{compact(s.value)}</p>
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-1">
-        <h1 className="flex items-center gap-1.5 text-xl font-extrabold">
-          {profile.name}
-          {profile.official && <BadgeCheck className="h-5 w-5 text-primary" />}
-          {profile.verified && <VerifiedBadge type={profile.verifiedType} className="h-5 w-5" />}
-        </h1>
-        {profile.username && <p className="-mt-1 text-sm font-semibold text-muted-foreground">@{profile.username}</p>}
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-          {profile.isShop ? <span className="flex items-center gap-1"><Store className="h-4 w-4" /> {t('Shop')}</span> : <span className="flex items-center gap-1"><GraduationCap className="h-4 w-4" /> {t('Teacher')}</span>}
-          {profile.shop && <span className="flex items-center gap-1"><MapPin className="h-4 w-4" /> {profile.shop.city}</span>}
-          {profile.rating != null && <span className="flex items-center gap-1"><Stars rating={profile.rating} size="h-3.5 w-3.5" /> {profile.rating} ({profile.ratingCount})</span>}
-          {profile.shop?.hours && <span className="flex items-center gap-1"><Clock className="h-4 w-4" /> {profile.shop.hours}</span>}
-        </p>
-        {profile.bio ? <ExpandableText text={profile.bio} lines={3} className="pt-1 text-sm" /> : profile.mine && <p className="pt-1 text-sm text-muted-foreground">Add a bio so clients know what you sell or teach.</p>}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2">
+      <ProfileHeader profile={profile} onStat={(k) => (k === 'items' ? setTab('items') : k === 'clients' || k === 'following' ? void openList(k) : undefined)}>
         {profile.mine ? (
           <>
-            <Button className="h-11 flex-1 rounded-full" variant="secondary" onClick={() => setEditing(true)}><Pencil className="mr-2 h-4 w-4" /> {t('Edit bio')}</Button>
-            <Button asChild variant="outline" size="icon" className="h-11 w-11 rounded-full"><Link href={profile.isShop ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-5 w-5" /></Link></Button>
+            <Button className="h-10 min-w-0 flex-1 rounded-full" variant="secondary" onClick={() => setEditing(true)}><Pencil className="mr-2 h-4 w-4" /> {t('Edit bio')}</Button>
+            <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={profile.isShop ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-5 w-5" /></Link></Button>
           </>
         ) : (
-          <Button className="h-11 flex-1 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following}>
+          <Button className="h-10 min-w-0 flex-1 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following}>
             {follow.following ? t('Following') : t('Follow')}
           </Button>
         )}
         {profile.isShop && !profile.mine && (
           <MessageSellerButton product={{ id: '', sellerId: profile.id, name: profile.name, price: 0, image: '', category: '', seller: profile.name, status: 'active' } as unknown as Product}
-            label={`Message ${profile.name}`} size="icon" variant="outline" className="h-11 w-11 rounded-full" />
+            label={`Message ${profile.name}`} size="icon" variant="outline" className="h-10 w-10 shrink-0 rounded-full" />
         )}
-        {profile.shop?.phone && <a href={`tel:${profile.shop.phone.replace(/\s/g, '')}`} className={round} aria-label="Call" title={profile.shop.phone}><Phone className="h-5 w-5" /></a>}
         {profile.shop && (profile.shop.whatsapp || profile.shop.phone) && (
           <a href={`https://wa.me/${(profile.shop.whatsapp || profile.shop.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className={round} aria-label="WhatsApp" title="WhatsApp">
             <MessageCircle className="h-5 w-5 text-[#25D366]" />
           </a>
         )}
-        {profile.shop && (
-          <a href={profile.shop.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([profile.name, profile.shop.street, profile.shop.district, profile.shop.city, profile.shop.country].filter(Boolean).join(', '))}`}
-            target="_blank" rel="noopener noreferrer" className={round} aria-label="Map" title={[profile.shop.street, profile.shop.city].join(', ')}><MapPin className="h-5 w-5" /></a>
-        )}
-        {profile.email && !profile.mine && <a href={`mailto:${profile.email}`} className={cn(round, 'hidden sm:flex')} aria-label="Email" title={profile.email}><Mail className="h-5 w-5" /></a>}
         {!profile.mine && on('tips') && <TipButton toUserId={profile.id} toName={profile.name} className={round}><Coins className="h-5 w-5 text-amber-500" /></TipButton>}
-        <button type="button" onClick={share} className={round} aria-label="Share profile" title="Share"><Share2 className="h-5 w-5" /></button>
+        {profile.mine && <button type="button" onClick={share} className={round} aria-label="Share profile" title="Share"><Share2 className="h-5 w-5" /></button>}
         {!profile.mine && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button type="button" className={round} aria-label="More"><MoreHorizontal className="h-5 w-5" /></button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* The shop's other ways to reach it, so the row of buttons fits small phones. */}
+              {profile.shop?.phone && <DropdownMenuItem asChild><a href={`tel:${profile.shop.phone.replace(/\s/g, '')}`}><Phone className="mr-2 h-4 w-4" /> {profile.shop.phone}</a></DropdownMenuItem>}
+              {profile.shop && (
+                <DropdownMenuItem asChild>
+                  <a href={profile.shop.mapUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([profile.name, profile.shop.street, profile.shop.district, profile.shop.city, profile.shop.country].filter(Boolean).join(', '))}`} target="_blank" rel="noopener noreferrer">
+                    <MapPin className="mr-2 h-4 w-4" /> {[profile.shop.street, profile.shop.city].filter(Boolean).join(', ')}
+                  </a>
+                </DropdownMenuItem>
+              )}
+              {profile.email && <DropdownMenuItem asChild><a href={`mailto:${profile.email}`}><Mail className="mr-2 h-4 w-4" /> {t('Email')}</a></DropdownMenuItem>}
+              <DropdownMenuItem onClick={share}><Share2 className="mr-2 h-4 w-4" /> {t('Share')}</DropdownMenuItem>
               <DropdownMenuItem className={isBlocked ? '' : 'text-destructive'} onClick={() => setBlocked(id, !isBlocked).then(() => toast({ title: isBlocked ? `${profile.name} unblocked` : `${profile.name} blocked`, description: isBlocked ? undefined : 'You won’t see their items, lessons or comments.' })).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }))}>
                 <Ban className="mr-2 h-4 w-4" /> {isBlocked ? t('Unblock') : t('Block')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-      </div>
+      </ProfileHeader>
       {isBlocked && <p className="mt-3 rounded-xl bg-muted p-3 text-sm text-muted-foreground">You blocked this account. Unblock it from ⋯ or Settings.</p>}
 
       {profile.isShop && !isBlocked && <ComingUp seller={profile.id} className="mt-5" />}
@@ -217,7 +164,7 @@ function ProfileView({ id }: { id: string }) {
       </div>
 
       <div className="mt-4">
-        {current === 'items' && (items.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{items.map((p) => <ProductCard key={p.id} product={p} variant="shop" />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
+        {current === 'items' && (items.length ? <div className="grid grid-cols-3 gap-0.5">{items.map((p) => <ItemTile key={p.id} product={p} />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
         {current === 'videos' && (videos.length ? <div className="grid grid-cols-3 gap-1">{videos.map((p) => <PosterTile key={p.id} href={`/product?id=${p.id}`} poster={p.videoPoster ?? p.image} label={p.name} />)}</div> : <Empty icon={Play} text="No videos yet" />)}
         {current === 'replays' && (
           <div className="grid grid-cols-3 gap-1">
@@ -258,6 +205,19 @@ function ProfileView({ id }: { id: string }) {
 
       <BioDialog open={editing} onOpenChange={setEditing} profile={profile} onSaved={() => void load()} />
     </div>
+  );
+}
+
+/** An item in the profile grid (like an Instagram shop): the photo, its price, and a mark for a video or sold out. */
+function ItemTile({ product }: { product: Product }) {
+  return (
+    <Link href={`/product?id=${product.id}`} className="relative block aspect-[3/4] overflow-hidden bg-muted" title={product.name}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={product.videoPoster ?? product.image} alt={product.name} loading="lazy" className={cn('h-full w-full', product.photoType === 'worn' || product.videoPoster ? 'object-cover' : 'object-contain p-3')} />
+      {product.video && <Play className="absolute right-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />}
+      {product.stock === 0 && <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs font-bold text-white">Sold out</span>}
+      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white">{formatPrice(Number(product.price))}</span>
+    </Link>
   );
 }
 

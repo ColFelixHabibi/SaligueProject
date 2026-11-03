@@ -39,7 +39,7 @@ export function SettlementsAdmin() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><HandCoins className="h-5 w-5 text-primary" /> Shop sales</CardTitle>
         <CardDescription>
-          {data ? `Fee ${Math.round(data.commission.rate * 1000) / 10}% per sale, free for a shop’s first ${data.commission.freeDays} days. ` : ''}
+          {data ? `Fee ${Math.round(data.commission.rate * 10000) / 100}% per sale, free for a shop’s first ${data.commission.freeDays} days. ` : ''}
           Online payments: Saligue sends the shop its sales minus the fee. Paid to the shop directly: the shop sends Saligue the fee.
         </CardDescription>
       </CardHeader>

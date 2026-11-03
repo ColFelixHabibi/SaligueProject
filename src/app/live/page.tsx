@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, Heart, Radio } from 'lucide-react';
+import { Eye, Heart, Play, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -13,6 +13,8 @@ import { SuggestedShops } from '@/components/suggested-shops';
 import { ComingUp } from '@/components/live/coming-up';
 import { useHideLikes } from '@/lib/hide-likes';
 
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+
 function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
   const elapsed = useElapsed(live.startedAt);
   const products = useProductStore((s) => s.products);
@@ -20,7 +22,11 @@ function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
   const cover = products.find((p) => p.id === (live.pinnedProductId ?? live.productIds[0]));
   return (
     <Link href={`/live/watch?id=${live.id}`} className="group relative block aspect-[9/14] overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-foreground shadow-md">
-      {live.thumbnail ? (
+      {ended && live.replay?.poster ? (
+        // A replay shows a frame from the live itself.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={live.replay.poster} alt="" className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105" />
+      ) : live.thumbnail ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={live.thumbnail} alt="" className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105" />
       ) : cover && (
@@ -30,7 +36,10 @@ function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40" />
       <div className="absolute left-2 top-2 flex items-center gap-1.5">
         {ended ? (
-          <span className="rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">{new Date(live.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+          <>
+            <span className="flex items-center gap-1 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white"><Play className="h-3 w-3 fill-current" /> {live.replay?.duration ? clock(live.replay.duration) : 'Replay'}</span>
+            <span className="rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{new Date(live.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+          </>
         ) : (
           <>
             <span className="flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] font-extrabold text-white"><Radio className="h-3 w-3" /> LIVE</span>
@@ -78,7 +87,7 @@ export default function LivesPage() {
           <SuggestedShops />
           {lives.recent.length > 0 && (
             <section className="space-y-2">
-              <p className="font-bold">Recent lives</p>
+              <p className="font-bold">Watch again</p>
               <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-4">{lives.recent.map((l) => <LiveCard key={l.id} live={l} ended />)}</div>
             </section>
           )}

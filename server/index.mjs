@@ -3,22 +3,24 @@
 import http from 'node:http';
 import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
-import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn } from './tryon.mjs';
+import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn, whenPaidTryOnDown } from './tryon.mjs';
 import { MEDIA_DIR, moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
-import { MAX_REPLAY_BYTES, processReplay, processVideo, receiveUpload, replayFile } from './video.mjs';
+import { MAX_REPLAY_BYTES, processReplay, serverRecordingFile, processVideo, receiveUpload, replayFile } from './video.mjs';
 import { AUTO_LANGUAGES, captionMissing, captionsAvailable, cuesToVtt, enqueueCaptions, storeVtt, textToVtt } from './captions.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
-import { accessToken, closeRoom, liveSettings, removeParticipant } from './live.mjs';
+import { accessToken, closeRoom, liveSettings, recorderReady, recordingStatus, removeParticipant, startRecording, stopRecording } from './live.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
 import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
+import { launchNumbers, markActive } from './launch.mjs';
+import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
@@ -133,6 +135,8 @@ function mergeGuestInto(guestId, accountId) {
       db.prepare('update products set like_count = max(0, like_count - 1) where id = ?').run(product_id);
     }
     db.prepare('update orders set buyer_id = ? where buyer_id = ?').run(accountId, guestId);
+    // Items opened from someone's shared link: the sharer still earns if the account buys them.
+    db.prepare('update or ignore share_visits set user_id = ? where user_id = ?').run(accountId, guestId);
     db.prepare('update comments set user_id = ? where user_id = ?').run(accountId, guestId);
     db.prepare('delete from users where id = ? and is_guest = 1').run(guestId);
   });
@@ -189,11 +193,17 @@ const money = (n) => `$${Number(n).toFixed(2)}`;
 // Products
 // ---------------------------------------------------------------------------
 
+// A live-only deal: a lower price set by the shop during its live, until the countdown ends (or the live does).
+const dealActive = (r) => r.deal_price != null && r.deal_until && r.deal_until > now();
+const priceOf = (r) => (dealActive(r) ? r.deal_price : r.price);
+
 function productOut(r) {
   const p = {
     id: r.id,
     name: r.name,
-    price: r.price,
+    price: priceOf(r),
+    // While a live deal lasts: the usual price (shown crossed out), when it ends and in which live.
+    ...(dealActive(r) ? { deal: { was: r.price, until: r.deal_until, liveId: r.deal_live_id } } : {}),
     image: r.image,
     cutout: r.cutout ?? undefined,
     embedding: parse(r.embedding) ?? undefined,
@@ -553,6 +563,9 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     whatYouShowedInterestIn: all('select product_id, kind, weight, created_at from interactions where user_id = ? order by created_at', id),
     coins: all('select amount, reason, created_at from coins where user_id = ? order by created_at', id),
     tips: all('select to_user, from_user, amount, share, message, status, created_at from tips where from_user = ? or to_user = ?', id, id),
+    shareRewards: sharesOf(id).rewards,
+    itemsOpenedFromSharedLinks: all('select product_id, created_at from share_visits where user_id = ?', id),
+    daysYouUsedSaligue: all('select day from active_days where user_id = ? order by day', id).map((r) => r.day),
     notifications: all('select type, title, body, link, created_at from notifications where user_id = ? order by created_at desc limit 500', id),
   };
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="saligue-my-data-${now().slice(0, 10)}.json"` });
@@ -571,7 +584,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
   const id = user.id;
   transaction(() => {
-    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets']) {
+    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
     db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
@@ -768,6 +781,8 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   const before = ownProduct(user, params[0]);
   const fields = productFields(body);
+  // During a live deal the app shows the deal price: sent back unchanged, it never becomes the usual price.
+  if (dealActive(before) && fields.price !== undefined && Number(fields.price) === Number(before.deal_price)) delete fields.price;
   // Changed photo or words are checked again.
   const checked = await requireFashion({
     ...fields,
@@ -786,12 +801,12 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
 
 // Useful reasons to come back (not tricks): people who saved an item, put it in their cart or in a look hear
 // when its price drops or it is back in stock. At most once a week per person, item and kind.
-function alertInterested(before, after) {
+function alertInterested(before, after, deal = null) {
   if (!after || after.status !== 'active' || after.hidden) return;
   const cheaper = Number(after.price) < Number(before.price);
   const back = before.stock === 0 && (after.stock === null || after.stock > 0);
-  if (!cheaper && !back) return;
-  const kind = back ? 'back' : 'price';
+  if (!cheaper && !back && !deal) return;
+  const kind = deal ? 'deal' : back ? 'back' : 'price';
   const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
   const people = db.prepare(`select user_id from wishlists where product_id = ?
     union select user_id from cart_items where product_id = ?
@@ -806,7 +821,9 @@ function alertInterested(before, after) {
     const last = db.prepare('select sent_at from product_alerts where user_id = ? and product_id = ? and kind = ?').get(user_id, after.id, kind);
     if (last && last.sent_at > weekAgo) continue;
     db.prepare('insert into product_alerts (user_id, product_id, kind, sent_at) values (?, ?, ?, ?) on conflict (user_id, product_id, kind) do update set sent_at = excluded.sent_at').run(user_id, after.id, kind, now());
-    notify(user_id, back
+    notify(user_id, deal
+      ? { type: 'product', title: `Live deal: ${after.name}`, body: `${money(after.deal_price)} instead of ${money(after.price)}, for ${deal.minutes} minutes in the live.`, link: `/live/watch?id=${deal.liveId}`, email: false }
+      : back
       ? { type: 'product', title: `Back in stock: ${after.name}`, body: `${money(after.price)} · it was sold out.`, link, email: false }
       : { type: 'product', title: `Price drop: ${after.name}`, body: `Now ${money(after.price)} (was ${money(before.price)}).`, link, email: false });
   }
@@ -1295,8 +1312,8 @@ route('POST', '/api/orders', ({ user, body }) => {
       }
       db.prepare('update products set stock = stock - ? where id = ? and stock is not null').run(quantity, product.id);
       const group = groups.get(product.seller_id) ?? { shop: product.shop, items: [], total: 0 };
-      group.items.push({ productId: product.id, name: product.name, price: product.price, quantity, image: product.image });
-      group.total += product.price * quantity;
+      group.items.push({ productId: product.id, name: product.name, price: priceOf(product), quantity, image: product.image });
+      group.total += priceOf(product) * quantity;
       groups.set(product.seller_id, group);
     }
     return [...groups].map(([sellerId, group]) => {
@@ -1318,6 +1335,12 @@ route('POST', '/api/orders', ({ user, body }) => {
       recordConversions(db.prepare('select id, items from orders where id = ?').get(id), user.id);
     } catch (error) {
       console.error('Ad sales not counted:', error);
+    }
+    // Share & earn: items this buyer opened from someone's shared link.
+    try {
+      if (featureOn('shares')) recordShareRewards(db.prepare('select * from orders where id = ?').get(id));
+    } catch (error) {
+      console.error('Share rewards not counted:', error);
     }
   }
   const payment = PAYMENT_LABELS[body.paymentMethod];
@@ -2028,10 +2051,16 @@ function liveOut(l) {
     slowSeconds: l.slow_seconds ?? 0,
     // 'fit': the whole camera picture (never cropped); 'fill': fills the screen.
     videoFit: l.video_fit === 'fill' ? 'fill' : 'fit',
+    // How people on camera share the screen: the host big with guests down the side, or a grid.
+    layout: l.layout === 'grid' ? 'grid' : 'side',
+    // Who records the replay: the server (normal), or the host's phone when the server's recorder is off.
+    recorder: l.recorder === 'server' ? 'server' : 'phone',
     // People the host trusts to look after the chat (remove comments, mute, pin, chat settings).
     moderators: (parse(l.moderators) ?? []).map((uid) => ({ uid, name: personNameOf(db.prepare('select display_name, email, is_guest from users where id = ?').get(uid)) })),
     // Cover picture shown in the list of lives (a photo, or a frame from the host's camera).
     thumbnail: l.thumbnail ?? null,
+    // Live-only deals running now: { productId: { price, was, until } }.
+    deals: Object.fromEntries(db.prepare('select id, price, deal_price, deal_until from products where deal_live_id = ? and deal_until > ?').all(l.id, now()).map((p) => [p.id, { price: p.deal_price, was: p.price, until: p.deal_until }])),
     // The recording, to watch again after the live ('recording' → 'processing' → 'ready').
     replay: l.replay_status === 'ready' ? { video: l.replay_video, poster: l.replay_poster, duration: l.replay_duration, startedAt: l.replay_started_at ?? l.started_at } : null,
     replayStatus: l.replay_status ?? null,
@@ -2155,8 +2184,8 @@ route('GET', '/api/lives', ({ user }) => {
   return {
     enabled: liveSettings().enabled && featureOn('live'),
     lives: lives.map((l) => ({ l, s: score(l) })).sort((a, b) => b.s - a.s).map(({ l }) => liveOut(l)),
-    // While no one is live: the latest lives (their covers), so the page is never empty.
-    recent: lives.length ? [] : db.prepare("select * from lives where status = 'ended' and ended_at > ? order by ended_at desc limit 8").all(new Date(Date.now() - 14 * 86_400_000).toISOString()).map(liveOut),
+    // While no one is live: the latest lives that can be watched again, so the page is never empty.
+    recent: lives.length ? [] : db.prepare("select * from lives where status = 'ended' and replay_status = 'ready' and ended_at > ? order by ended_at desc limit 12").all(new Date(Date.now() - 30 * 86_400_000).toISOString()).map(liveOut),
   };
 });
 
@@ -2169,7 +2198,7 @@ route('GET', '/api/shops/suggested', ({ user }) => {
     .map(({ u }) => ({ ...personOut(u), city: parse(u.shop)?.city ?? null, items: u.items, clients: followerCount(u.id), isClient: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, u.id)) }));
 });
 
-route('POST', '/api/lives', ({ user, body }) => {
+route('POST', '/api/lives', async ({ user, body }) => {
   needFeature('live');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to go live.');
   if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only sellers can go live. Switch to selling first.');
@@ -2179,14 +2208,16 @@ route('POST', '/api/lives', ({ user, body }) => {
   // One live at a time per shop: an older one still marked live is closed.
   for (const old of db.prepare("select id from lives where seller_id = ? and status = 'live'").all(user.id)) {
     db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), old.id);
-    setTimeout(() => finishReplay(old.id), 10 * 60_000).unref();
+    setTimeout(() => finishReplay(old.id), db.prepare('select egress_id from lives where id = ?').get(old.id)?.egress_id ? 0 : 10 * 60_000).unref();
     liveEvent(old.id, { type: 'ended' });
   }
   const id = randomUUID();
   const productIds = sellerProductIds(user.id, body.productIds);
   const thumbnail = body.thumbnail ? liveThumbnail(body.thumbnail) : null;
-  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now());
+  // The server records the live when its recorder is running; otherwise the host's phone does.
+  const recorder = (await recorderReady()) ? 'server' : 'phone';
+  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at, recorder) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now(), recorder);
   broadcast('lives');
   // Tell the shop's followers, past customers and whoever asked to be reminded (once each, in the app).
   const shopName = shopNameOf(user);
@@ -2224,6 +2255,8 @@ route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
   const host = live.seller_id === user.id;
   const guest = db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, user.id);
   const name = host ? shopNameOf(user) : personNameOf(user);
+  // The host is joining: the server starts recording (once the room is there).
+  if (host && live.recorder === 'server' && !live.egress_id) void recordLive(live.id);
   return {
     url: liveSettings().url,
     token: accessToken({ room: live.id, identity: user.id, name, canPublish: !!(host || guest), metadata: { role: host ? 'host' : guest ? 'guest' : 'viewer', avatar: user.avatar ?? null, account: !user.is_guest } }),
@@ -2237,6 +2270,22 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   if (live.seller_id !== user.id && Object.keys(body).some((k) => !['pinnedCommentId', 'chatMode', 'slowSeconds', 'poll', 'pollOpen', 'blockedWords'].includes(k))) fail(403, 'forbidden', 'Only the host can change this.');
   if (body.thumbnail !== undefined) db.prepare('update lives set thumbnail = ? where id = ?').run(body.thumbnail ? liveThumbnail(body.thumbnail) : null, live.id);
   if (body.heartGoal !== undefined) db.prepare('update lives set heart_goal = ? where id = ?').run(Math.min(10_000_000, Math.max(0, Math.floor(Number(body.heartGoal) || 0))), live.id);
+  // A live-only deal on one of the host's own items: { productId, price, minutes } (price null ends it).
+  if (body.deal !== undefined) {
+    if (live.status !== 'live') fail(400, 'not_live', 'Deals are only during a live.');
+    const product = db.prepare('select * from products where id = ? and seller_id = ?').get(String(body.deal?.productId ?? ''), user.id);
+    if (!product) fail(404, 'not_found', 'Deals are for your own items.');
+    if (body.deal.price == null) {
+      db.prepare('update products set deal_price = null, deal_until = null, deal_live_id = null where id = ?').run(product.id);
+    } else {
+      const price = Math.round(Number(body.deal.price) * 100) / 100;
+      const minutes = Math.min(60, Math.max(1, Math.floor(Number(body.deal.minutes) || 10)));
+      if (!(price > 0 && price < product.price)) fail(400, 'invalid', 'The live price must be lower than the usual price.');
+      db.prepare('update products set deal_price = ?, deal_until = ?, deal_live_id = ? where id = ?').run(price, new Date(Date.now() + minutes * 60_000).toISOString(), live.id, product.id);
+      alertInterested(product, { ...product, deal_price: price }, { liveId: live.id, minutes });
+    }
+    broadcast('products');
+  }
   if (body.blockedWords !== undefined) {
     const words = (Array.isArray(body.blockedWords) ? body.blockedWords : []).map((w) => String(w).trim().toLowerCase().slice(0, 30)).filter(Boolean);
     db.prepare('update lives set blocked_words = ? where id = ?').run(json([...new Set(words)].slice(0, 50)), live.id);
@@ -2264,6 +2313,7 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   if (body.pinnedCommentId !== undefined) db.prepare('update lives set pinned_comment_id = ? where id = ?').run(body.pinnedCommentId ? String(body.pinnedCommentId) : null, live.id);
   if (body.chatMode !== undefined && ['everyone', 'followers', 'off'].includes(body.chatMode)) db.prepare('update lives set chat_mode = ? where id = ?').run(body.chatMode, live.id);
   if (body.slowSeconds !== undefined) db.prepare('update lives set slow_seconds = ? where id = ?').run([0, 10, 30, 60].includes(Number(body.slowSeconds)) ? Number(body.slowSeconds) : 0, live.id);
+  if (body.layout !== undefined && ['side', 'grid'].includes(body.layout)) db.prepare('update lives set layout = ? where id = ?').run(body.layout, live.id);
   if (body.videoFit !== undefined && ['fit', 'fill'].includes(body.videoFit)) db.prepare('update lives set video_fit = ? where id = ?').run(body.videoFit, live.id);
   if (body.viewers !== undefined) db.prepare('update lives set peak_viewers = max(peak_viewers, ?) where id = ?').run(Math.max(0, Math.floor(Number(body.viewers) || 0)), live.id);
   const fresh = liveOut(db.prepare('select * from lives where id = ?').get(live.id));
@@ -2332,12 +2382,60 @@ setInterval(() => {
 
 // Live replays (see the recording upload in the HTTP handler below).
 const replaySeq = new Map();
+
+// Server recording: started when the host joins (the room may take a few seconds to exist, so it tries again).
+// If the recorder never starts, the host's phone records instead (the live switches to 'phone').
+const recordingStarts = new Set();
+async function recordLive(liveId) {
+  if (recordingStarts.has(liveId)) return;
+  recordingStarts.add(liveId);
+  try {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const live = db.prepare('select status, egress_id from lives where id = ?').get(liveId);
+      if (!live || live.status !== 'live' || live.egress_id) return;
+      try {
+        const egressId = await startRecording(liveId, { pageUrl: `http://127.0.0.1:${PORT}/live/record/`, file: `live-${liveId}.mp4` });
+        db.prepare("update lives set egress_id = ?, replay_status = 'recording', replay_started_at = ? where id = ?").run(egressId, now(), liveId);
+        return;
+      } catch (error) {
+        if (attempt === 7) console.error('Live recording could not start:', error.message);
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    }
+    db.prepare("update lives set recorder = 'phone' where id = ? and egress_id is null").run(liveId);
+    liveEvent(liveId, { type: 'updated', live: liveOut(db.prepare('select * from lives where id = ?').get(liveId)) });
+  } finally {
+    recordingStarts.delete(liveId);
+  }
+}
+
+// Waits for the server's recording file to be closed (a few seconds after it is stopped; at most 10 minutes).
+async function serverRecordingDone(egressId) {
+  for (let i = 0; i < 120; i++) {
+    const s = await recordingStatus(egressId).catch(() => ({ state: 'active' }));
+    if (s.state === 'complete') return true;
+    if (s.state === 'failed') {
+      console.error('Live recording failed:', s.error);
+      return false;
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return false;
+}
+
 function finishReplay(liveId) {
   const live = db.prepare('select * from lives where id = ?').get(liveId);
   if (!live || live.replay_status !== 'recording') return;
   db.prepare("update lives set replay_status = 'processing' where id = ?").run(liveId);
   replaySeq.delete(liveId);
-  processReplay(liveId)
+  const fromServer = !!live.egress_id;
+  (fromServer ? stopRecording(live.egress_id).catch(() => {}).then(() => serverRecordingDone(live.egress_id)) : Promise.resolve(true))
+    // The recording may have failed part-way: whatever was saved still becomes the replay.
+    .then(() => {
+      // The recorder leaves a small info file beside the video.
+      if (fromServer) try { unlinkSync(join(dirname(serverRecordingFile(liveId)), `${live.egress_id}.json`)); } catch { /* none */ }
+      return processReplay(liveId, fromServer);
+    })
     .then((r) => {
       db.prepare('update lives set replay_status = ?, replay_video = ?, replay_poster = ?, replay_duration = ? where id = ?')
         .run(r ? 'ready' : 'none', r?.video ?? null, r?.poster ?? null, r?.duration ?? null, liveId);
@@ -2386,8 +2484,12 @@ route('GET', '/api/profiles/([\\w-]+)/replays', ({ params }) =>
 route('POST', '/api/lives/([\\w-]+)/end', async ({ user, params }) => {
   const live = ownLive(user, params[0]);
   db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), live.id);
-  // The host's app sends the last recording piece and says done; if it never does (closed, no network), save what arrived.
-  setTimeout(() => finishReplay(live.id), 10 * 60_000).unref();
+  // Live-only deals end with the live.
+  if (db.prepare('update products set deal_price = null, deal_until = null, deal_live_id = null where deal_live_id = ?').run(live.id).changes) broadcast('products');
+  // The server's recording is saved now. The host's phone sends its last recording piece and says done; if it never
+  // does (closed, no network), save what arrived.
+  if (live.egress_id) finishReplay(live.id);
+  else setTimeout(() => finishReplay(live.id), 10 * 60_000).unref();
   liveEvent(live.id, { type: 'ended' });
   broadcast('lives');
   await closeRoom(live.id);
@@ -2626,7 +2728,8 @@ route('POST', '/api/interactions', ({ req, user, body }) => {
 
 // For You follows the person (likes, searches, what they spend seconds on…), wherever items come from;
 // the Local tab is the one about place.
-route('GET', '/api/feed', ({ user }) => feedFor(user?.id ?? null, db.prepare('select * from products').all()));
+// ?r=<n>: a refresh (pull down), which mixes the feed differently.
+route('GET', '/api/feed', ({ user, url }) => feedFor(user?.id ?? null, db.prepare('select * from products').all(), String(url.searchParams.get('r') ?? '').slice(0, 12)));
 
 // A shopper can clear what was learned about them (Settings → Privacy).
 route('DELETE', '/api/interactions', ({ user }) => {
@@ -2668,6 +2771,7 @@ const FEATURES = {
   tips: 'Tips',
   ads: 'Saligue Ads (sponsored items)',
   monetization: 'Creator monetization (applications)',
+  shares: 'Share & earn (rewards for sales from shared links)',
   selling: 'New item listings',
   messages: 'Messages between buyers and shops',
   comments: 'Comments',
@@ -3426,6 +3530,12 @@ route('GET', '/api/admin/me', ({ user }) => {
 
 // The first tab of the admin dashboard: the platform at a glance, and what is waiting for this admin
 // (only the queues their rights cover).
+// Launch numbers (launch.mjs): every admin can see them.
+route('GET', '/api/admin/launch', ({ user }) => {
+  if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
+  return launchNumbers();
+});
+
 route('GET', '/api/admin/overview', ({ user }) => {
   if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
   const n = (sql, ...args) => db.prepare(sql).get(...args).n;
@@ -3506,12 +3616,31 @@ route('PUT', '/api/admin/policies/([\\w-]+)', ({ user, params, body }) => {
 // Money rules: monetization requirements, creators' share, ad prices, tips.
 route('GET', '/api/admin/rules', ({ user }) => {
   requireAdmin(user, 'policies');
-  const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays };
+  return currentRules();
 });
+// Money and reach rules as the admin sees them, and how each is written in the admin log.
+const currentRules = () => {
+  const a = adSettings();
+  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays, shareRate: shareRules().rate, shareDays: shareRules().days, shareCap: shareRules().cap };
+};
+const pct = (v) => `${Math.round(v * 10000) / 100}%`;
+const RULE_LOG = {
+  followers: ['Followers needed', (v) => Number(v).toLocaleString('en')], views90: ['Views in 90 days', (v) => Number(v).toLocaleString('en')], accountDays: ['Account age (days)', String],
+  creatorShare: ['Creator share of ads', pct], cpm: ['Ad price per 1,000 views', money], minBudget: ['Smallest ad budget', money],
+  tipShare: ['Creator share of tips', pct], tipAmounts: ['Tip amounts', (v) => v.map(money).join(', ')], verificationPrice: ['Verification price', money],
+  saleFee: ['Sale fee', pct], freeDays: ['Free days for new shops', String],
+  shareRate: ['Share & earn reward', pct], shareDays: ['Share link counts for (days)', String], shareCap: ['Largest share reward', money],
+};
+/** "Sale fee 5% → 3%; Free days 90 → 60": only what changed. */
+const rulesChanged = (before, after) => Object.entries(RULE_LOG)
+  .filter(([k]) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))
+  .map(([k, [label, show]]) => `${label} ${show(before[k])} → ${show(after[k])}`).join('; ');
+
 route('PUT', '/api/admin/rules', ({ user, body }) => {
   requireAdmin(user, 'policies');
-  const n = (v, min, max) => Math.min(max, Math.max(min, Number(v)));
+  // Shares and fees are kept to 4 decimals (0.0057, not 0.005699999999999999).
+  const n = (v, min, max) => Math.round(Math.min(max, Math.max(min, Number(v))) * 10000) / 10000;
+  const before = currentRules();
   if (body.followers !== undefined || body.views90 !== undefined || body.accountDays !== undefined) {
     const r = requirements();
     saveConfig('monetization', { followers: Math.round(n(body.followers ?? r.followers, 0, 10_000_000)), views90: Math.round(n(body.views90 ?? r.views90, 0, 1e9)), accountDays: Math.round(n(body.accountDays ?? r.accountDays, 0, 3650)) });
@@ -3530,9 +3659,14 @@ route('PUT', '/api/admin/rules', ({ user, body }) => {
     const c = commission();
     saveConfig('commission', { rate: n(body.saleFee ?? c.rate, 0, 0.3), freeDays: Math.round(n(body.freeDays ?? c.freeDays, 0, 3650)) });
   }
-  logAdmin(user, 'rules changed', JSON.stringify(body).slice(0, 250));
-  const a = adSettings();
-  return { ...requirements(), creatorShare: a.creatorShare, cpm: a.cpm, minBudget: a.minBudget, tipShare: tipRules().share, tipAmounts: tipRules().amounts, verificationPrice: verificationPrice(), saleFee: commission().rate, freeDays: commission().freeDays };
+  if (body.shareRate !== undefined || body.shareDays !== undefined || body.shareCap !== undefined) {
+    const r = shareRules();
+    saveConfig('shares', { rate: n(body.shareRate ?? r.rate, 0, 0.2), days: Math.round(n(body.shareDays ?? r.days, 1, 60)), cap: Math.round(n(body.shareCap ?? r.cap, 0, 1000) * 100) / 100 });
+  }
+  const after = currentRules();
+  const changes = rulesChanged(before, after);
+  if (changes) logAdmin(user, 'rules changed', changes.slice(0, 500));
+  return after;
 });
 
 // "Bring a shop, get coins": whoever invited a shop gets coins when that shop's first order is delivered
@@ -3555,6 +3689,61 @@ route('GET', '/api/me/referrals', ({ user }) => {
     shops: people.filter((p) => p.role === 'seller').map((p) => ({ name: shopNameOf(p), rewarded: !!p.referral_rewarded, joinedAt: p.created_at })),
     earned: db.prepare("select coalesce(sum(amount), 0) as n from coins where user_id = ? and reason = 'Brought a shop to Saligue'").get(user.id).n,
   };
+});
+
+// Share & earn (shares.mjs): someone opened a shared link (?via=<sharer>) to an item or a look.
+route('POST', '/api/share/visit', ({ user, body }) => {
+  if (!user || !featureOn('shares')) return { recorded: 0 };
+  const via = String(body.via ?? '').slice(0, 64);
+  let ids = [];
+  if (body.product) ids = [String(body.product)];
+  else if (body.look) ids = db.prepare("select ref_id from look_items where look_id = ? and kind = 'product'").all(String(body.look)).map((r) => r.ref_id);
+  return { recorded: recordShareVisit(user.id, via, ids) };
+});
+route('GET', '/api/me/shares', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to see what your shares earned.');
+  const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(user.id);
+  return { on: featureOn('shares'), ...sharesOf(user.id), momo: account ? { number: account.momo_number, name: account.momo_name } : null };
+});
+const accountName = (id) => {
+  const u = db.prepare('select display_name, email, is_guest, shop, role from users where id = ?').get(id);
+  return u ? (u.role === 'seller' ? shopNameOf(u) : personNameOf(u)) : 'Account';
+};
+route('GET', '/api/admin/shares', ({ user }) => {
+  requireAdmin(user, 'money');
+  const ageDays = (id) => Math.floor((Date.now() - Date.parse(db.prepare('select created_at from users where id = ?').get(id)?.created_at ?? now())) / 86_400_000);
+  return {
+    // Sales not paid online: check the sale looks real before the sharer earns (who bought, how it was delivered).
+    review: sharesToReview().map((r) => ({ ...r, sharer: accountName(r.sharerId), buyer: accountName(r.buyerId), shop: accountName(r.sellerId), buyerAgeDays: ageDays(r.buyerId), sharerAgeDays: ageDays(r.sharerId), shopSales: db.prepare("select count(*) as n from orders where seller_id = ? and status = 'delivered'").get(r.sellerId).n })),
+    due: sharesDue().map((d) => {
+      const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(d.userId) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(d.userId);
+      return { ...d, name: accountName(d.userId), momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null };
+    }),
+  };
+});
+route('POST', '/api/admin/shares/review/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  const approve = body.decision === 'approve';
+  if (!approve && body.decision !== 'reject') fail(400, 'invalid', 'Choose approve or reject.');
+  if (!decideShare(params[0], approve)) fail(404, 'not_found', 'This reward is not waiting for review.');
+  logAdmin(user, approve ? 'share reward approved' : 'share reward rejected', params[0]);
+  return { ok: true };
+});
+route('POST', '/api/admin/shares/payout/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  const { ids, amount } = earnedUnpaid(params[0]);
+  if (!ids.length) fail(400, 'nothing', 'Nothing to pay.');
+  if (!db.prepare('select 1 from tip_accounts where user_id = ?').get(params[0]) && !db.prepare('select 1 from creators where user_id = ?').get(params[0])) fail(400, 'no_momo', 'This person has not added a Mobile Money number yet (Share & earn).');
+  const id = randomUUID();
+  const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
+  transaction(() => {
+    db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, reference, paid_at, created_at) values (?, ?, ?, ?, ?, 'paid', ?, ?, ?)").run(id, params[0], `shares-${now()}`, amount, json({ shareSales: ids.length }), reference, now(), now());
+    const mark = db.prepare('update share_rewards set payout_id = ? where id = ?');
+    for (const r of ids) mark.run(id, r);
+  });
+  logAdmin(user, 'share rewards paid', `${params[0]}: ${money(amount)} for ${ids.length} sales${reference ? ` (${reference})` : ''}`);
+  notify(params[0], { type: 'sale', title: `Your share rewards were paid: ${money(amount)}`, body: `${ids.length} sale${ids.length === 1 ? '' : 's'} from your links. Sent to your Mobile Money.`, link: '/share-earn' });
+  return { ok: true, amount };
 });
 
 // Saligue's fee on each sale (Admin → Rules): a share of the order, nothing during a new shop's first days,
@@ -4058,6 +4247,10 @@ route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
     following: db.prepare('select count(*) as n from follows where follower_id = ?').get(u.id).n,
     items: db.prepare("select count(*) as n from products where seller_id = ? and status = 'active' and hidden = 0").get(u.id).n,
     lessons: teaches,
+    // Hearts on everything they share (items, lessons and lives).
+    likes: db.prepare(`select (select coalesce(sum(like_count), 0) from products where seller_id = ?)
+      + (select coalesce(sum(like_count), 0) from lessons where user_id = ?)
+      + (select coalesce(sum(like_count), 0) from lives where seller_id = ?) as n`).get(u.id, u.id, u.id).n,
     rating: rating.n ? Math.round(rating.avg * 10) / 10 : null,
     ratingCount: rating.n,
     liveId: live?.id ?? null,
@@ -4434,11 +4627,20 @@ route('PUT', '/api/config/([\\w-]+)', ({ user, params, body }) => {
 
 // Realistic try-on (see tryon.mjs). A few runs per account per hour, since the free AI has a daily limit.
 const tryOnRuns = new Map();
+// The paid try-on stopped (usually: the fal.ai balance is used up): the admins hear it at once.
+whenPaidTryOnDown((reason) => {
+  for (const a of db.prepare("select id from users where admin = 1 and (admin_level = 1 or admin_perms like '%platform%')").all()) {
+    notify(a.id, { type: 'account', title: 'Realistic try-on: fal.ai stopped', body: `${reason.slice(0, 160)} Free models are used meanwhile (lower quality). Top up at fal.ai/dashboard/billing.`, link: '/admin', email: true });
+  }
+});
 route('GET', '/api/ai/tryon', () => ({ available: featureOn('tryon'), unlimited: unlimitedTryOn(), categories: REALISTIC_CATEGORIES }));
 route('POST', '/api/ai/tryon', async ({ user, body }) => {
   needFeature('tryon');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   if (!REALISTIC_CATEGORIES.includes(body.category)) fail(400, 'unsupported', 'Realistic try-on works for tops, jackets, trousers and dresses.');
+  // The person confirmed in the app that the photo is of them (src/lib/ai/consent.ts). Older app versions
+  // never asked, so they are told to update.
+  if (body.consent !== 'self') fail(400, 'consent_needed', 'Update Saligue and confirm the photo is of you to use realistic try-on.');
   const hour = Date.now() - 3_600_000;
   const recent = (tryOnRuns.get(user.id) ?? []).filter((t) => t > hour);
   // With the paid provider there is no daily limit; this only stops runaway scripts.
@@ -4446,7 +4648,9 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
   if (recent.length >= perHour) fail(429, 'too_many', 'You have made many realistic looks this hour. Try again a bit later.');
   tryOnRuns.set(user.id, [...recent, Date.now()]);
   try {
-    return { image: await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120), Math.min(5, Math.max(0, Math.floor(Number(body.variant) || 0)))) };
+    const look = await tryOn(body.person, body.garment, body.category, String(body.description ?? '').slice(0, 120), Math.min(5, Math.max(0, Math.floor(Number(body.variant) || 0))));
+    // finished: a paid/own AI's photo, shown as it is; otherwise the app checks that only this item changed.
+    return { image: look.image, finished: look.by !== 'free' };
   } catch (error) {
     if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
     fail(error.status ?? 502, 'tryon_failed', error.message);
@@ -4668,6 +4872,7 @@ const server = http.createServer(async (req, res) => {
       const user = userOf(req);
       const live = db.prepare('select * from lives where id = ?').get(recording[1]);
       if (!live || !user || live.seller_id !== user.id) fail(404, 'not_found', 'Live not found.');
+      if (live.recorder === 'server') fail(409, 'server', 'Saligue records this live itself.');
       // Pieces may still arrive a little after the live ended.
       if (live.status !== 'live' && (!live.ended_at || Date.now() - new Date(live.ended_at).getTime() > 15 * 60_000)) fail(409, 'ended', 'This live has ended.');
       if (['processing', 'ready'].includes(live.replay_status)) fail(409, 'done', 'The recording is already saved.');
@@ -4730,6 +4935,7 @@ const server = http.createServer(async (req, res) => {
     }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     const user = userOf(req);
+    if (user) markActive(user.id);
     // The visitor's country (from their address) travels with the request: per-country features, "near you".
     const result = await requestContext.run({ country: countryOf(req) }, () => match.handler({ req, res, url, params, body, user }));
     // A route that answered by itself (a file) is done; never answer twice.

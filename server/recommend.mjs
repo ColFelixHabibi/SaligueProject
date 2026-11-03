@@ -9,8 +9,11 @@ import { db, parse } from './db.mjs';
 
 const HALF_LIFE_DAYS = 21;
 // less: the shopper tapped "Show less like this".
-export const INTERACTION_WEIGHTS = { view: 1, dwell: 0.6, wear: 2.5, cart: 3, message: 3, share: 2, skip: -0.5, less: -4 };
+export const INTERACTION_WEIGHTS = { view: 1, dwell: 0.6, complete: 1.5, wear: 2.5, cart: 3, message: 3, share: 2, skip: -0.5, less: -4 };
 const RETRAIN_MS = 5 * 60_000;
+// New posts get a small first audience in For You (see feedFor).
+const TRIAL_HOURS = 72;
+const TRIAL_VIEWERS = 50;
 
 const decay = (iso) => Math.pow(0.5, (Date.now() - Date.parse(iso)) / (HALF_LIFE_DAYS * 86_400_000));
 
@@ -97,10 +100,11 @@ export function train() {
 
 const ensureModel = () => (Date.now() - model.trainedAt > RETRAIN_MS ? train() : model);
 
-function dailyNoise(id) {
+// The same order all day, unless the shopper refreshes (pull down): each refresh gives another mix.
+function dailyNoise(id, seed = '') {
   const day = new Date().toISOString().slice(0, 10);
   let h = 2166136261;
-  for (const c of `${day}:${id}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  for (const c of `${day}:${seed}:${id}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
   return ((h >>> 0) % 1000) / 1000;
 }
 
@@ -122,7 +126,7 @@ function searchWords(userId) {
   return words;
 }
 
-export function feedFor(userId, products) {
+export function feedFor(userId, products, seed = '') {
   const m = ensureModel();
   const mine = userId ? allSignals(userId).get(userId) ?? new Map() : new Map();
   const byId = new Map(products.map((p) => [p.id, p]));
@@ -189,7 +193,7 @@ export function feedFor(userId, products) {
       const sm = searchMatch(p);
       const score = confidence * (0.9 * look + 0.8 * cf + 0.35 * kind - dislike)
         + (1 - confidence * 0.5) * (0.35 * trend + 0.3 * fresh + popular)
-        + dailyNoise(p.id) * (0.22 - confidence * 0.12)
+        + dailyNoise(p.id, seed) * (seed ? 0.4 - confidence * 0.15 : 0.22 - confidence * 0.12)
         + 0.6 * sm.v
         - seen - (p.stock === 0 ? 0.6 : 0);
       let reason = null;
@@ -216,15 +220,25 @@ export function feedFor(userId, products) {
   const firstItem = new Map();
   for (const p of products) if (!firstItem.has(p.seller_id) || p.created_at < firstItem.get(p.seller_id)) firstItem.set(p.seller_id, p.created_at);
   const newShop = (x) => !x.p.official && Date.now() - Date.parse(firstItem.get(x.p.seller_id)) < 30 * 86_400_000;
+  // A first audience for every new post (the TikTok lesson): one slot in six (the 3rd, 9th…) goes to an item posted in the last
+  // TRIAL_HOURS that fewer than TRIAL_VIEWERS people have seen, best match for this shopper first. How that small
+  // audience reacts (watching to the end, saving, skipping) then decides how far it travels, not the follower count.
+  const trialSince = new Date(Date.now() - TRIAL_HOURS * 3_600_000).toISOString();
+  const reach = new Map(db.prepare('select product_id, count(distinct user_id) as n from interactions where created_at > ? group by product_id').all(trialSince).map((r) => [r.product_id, r.n]));
+  const onTrial = (x) => x.p.created_at > trialSince && (reach.get(x.p.id) ?? 0) < TRIAL_VIEWERS && !(userId && (mine.get(x.p.id) ?? 0) !== 0);
   const official = varied.filter((x) => x.p.official);
   const fresh = varied.filter(newShop);
-  const others = varied.filter((x) => !x.p.official && !newShop(x));
+  const trial = varied.filter((x) => !x.p.official && !newShop(x) && onTrial(x));
+  const others = varied.filter((x) => !x.p.official && !newShop(x) && !onTrial(x));
   const feed = [];
-  while (official.length || others.length || fresh.length) {
-    if (official.length && (feed.length % 4 === 1 || (!others.length && !fresh.length))) feed.push(official.shift());
-    else if (fresh.length && (feed.length % 5 === 3 || !others.length)) {
+  while (official.length || others.length || fresh.length || trial.length) {
+    if (official.length && (feed.length % 4 === 1 || (!others.length && !fresh.length && !trial.length))) feed.push(official.shift());
+    else if (fresh.length && (feed.length % 5 === 3 || (!others.length && !trial.length))) {
       const x = fresh.shift();
       feed.push({ ...x, reason: x.reason ?? 'New shop on Saligue' });
+    } else if (trial.length && (feed.length % 6 === 2 || !others.length)) {
+      const x = trial.shift();
+      feed.push({ ...x, reason: x.reason ?? 'New on Saligue' });
     } else feed.push(others.shift());
   }
   return { items: feed.map((x) => ({ id: x.p.id, reason: x.reason })), personal: confidence, shoppers: m.shoppers };

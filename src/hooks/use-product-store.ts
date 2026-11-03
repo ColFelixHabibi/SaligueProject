@@ -76,7 +76,7 @@ export const useProductStore = create<ProductState>()(() => ({
   },
   updateProduct: async (id, updatedProduct) => {
     // id, seller, official and likeCount are managed by the server.
-    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, videoDuration: _duration, sold: _sold, sample: _sample, ...fields } = updatedProduct;
+    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, videoDuration: _duration, sold: _sold, sample: _sample, deal: _deal, ...fields } = updatedProduct;
     // The fingerprint from the catalogue is a rounded copy: only a new photo's fingerprint is sent.
     if (fields.embedding && fields.embedding === useProductStore.getState().products.find((p) => p.id === id)?.embedding) delete fields.embedding;
     await api(`/products/${id}`, { method: 'PATCH', body: fields });

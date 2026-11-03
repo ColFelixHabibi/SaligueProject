@@ -92,7 +92,7 @@ export function useLive(id: string | null, me: string | null) {
 // Actions
 export const goLive = (body: { title: string; description: string; productIds: string[]; thumbnail?: string | null }) => api<Live>('/lives', { body });
 export const endLive = (id: string) => api<Live>(`/lives/${id}/end`, { body: {} });
-export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill'; thumbnail: string | null; heartGoal: number; blockedWords: string[]; poll: { question: string; options: string[] } | null; pollOpen: boolean }>) =>
+export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill'; layout: 'side' | 'grid'; deal: { productId: string; price: number | null; minutes?: number }; thumbnail: string | null; heartGoal: number; blockedWords: string[]; poll: { question: string; options: string[] } | null; pollOpen: boolean }>) =>
   api<Live>(`/lives/${id}`, { method: 'PATCH', body }).then(withMedia);
 export const votePoll = (id: string, option: number) => api<{ myVote: number; poll: LivePoll }>(`/lives/${id}/poll`, { body: { option } });
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment', replyToId?: string | null) =>

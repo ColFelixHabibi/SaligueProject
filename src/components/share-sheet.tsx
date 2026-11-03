@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { Check, Copy, Mail } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useAuth } from '@/components/auth/auth-provider';
+import { api } from '@/lib/api';
+import { useFeatures } from '@/lib/features';
+import { absoluteUrl } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 
 // One way to share everywhere: the phone's own share menu in the Android/iOS app and in phone browsers, or
@@ -11,10 +16,28 @@ import { cn } from '@/lib/utils';
 type ShareData = { title: string; text?: string; url: string };
 let open: ((d: ShareData) => void) | null = null;
 
+// Share & earn: links to items and looks shared by someone signed in carry ?via=<their id>, so they earn
+// when people buy from them (server/shares.mjs). Set by ShareHost.
+let sharer: string | null = null;
+const EARNS = /\/(product|looks|indeciana)\/?$/;
+function withVia(url: string) {
+  if (!sharer) return url;
+  try {
+    const u = new URL(url);
+    // Saligue's own links only (in the app they point at the real site, see absoluteUrl).
+    if (u.origin !== new URL(absoluteUrl('/')).origin || !EARNS.test(u.pathname)) return url;
+    u.searchParams.set('via', sharer);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 const native = () => (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true;
 
 /** Shares a link. Resolves once the menu is shown (or closed); never throws. */
 export async function shareLink(data: ShareData) {
+  data = { ...data, url: withVia(data.url) };
   try {
     if (native()) {
       const { Share } = await import('@capacitor/share');
@@ -45,6 +68,22 @@ const APPS: { name: string; color: string; href: (d: ShareData) => string; lette
 export function ShareHost() {
   const [data, setData] = useState<ShareData | null>(null);
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth();
+  const on = useFeatures();
+  const pathname = usePathname();
+  const earns = on('shares');
+  useEffect(() => {
+    sharer = user && earns ? user.uid : null;
+  }, [user, earns]);
+  // Opened someone's shared link: remember who brought this shopper to the item or look.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const via = q.get('via');
+    if (!via) return;
+    const path = window.location.pathname.replace(/\/+$/, '');
+    const body = path.endsWith('/product') ? { via, product: q.get('id') } : path.endsWith('/indeciana') ? { via, product: q.get('item') } : path.endsWith('/looks') ? { via, look: q.get('id') } : null;
+    if (body && (body.product || body.look)) void api('/share/visit', { body }).catch(() => {});
+  }, [pathname]);
   useEffect(() => {
     open = (d) => {
       setCopied(false);

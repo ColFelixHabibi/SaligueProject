@@ -1,6 +1,7 @@
 'use client';
 
 import { useLiveRecorder, type RecordSource } from '@/lib/live-recorder';
+import { DealTag } from '@/components/live/deal-tag';
 import { PlanLive } from '@/components/live/plan-live';
 import { ComingUp } from '@/components/live/coming-up';
 import { absoluteUrl } from '@/lib/paths';
@@ -10,7 +11,7 @@ import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirro
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BarChart3, Camera, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -270,8 +271,8 @@ function Studio({ id }: { id: string }) {
   const { live, comments, guests, bursts, error, blockedWords, setBlockedWords, gift } = useLive(id, authUid);
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, sentTracks, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
-  // Recorded on this phone for the replay (what viewers see and hear from the host).
-  // Everyone on camera (host first), with their current camera and mic: the replay shows the stage as viewers see it.
+  // Saligue's server records the replay. Only when its recorder is off does this phone record it:
+  // everyone on camera (host first), with their current camera and mic: the replay shows the stage as viewers see it.
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   const recordSources = useCallback((): RecordSource[] => tilesRef.current.map((t) => ({
@@ -279,7 +280,8 @@ function Studio({ id }: { id: string }) {
     // The host's own mic isn't in their tile (they don't hear themselves); take it from what is sent.
     audio: t.isLocal ? sentTracks().find((x) => x.kind === 'audio') ?? null : t.audio?.mediaStreamTrack ?? null,
   })), [sentTracks]);
-  const replay = useLiveRecorder(id, live?.status === 'live' && status === 'connected', recordSources);
+  const phoneReplay = useLiveRecorder(id, live?.status === 'live' && status === 'connected' && live?.recorder === 'phone', recordSources);
+  const replay = { recording: phoneReplay.recording || (live?.recorder === 'server' && live.status === 'live'), stop: phoneReplay.stop };
   const [liveZoom, setLiveZoom] = useState<{ min: number; max: number; step?: number; value: number; digital: boolean } | null>(null);
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [mics, setMics] = useState<MicDevice[]>([]);
@@ -398,6 +400,14 @@ function Studio({ id }: { id: string }) {
         <p className="text-xs text-muted-foreground">How long each viewer waits between comments.</p>
       </div>
       <div className="space-y-2">
+        <p className="text-sm font-semibold">Guests on camera</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button type="button" variant={live.layout !== 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'side' }))}><PanelRight className="mr-2 h-4 w-4" /> Side</Button>
+          <Button type="button" variant={live.layout === 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'grid' }))}><LayoutGrid className="mr-2 h-4 w-4" /> Grid</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Side: you fill the screen, guests in small boxes on the right. Grid: everyone the same size. The replay keeps the same layout.</p>
+      </div>
+      <div className="space-y-2">
         <p className="text-sm font-semibold">Picture</p>
         <div className="grid grid-cols-2 gap-2">
           <Button type="button" variant={live.videoFit !== 'fill' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { videoFit: 'fit' }))}><Minimize className="mr-2 h-4 w-4" /> Whole</Button>
@@ -483,7 +493,7 @@ function Studio({ id }: { id: string }) {
   return (
     <div className="mx-auto flex h-[100dvh] max-w-6xl gap-6 bg-black md:h-dvh md:bg-transparent md:p-6">
       <div className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
-        <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
+        <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={roomError ?? (status === 'connecting' ? 'Starting your camera…' : 'Reconnecting…')} />
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onViewers={() => setPanel('viewers')}>
           {replay.recording && <span className="flex items-center gap-1 rounded-md bg-black/50 px-1.5 py-1 text-[10px] font-bold text-white" title="Recorded for the replay on your profile"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> REC</span>}
           <button type="button" onClick={() => setConfirmEnd(true)} className="rounded-md bg-destructive px-2.5 py-1 text-xs font-bold text-white">End</button>
@@ -629,6 +639,13 @@ function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; fea
   const { toast } = useToast();
   const featuredIds = featured.map((p) => p.id);
   const save = (body: Parameters<typeof updateLive>[1]) => updateLive(id, body).catch((e) => toast({ variant: 'destructive', title: 'Not saved', description: friendlyError(e) }));
+  // A live-only price on one item, for a few minutes: viewers see the usual price crossed out and a countdown.
+  const [dealFor, setDealFor] = useState<string | null>(null);
+  const [dealPrice, setDealPrice] = useState('');
+  const setDeal = (productId: string, price: number | null, minutes = 10) =>
+    updateLive(id, { deal: { productId, price, minutes } })
+      .then(() => { setDealFor(null); setDealPrice(''); })
+      .catch((e) => toast({ variant: 'destructive', title: 'Not saved', description: friendlyError(e) }));
   return (
     <div className={cn(!bare && 'rounded-2xl border bg-card p-5')}>
       {!bare && <h2 className="mb-1 font-bold">Items in your live</h2>}
@@ -638,13 +655,20 @@ function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; fea
           const inLive = featuredIds.includes(p.id);
           const isPinned = pinnedId === p.id;
           return (
-            <div key={p.id} className={cn('flex items-center gap-3 rounded-xl border p-2', isPinned && 'border-primary bg-primary/5')}>
+            <div key={p.id} className="space-y-1.5">
+            <div className={cn('flex items-center gap-3 rounded-xl border p-2', isPinned && 'border-primary bg-primary/5')}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={p.cutout || p.image} alt="" className="h-12 w-12 shrink-0 rounded-lg bg-muted object-contain p-1" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{p.name}</p>
                 <p className="text-xs text-muted-foreground">{formatPrice(Number(p.price))}{p.stock != null ? ` · ${p.stock} in stock` : ''}</p>
+                {p.deal?.liveId === id && <DealTag was={p.deal.was} until={p.deal.until} className="text-[10px]" />}
               </div>
+              <button type="button" title={p.deal?.liveId === id ? 'End the live price' : 'Live price'} aria-label={p.deal?.liveId === id ? 'End the live price' : 'Live price'}
+                onClick={() => (p.deal?.liveId === id ? void setDeal(p.id, null) : setDealFor(dealFor === p.id ? null : p.id))}
+                className={cn('rounded-full p-1.5', p.deal?.liveId === id ? 'bg-amber-500 text-white' : 'text-amber-600 hover:bg-amber-50')}>
+                <Zap className="h-4 w-4" />
+              </button>
               {isPinned ? (
                 <Button size="sm" variant="secondary" onClick={() => save({ pinnedProductId: null })}><PinOff className="mr-1 h-3.5 w-3.5" /> Hide</Button>
               ) : (
@@ -654,6 +678,16 @@ function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; fea
                 className={cn('rounded-full p-1.5', inLive ? 'text-primary' : 'text-muted-foreground')}>
                 {inLive ? <Check className="h-4 w-4" /> : <X className="h-4 w-4 rotate-45" />}
               </button>
+            </div>
+            {dealFor === p.id && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 p-2 dark:bg-amber-950/30">
+                <Zap className="h-4 w-4 text-amber-600" />
+                <Input type="number" min="0" step="0.01" value={dealPrice} onChange={(e) => setDealPrice(e.target.value)} placeholder={`< ${formatPrice(Number(p.price))}`} className="h-9 w-24" aria-label="Live price" />
+                {[5, 10, 15].map((m) => (
+                  <Button key={m} size="sm" variant="outline" disabled={!(Number(dealPrice) > 0)} onClick={() => void setDeal(p.id, Number(dealPrice), m)}>{m} min</Button>
+                ))}
+              </div>
+            )}
             </div>
           );
         })}

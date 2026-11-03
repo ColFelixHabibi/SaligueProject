@@ -67,7 +67,7 @@ export function FeaturesAdmin({ features }: { features: Record<string, string> }
   );
 }
 
-type Rules = { followers: number; views90: number; accountDays: number; creatorShare: number; cpm: number; minBudget: number; tipShare: number; tipAmounts: number[]; verificationPrice: number; saleFee: number; freeDays: number };
+type Rules = { followers: number; views90: number; accountDays: number; creatorShare: number; cpm: number; minBudget: number; tipShare: number; tipAmounts: number[]; verificationPrice: number; saleFee: number; freeDays: number; shareRate: number; shareDays: number; shareCap: number };
 
 /** The numbers behind monetization, ads and tips. */
 export function RulesAdmin() {
@@ -78,7 +78,7 @@ export function RulesAdmin() {
   useEffect(() => {
     api<Rules>('/admin/rules').then((d) => {
       setR(d);
-      setForm({ followers: String(d.followers), views90: String(d.views90), accountDays: String(d.accountDays), creatorShare: String(Math.round(d.creatorShare * 100)), cpm: String(d.cpm), minBudget: String(d.minBudget), tipShare: String(Math.round(d.tipShare * 100)), tipAmounts: d.tipAmounts.join(', '), verificationPrice: String(d.verificationPrice), saleFee: String(Math.round(d.saleFee * 1000) / 10), freeDays: String(d.freeDays) });
+      setForm({ followers: String(d.followers), views90: String(d.views90), accountDays: String(d.accountDays), creatorShare: String(Math.round(d.creatorShare * 100)), cpm: String(d.cpm), minBudget: String(d.minBudget), tipShare: String(Math.round(d.tipShare * 100)), tipAmounts: d.tipAmounts.join(', '), verificationPrice: String(d.verificationPrice), saleFee: String(Math.round(d.saleFee * 10000) / 100), freeDays: String(d.freeDays), shareRate: String(Math.round(d.shareRate * 10000) / 100), shareDays: String(d.shareDays), shareCap: String(d.shareCap) });
     }).catch(() => setFailed(true));
   }, []);
   if (failed) return <p className="text-sm text-muted-foreground">The money rules could not be loaded. Reload the page.</p>;
@@ -93,7 +93,7 @@ export function RulesAdmin() {
   const save = () => act(() => api<Rules>('/admin/rules', { method: 'PUT', body: {
     followers: Number(form.followers), views90: Number(form.views90), accountDays: Number(form.accountDays),
     creatorShare: Number(form.creatorShare) / 100, cpm: Number(form.cpm), minBudget: Number(form.minBudget),
-    tipShare: Number(form.tipShare) / 100, tipAmounts: form.tipAmounts.split(/[,\s]+/).map(Number).filter(Boolean), verificationPrice: Number(form.verificationPrice), saleFee: Number(form.saleFee) / 100, freeDays: Number(form.freeDays),
+    tipShare: Number(form.tipShare) / 100, tipAmounts: form.tipAmounts.split(/[,\s]+/).map(Number).filter(Boolean), verificationPrice: Number(form.verificationPrice), saleFee: Number(form.saleFee) / 100, freeDays: Number(form.freeDays), shareRate: Number(form.shareRate) / 100, shareDays: Number(form.shareDays), shareCap: Number(form.shareCap),
   } }), 'Rules saved').then((d) => d && setR(d));
   return (
     <Card>
@@ -112,6 +112,12 @@ export function RulesAdmin() {
         <div className="grid gap-3 sm:grid-cols-2">
           {field('saleFee', 'Fee per sale (%)', 'Up to 30%. Fixed on each order when it is placed')}
           {field('freeDays', 'Free days for a new shop', 'No fee during a shop’s first days')}
+        </div>
+        <p className="text-sm font-semibold">Share & earn: anyone earns from sales their links bring (no minimum)</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {field('shareRate', 'Share & earn reward (%)', 'Up to 20%. Saligue pays it to whoever shared the link, on delivered sales')}
+          {field('shareDays', 'Share link counts for (days)', 'A purchase within these days of opening the link earns the sharer')}
+          {field('shareCap', 'Largest reward per item ($)', 'Limits what a faked sale could earn. Sales not paid online also wait for your approval (Money)')}
         </div>
         <p className="text-sm font-semibold">Ads and creators’ share</p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -291,6 +297,25 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
   );
 }
 
+// Older log lines kept the raw settings ({"followers":10000,…}): shown as short words instead.
+const LOG_LABEL: Record<string, string> = {
+  followers: 'Followers', views90: 'Views 90 days', accountDays: 'Account days', creatorShare: 'Creator share', cpm: 'Ad price /1000', minBudget: 'Min. ad budget',
+  tipShare: 'Tip share', tipAmounts: 'Tips', verificationPrice: 'Verification', saleFee: 'Sale fee', freeDays: 'Free days', shareRate: 'Share reward', shareDays: 'Share days', shareCap: 'Share cap',
+};
+const SHARES = new Set(['creatorShare', 'tipShare', 'saleFee', 'shareRate']);
+function readable(detail: string) {
+  if (!detail.startsWith('{')) return detail;
+  try {
+    return Object.entries(JSON.parse(detail) as Record<string, unknown>).map(([k, v]) => {
+      const value = SHARES.has(k) && typeof v === 'number' ? `${Math.round(v * 10000) / 100}%` : Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString() : String(v);
+      return `${LOG_LABEL[k] ?? k} ${value}`;
+    }).join(' · ');
+  } catch {
+    // Cut short when it was saved: shown as it is.
+    return detail;
+  }
+}
+
 /** Main admin only: what every admin did, newest first. */
 export function AdminLog() {
   const [rows, setRows] = useState<{ id: number; who: string; action: string; detail: string; at: string }[]>([]);
@@ -301,7 +326,7 @@ export function AdminLog() {
       <CardContent className="divide-y text-sm">
         {rows.length === 0 && <p className="text-muted-foreground">Nothing yet.</p>}
         {rows.map((r) => (
-          <div key={r.id} className="py-2"><b>{r.who}</b> · {r.action}{r.detail && <span className="text-muted-foreground"> — {r.detail}</span>}<span className="block text-xs text-muted-foreground">{new Date(r.at).toLocaleString()}</span></div>
+          <div key={r.id} className="py-2"><b>{r.who}</b> · {r.action}{r.detail && <span className="break-words text-muted-foreground"> — {readable(r.detail)}</span>}<span className="block text-xs text-muted-foreground">{new Date(r.at).toLocaleString()}</span></div>
         ))}
       </CardContent>
     </Card>

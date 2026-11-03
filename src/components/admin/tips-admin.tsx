@@ -83,3 +83,55 @@ export function CoinsAdmin() {
     </Card>
   );
 }
+
+type ShareDue = { userId: string; name: string; amount: number; sales: number; momoNumber: string | null; momoName: string | null };
+type ShareReview = { id: string; item: string; sale: number; amount: number; paymentMethod: string; receivedBy: string | null; orderedAt: string; sharer: string; buyer: string; shop: string; buyerAgeDays: number; sharerAgeDays: number; shopSales: number };
+
+const PAID: Record<string, string> = { cash_on_delivery: 'cash on delivery', mobile_money: 'Mobile Money to the shop', pickup: 'paid at pickup' };
+
+/**
+ * Share & earn: rewards for delivered sales from people's shared links (Saligue pays them, not the shop).
+ * Sales not paid online are checked here first; then send what is due by Mobile Money and mark it paid.
+ */
+export function SharesAdmin() {
+  const { toast } = useToast();
+  const [data, setData] = useState<{ review: ShareReview[]; due: ShareDue[] } | null>(null);
+  const [refs, setRefs] = useState<Record<string, string>>({});
+  const load = useCallback(() => api<{ review: ShareReview[]; due: ShareDue[] }>('/admin/shares').then(setData).catch(() => {}), []);
+  useEffect(() => void load(), [load]);
+  const act = (path: string, body: object, done: string) =>
+    api(path, { body })
+      .then(() => { toast({ title: done }); void load(); })
+      .catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }));
+  const count = (data?.review.length ?? 0) + (data?.due.length ?? 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Coins className="h-5 w-5 text-primary" /> Share & earn {count > 0 && <Badge>{count}</Badge>}</CardTitle>
+        <CardDescription>Rewards for delivered sales that came from people’s shared links (Saligue pays them, not the shop). Sales not paid online are checked first: no money reached Saligue, so make sure the sale looks real (new accounts, a shop with few sales, the same people again and again). Then send what is due by Mobile Money and mark it paid.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {data && !count && <p className="text-muted-foreground">Nothing waiting.</p>}
+        {!!data?.review.length && <p className="font-semibold">To check</p>}
+        {data?.review.map((r) => (
+          <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
+            <span className="min-w-0 flex-1">
+              <b>{r.sharer}</b> ({r.sharerAgeDays} days on Saligue) shared <b>{r.item}</b> · {formatPrice(r.sale)} → reward {formatPrice(r.amount)}
+              <span className="block text-xs text-muted-foreground">Bought by {r.buyer} ({r.buyerAgeDays} days on Saligue) from {r.shop} ({r.shopSales} delivered sales) · {PAID[r.paymentMethod] ?? r.paymentMethod} · {r.receivedBy === 'code' ? 'handover code' : r.receivedBy === 'buyer' ? 'buyer confirmed' : 'delivered'} · {new Date(r.orderedAt).toLocaleDateString()}</span>
+            </span>
+            <Button size="sm" variant="outline" onClick={() => act(`/admin/shares/review/${r.id}`, { decision: 'approve' }, 'Approved')}>Looks real</Button>
+            <Button size="sm" variant="ghost" onClick={() => act(`/admin/shares/review/${r.id}`, { decision: 'reject' }, 'Rejected')}>Reject</Button>
+          </div>
+        ))}
+        {!!data?.due.length && <p className="pt-2 font-semibold">To pay</p>}
+        {data?.due.map((d) => (
+          <div key={d.userId} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3">
+            <span className="min-w-0 flex-1"><b>{d.name}</b> · {formatPrice(d.amount)} ({d.sales} sale{d.sales === 1 ? '' : 's'}) → MoMo {d.momoNumber ?? 'not set yet'} {d.momoName && `(${d.momoName})`}</span>
+            <input className="h-9 w-28 rounded-md border bg-background px-2" placeholder="Reference" value={refs[d.userId] ?? ''} onChange={(e) => setRefs({ ...refs, [d.userId]: e.target.value })} aria-label="Mobile Money reference" />
+            <Button size="sm" disabled={!d.momoNumber} onClick={() => act(`/admin/shares/payout/${d.userId}`, { reference: refs[d.userId] ?? '' }, `Marked as paid: ${formatPrice(d.amount)}`)}>Mark paid</Button>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
