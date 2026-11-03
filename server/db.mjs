@@ -687,6 +687,27 @@ db.exec(`
   );
   create index if not exists active_days_day on active_days(day);
 
+  -- Security watch (security.mjs): attacks noticed, and addresses blocked for a while.
+  create table if not exists security_events (
+    id integer primary key autoincrement,
+    kind text not null,
+    ip text,
+    country text,
+    user_id text,
+    detail text not null default '',
+    alerted integer not null default 0,
+    created_at text not null
+  );
+  create index if not exists security_events_time on security_events(created_at);
+  create index if not exists security_events_ip on security_events(ip, kind, created_at);
+  create table if not exists blocked_ips (
+    ip text primary key,
+    reason text not null,
+    until text,                         -- null: until an admin lifts it
+    by text not null,
+    created_at text not null
+  );
+
   -- How often each item is opened per day, for the seller's dashboard.
   create table if not exists product_views (
     product_id text not null references products(id) on delete cascade,

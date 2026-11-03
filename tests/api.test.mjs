@@ -13,7 +13,7 @@ const root = new URL('..', import.meta.url).pathname;
 const data = mkdtempSync(join(tmpdir(), 'saligue-test-'));
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
-const env = { ...process.env, SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
+const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
   // Live works against a LiveKit that is not there; no server recorder answers, so hosts' phones record.
   LIVEKIT_URL: 'ws://127.0.0.1:9', LIVEKIT_API_KEY: 'test', LIVEKIT_API_SECRET: 'test-secret', LIVEKIT_API_URL: 'http://127.0.0.1:9', EGRESS_HEALTH_PORT: '9' };
 let server;
@@ -473,5 +473,48 @@ describe('try-on photos', () => {
     const sweep = spawnSync(process.execPath, ['--no-warnings', '-e', "await import('./server/tryon.mjs'); process.exit(0)"], { cwd: root, env, encoding: 'utf8' });
     assert.equal(sweep.status, 0, sweep.stderr);
     assert.equal(existsSync(file), false);
+  });
+});
+
+describe('security watch', () => {
+  const from = (ip) => ({ 'X-Forwarded-For': ip });
+  const mainAdmin = async (name) => {
+    const a = await register(name);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(a.id);
+    db.close();
+    return a;
+  };
+  test('a scanner is blocked, the admins are told, and an admin can lift the block', async () => {
+    const admin = await mainAdmin('Security Admin');
+    for (let i = 0; i < 30; i++) await fetch(`${base}/${['.env', '.git/config', 'wp-login.php'][i % 3]}`, { headers: from('203.0.113.7') });
+    assert.equal((await call('/health', { headers: from('203.0.113.7') })).status, 403);
+    assert.equal((await call('/health', { headers: from('203.0.113.8') })).status, 200);
+    const seen = (await call('/admin/security', { token: admin.token })).json;
+    assert.ok(seen.blocked.some((b) => b.ip === '203.0.113.7'));
+    assert.ok(seen.events.some((e) => e.kind === 'probe' && e.ip === '203.0.113.7'));
+    const told = (await call('/me/notifications', { token: admin.token })).json;
+    assert.ok(JSON.stringify(told).includes('scanner was blocked'));
+    assert.equal((await call('/admin/security/block/203.0.113.7', { method: 'DELETE', token: admin.token })).status, 200);
+    assert.equal((await call('/health', { headers: from('203.0.113.7') })).status, 200);
+    // The server's own address is never blocked (that would lock everyone out).
+    const own = await call('/admin/security/block', { token: admin.token, body: { ip: '127.0.0.1' }, headers: from('192.0.2.50') });
+    assert.equal(own.status, 200);
+    assert.equal(own.json.blocked.some((b) => b.ip === '127.0.0.1'), false);
+    // Nor the admin's own address.
+    assert.equal((await call('/admin/security/block', { token: admin.token, body: { ip: '192.0.2.50' }, headers: from('192.0.2.50') })).status, 400);
+  });
+  test('guessing an admin password, trying admin functions and faking a payment are reported', async () => {
+    const admin = await mainAdmin('Watch Admin');
+    for (let i = 0; i < 3; i++) await call('/auth/login', { body: { email: admin.user.email, password: 'wrong-guess' }, headers: from('198.51.100.4') });
+    const intruder = await register('Curious User');
+    assert.equal((await call('/admin/security', { token: intruder.token, headers: from('198.51.100.5') })).status, 403);
+    assert.equal((await call('/payments/webhook', { body: { event: 'charge.completed' }, headers: { ...from('198.51.100.6'), 'verif-hash': 'fake' } })).status, 401);
+    const seen = (await call('/admin/security', { token: admin.token })).json;
+    for (const kind of ['login_failed', 'admin_denied', 'webhook_forged']) assert.ok(seen.events.some((e) => e.kind === kind), kind);
+    const told = JSON.stringify((await call('/me/notifications', { token: admin.token })).json);
+    assert.ok(told.includes('guessing an admin password'));
+    assert.ok(told.includes('fake payment confirmation'));
   });
 });

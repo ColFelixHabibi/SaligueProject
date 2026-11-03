@@ -20,6 +20,7 @@ import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from '
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { launchNumbers, markActive } from './launch.mjs';
+import { accountLocked, adminChange, adminDenied, adminSignedIn, blockIp, connectSecurity, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
@@ -2842,7 +2843,11 @@ const ADMIN_PERMS = {
   platform: 'Email, payments, AI keys and the app signing key',
 };
 const can = (user, perm) => !!user?.admin && (user.admin_level === 1 || (user.admin_level === 2 && (parse(user.admin_perms) ?? []).includes(perm)));
-const logAdmin = (user, action, detail = '') => db.prepare('insert into admin_log (user_id, action, detail, created_at) values (?, ?, ?, ?)').run(user.id, action, String(detail).slice(0, 300), now());
+const logAdmin = (user, action, detail = '') => {
+  db.prepare('insert into admin_log (user_id, action, detail, created_at) values (?, ?, ?, ?)').run(user.id, action, String(detail).slice(0, 300), now());
+  // Admins added or changed: the main admins are always told (security.mjs).
+  if (ADMIN_CHANGES[action]) adminChange(requestContext.getStore()?.ip ?? null, user.email, `${ADMIN_CHANGES[action]}: ${String(detail).slice(0, 120)}`);
+};
 const requireAdmin = (user, perm = 'platform') => {
   if (!can(user, perm)) fail(403, 'forbidden', user?.admin ? 'Your admin account does not have this right. Ask the main admin.' : 'Only Saligue admins can do this.');
 };
@@ -3530,6 +3535,38 @@ route('GET', '/api/admin/me', ({ user }) => {
 
 // The first tab of the admin dashboard: the platform at a glance, and what is waiting for this admin
 // (only the queues their rights cover).
+// Security watch (security.mjs): alerts go to the main admins and admins with the Platform right, by push and email.
+connectSecurity({
+  country: (ip) => countryOfIp(ip),
+  alert: ({ title, body }) => {
+    for (const a of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%platform%')").all()) {
+      notify(a.id, { type: 'account', title, body, link: '/admin?tab=security', email: true });
+    }
+  },
+});
+if (process.env.SALIGUE_SECURITY_WATCH !== '0') startSecurityWatch();
+route('GET', '/api/admin/security', ({ user }) => {
+  requireAdmin(user, 'platform');
+  return securityOverview();
+});
+route('POST', '/api/admin/security/block', ({ user, body }) => {
+  requireAdmin(user, 'platform');
+  const target = String(body.ip ?? '').trim();
+  if (!/^[\d.]{7,15}$|^[0-9a-f:]{3,45}$/i.test(target)) fail(400, 'invalid', 'Enter an IP address.');
+  if (target === requestContext.getStore()?.ip) fail(400, 'own_address', 'This is your own address: blocking it would lock you out.');
+  const hours = body.hours === null || body.hours === undefined ? null : Math.min(24 * 365, Math.max(1, Number(body.hours) || 24));
+  blockIp(target, hours, String(body.reason ?? '').trim().slice(0, 200) || 'Blocked by an admin', user.email);
+  logAdmin(user, 'address blocked', `${target}${hours ? ` for ${hours} h` : ''}`);
+  return securityOverview();
+});
+route('DELETE', '/api/admin/security/block/([\\w.:%-]+)', ({ user, params }) => {
+  requireAdmin(user, 'platform');
+  const target = decodeURIComponent(params[0]);
+  unblockIp(target);
+  logAdmin(user, 'address unblocked', target);
+  return securityOverview();
+});
+
 // Launch numbers (launch.mjs): every admin can see them.
 route('GET', '/api/admin/launch', ({ user }) => {
   if (!user?.admin) fail(403, 'forbidden', 'Admins only.');
@@ -4788,8 +4825,38 @@ function readBody(req) {
   });
 }
 
+// What the security watch learns from answered and refused requests (security.mjs).
+const ADMIN_CHANGES = { 'main admin added': 'added a main admin', 'sub-admin added': 'added an admin', 'sub-admin rights': 'changed an admin’s rights', 'sub-admin removed': 'removed an admin' };
+function afterRequest(ip, path, method, body, user, result) {
+  try {
+    if (path === '/api/auth/register' && result?.token) signedUp(ip);
+    else if (path === '/api/auth/forgot') resetRequested(ip, String(body.email ?? '').slice(0, 120));
+    else if ((path === '/api/auth/login' || path === '/api/auth/google') && result?.user?.id) {
+      const account = db.prepare('select id, email, admin from users where id = ?').get(result.user.id);
+      if (account?.admin) adminSignedIn(ip, account);
+    } else if (method !== 'GET' && path.startsWith('/api/admin/platform') && user) adminChange(ip, user.email, `changed platform settings (${path.replace('/api/admin/platform', '') || '/'})`);
+  } catch (error) {
+    console.error('Security watch:', error);
+  }
+}
+function afterRefusal(ip, path, error, body, user) {
+  try {
+    if (path === '/api/auth/login') {
+      const email = String(body.email ?? '').trim().toLowerCase().slice(0, 120);
+      if (error.code === 'invalid_credentials') loginFailed(ip, email, { admin: !!db.prepare('select admin from users where email = ?').get(email)?.admin });
+      else if (error.code === 'too_many_attempts') accountLocked(ip, email);
+    } else if (path === '/api/payments/webhook' && error.status === 401) webhookForged(ip);
+    else if (error.status === 403 && path.startsWith('/api/admin')) adminDenied(ip, user?.id ?? null, path);
+  } catch (e) {
+    console.error('Security watch:', e);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  // Security watch (security.mjs): blocked addresses are refused; scanners, attack text and floods are noticed.
+  const ip = clientIp(req);
+  if (!screenRequest(ip, url.pathname, url.search.slice(1))) return send(res, 403, { error: { code: 'blocked', message: 'Access from your network is paused for a while. Try again later.' } });
   const isApi = url.pathname.startsWith('/api/');
   if (isApi) {
     // The website may be served from elsewhere (e.g. GitHub Pages) and call this server.
@@ -4923,6 +4990,8 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  let body = {};
+  let user = null;
   try {
     const match = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
     if (!match) fail(404, 'not_found', 'Not found.');
@@ -4933,11 +5002,13 @@ const server = http.createServer(async (req, res) => {
     if (!bearer && cookieToken(req) && ['POST', 'PUT', 'PATCH'].includes(req.method) && !String(req.headers['content-type'] || '').startsWith('application/json')) {
       fail(403, 'forbidden', 'Invalid request.');
     }
-    const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
-    const user = userOf(req);
+    body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
+    user = userOf(req);
     if (user) markActive(user.id);
+    screenBody(ip, user?.id ?? null, body);
     // The visitor's country (from their address) travels with the request: per-country features, "near you".
-    const result = await requestContext.run({ country: countryOf(req) }, () => match.handler({ req, res, url, params, body, user }));
+    const result = await requestContext.run({ country: countryOf(req), ip }, () => match.handler({ req, res, url, params, body, user }));
+    afterRequest(ip, url.pathname, req.method, body, user, result);
     // A route that answered by itself (a file) is done; never answer twice.
     if (res.writableEnded || res.headersSent) return;
     if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));
@@ -4945,7 +5016,10 @@ const server = http.createServer(async (req, res) => {
     send(res, 200, result ?? null);
   } catch (error) {
     if (res.headersSent) return console.error(error);
-    if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
+    if (error instanceof HttpError) {
+      afterRefusal(ip, url.pathname, error, body, user);
+      return send(res, error.status, { error: { code: error.code, message: error.message } });
+    }
     console.error(error);
     send(res, 500, { error: { code: 'server_error', message: 'Something went wrong. Please try again.' } });
   }
