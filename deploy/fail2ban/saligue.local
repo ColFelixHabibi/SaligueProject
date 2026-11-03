@@ -1,0 +1,24 @@
+# Saligue server: ban addresses that guess SSH passwords.
+# Install: apt install fail2ban && cp deploy/fail2ban/saligue.local /etc/fail2ban/jail.d/ && systemctl restart fail2ban
+# Check:   fail2ban-client status sshd        Unban: fail2ban-client set sshd unbanip <address>
+# Locked out yourself? Wait for the ban to end, or use the hosting provider's console (Hetzner Cloud → Console).
+
+[DEFAULT]
+# Never ban the server itself.
+ignoreip = 127.0.0.1/8 ::1
+# Read sign-ins from the system journal (works whether or not /var/log/auth.log exists).
+backend = systemd
+# 5 wrong tries in 10 minutes: banned for 1 hour; each new ban of the same address lasts twice as long, up to a week.
+findtime = 10m
+maxretry = 5
+bantime = 1h
+bantime.increment = true
+bantime.factor = 2
+bantime.maxtime = 1w
+
+[sshd]
+enabled = true
+mode = aggressive
+# Ubuntu 26.04 logs failed sign-ins from "sshd-session", which the stock filter (_COMM=sshd) misses:
+# read everything the ssh service writes.
+filter = sshd[journalmatch='_SYSTEMD_UNIT=ssh.service']
