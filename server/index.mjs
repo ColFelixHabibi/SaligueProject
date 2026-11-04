@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { launchNumbers, markActive } from './launch.mjs';
 import { accountLocked, adminChange, adminDenied, adminSignedIn, blockIp, connectSecurity, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
+import { sweepWatermarked, watermarked } from './download.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
@@ -135,6 +136,11 @@ function mergeGuestInto(guestId, accountId) {
     for (const { product_id } of db.prepare('select product_id from likes where user_id = ?').all(guestId)) {
       db.prepare('update products set like_count = max(0, like_count - 1) where id = ?').run(product_id);
     }
+    db.prepare('update or ignore reposts set user_id = ? where user_id = ?').run(accountId, guestId);
+    for (const { product_id } of db.prepare('select product_id from reposts where user_id = ?').all(guestId)) {
+      db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(product_id);
+    }
+    db.prepare('delete from reposts where user_id = ?').run(guestId);
     db.prepare('update orders set buyer_id = ? where buyer_id = ?').run(accountId, guestId);
     // Items opened from someone's shared link: the sharer still earns if the account buys them.
     db.prepare('update or ignore share_visits set user_id = ? where user_id = ?').run(accountId, guestId);
@@ -227,6 +233,9 @@ function productOut(r) {
     // Hidden from shoppers after several reports; only its seller still sees it.
     hidden: !!r.hidden,
     likeCount: r.like_count,
+    repostCount: r.repost_count ?? 0,
+    // Pinned by the shop to the top of its profile (newest pin first).
+    pinnedAt: r.pinned_at ?? undefined,
     sound: parse(r.sound) ?? undefined,
     // null: the seller doesn't track stock.
     stock: r.stock ?? null,
@@ -565,6 +574,7 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     coins: all('select amount, reason, created_at from coins where user_id = ? order by created_at', id),
     tips: all('select to_user, from_user, amount, share, message, status, created_at from tips where from_user = ? or to_user = ?', id, id),
     shareRewards: sharesOf(id).rewards,
+    resaligued: all('select product_id, created_at from reposts where user_id = ?', id),
     itemsOpenedFromSharedLinks: all('select product_id, created_at from share_visits where user_id = ?', id),
     daysYouUsedSaligue: all('select day from active_days where user_id = ? order by day', id).map((r) => r.day),
     notifications: all('select type, title, body, link, created_at from notifications where user_id = ? order by created_at desc limit 500', id),
@@ -585,6 +595,10 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
   const id = user.id;
   transaction(() => {
+    for (const { product_id } of db.prepare('select product_id from reposts where user_id = ?').all(id)) {
+      db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(product_id);
+    }
+    db.prepare('delete from reposts where user_id = ?').run(id);
     for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
@@ -858,6 +872,86 @@ route('POST', '/api/products/([\\w-]+)/like', ({ user, params }) => {
 });
 
 route('GET', '/api/me/likes', ({ user }) => (user ? db.prepare('select product_id from likes where user_id = ?').all(user.id).map((r) => r.product_id) : []));
+
+// Resaligue (repost): pass an item on to your followers. Guests too (it shapes their own For You); only accounts are
+// shown to others. Not your own items: a shop has its profile and Pin for those.
+route('POST', '/api/products/([\\w-]+)/resaligue', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const p = db.prepare("select id, seller_id, name from products where id = ? and status = 'active'").get(params[0]);
+  if (!p) fail(404, 'not_found', 'This item no longer exists.');
+  if (p.seller_id === user.id) fail(400, 'own_item', 'This is your item. Pin it to your profile instead.');
+  const reposted = transaction(() => {
+    if (db.prepare('select 1 from reposts where product_id = ? and user_id = ?').get(p.id, user.id)) {
+      db.prepare('delete from reposts where product_id = ? and user_id = ?').run(p.id, user.id);
+      db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(p.id);
+      return false;
+    }
+    db.prepare('insert into reposts (product_id, user_id, created_at) values (?, ?, ?)').run(p.id, user.id, now());
+    db.prepare('update products set repost_count = repost_count + 1 where id = ?').run(p.id);
+    return true;
+  });
+  // The shop hears about it once per person (removing and adding again doesn't notify twice in a day).
+  if (reposted && !user.is_guest && !db.prepare("select 1 from notifications where user_id = ? and link = ? and title like ? and created_at > ?")
+    .get(p.seller_id, `/product?id=${p.id}`, `${personNameOf(user)}%`, new Date(Date.now() - 86_400_000).toISOString())) {
+    notify(p.seller_id, { type: 'account', title: `${personNameOf(user)} resaligued your item`, body: `${p.name} is now shown to their followers.`, link: `/product?id=${p.id}`, email: false });
+  }
+  broadcast('products');
+  return { reposted, repostCount: db.prepare('select repost_count from products where id = ?').get(p.id).repost_count };
+});
+route('GET', '/api/me/resaligues', ({ user }) => (user ? db.prepare('select product_id from reposts where user_id = ? order by created_at desc').all(user.id).map((r) => r.product_id) : []));
+// A profile's Resaligued tab: newest first, only items still for sale.
+route('GET', '/api/profiles/([\\w-]+)/resaligues', ({ params }) =>
+  db.prepare("select r.product_id from reposts r join products p on p.id = r.product_id where r.user_id = ? and p.status = 'active' and p.hidden = 0 order by r.created_at desc limit 300")
+    .all(params[0]).map((r) => r.product_id));
+// The Following tab: items the people you follow resaligued lately, with who and when.
+route('GET', '/api/me/following/resaligues', ({ user }) => {
+  if (!user) return [];
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  return db.prepare(`select r.product_id, r.created_at, u.id as uid, u.display_name, u.email, u.is_guest, u.role, u.shop from reposts r
+    join follows f on f.seller_id = r.user_id and f.follower_id = ? join users u on u.id = r.user_id join products p on p.id = r.product_id
+    where r.created_at > ? and p.status = 'active' and p.hidden = 0 and p.seller_id != ? order by r.created_at desc limit 200`).all(user.id, since, user.id)
+    .map((r) => ({ productId: r.product_id, at: r.created_at, by: { id: r.uid, name: r.role === 'seller' ? shopNameOf(r) : personNameOf(r) } }));
+});
+
+// Pin: a shop keeps up to 3 of its items at the top of its profile.
+const MAX_PINS = 3;
+route('POST', '/api/products/([\\w-]+)/pin', ({ user, body, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const p = db.prepare('select id, seller_id, pinned_at from products where id = ?').get(params[0]);
+  if (!p) fail(404, 'not_found', 'This item no longer exists.');
+  if (p.seller_id !== user.id) fail(403, 'not_yours', 'Only the shop can pin its items.');
+  const pin = body.pinned !== false;
+  if (pin && !p.pinned_at && db.prepare('select count(*) as n from products where seller_id = ? and pinned_at is not null').get(user.id).n >= MAX_PINS) {
+    fail(409, 'too_many_pins', `You can pin ${MAX_PINS} items. Unpin one first.`);
+  }
+  db.prepare('update products set pinned_at = ? where id = ?').run(pin ? now() : null, p.id);
+  broadcast('products');
+  return { pinned: pin };
+});
+
+// Download: the item's picture (or video) with the Saligue logo and the shop's name on it, to save on the phone.
+// Making a video copy is heavy: at most 20 downloads an hour per person, and one video made at a time.
+const downloads = new Map();
+route('GET', '/api/products/([\\w-]+)/download', async ({ user, params, url, req, res }) => {
+  const p = db.prepare("select * from products where id = ? and status = 'active' and hidden = 0").get(params[0]);
+  if (!p) fail(404, 'not_found', 'This item no longer exists.');
+  const who = user?.id ?? clientIp(req);
+  const recent = (downloads.get(who) ?? []).filter((t) => t > Date.now() - 3_600_000);
+  if (recent.length >= 20) fail(429, 'too_many_downloads', 'You downloaded a lot just now. Try again in an hour.');
+  downloads.set(who, [...recent, Date.now()]);
+  const seller = db.prepare('select * from users where id = ?').get(p.seller_id);
+  const label = seller?.username || (seller?.role === 'seller' ? shopNameOf(seller) : personNameOf(seller));
+  let out;
+  try {
+    out = await watermarked(p, label, url.searchParams.get('kind') === 'video' && p.video ? 'video' : 'image');
+  } catch (error) {
+    console.error('Download failed:', p.id, error.message);
+    fail(500, 'download_failed', 'This item can’t be downloaded right now.');
+  }
+  res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': statSync(out.file).size, 'Content-Disposition': `attachment; filename="${out.name}"`, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+  createReadStream(out.file).pipe(res);
+  return undefined;
+});
 
 // Early check while a seller adds a photo, so they know before filling in the rest.
 route('POST', '/api/ai/fashion-check', async ({ user, body }) => {
@@ -5050,6 +5144,9 @@ if (moved) console.log(`Moved the photos of ${moved} products into files.`);
 for (const { id } of db.prepare("select id from lives where status = 'ended' and replay_status = 'recording'").all()) finishReplay(id);
 cancelAbandonedOrders();
 setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
+// Watermarked downloads not asked for in 30 days are removed (made again when needed).
+sweepWatermarked();
+setInterval(sweepWatermarked, 24 * 60 * 60_000).unref();
 setInterval(checkBadges, 60 * 60_000).unref();
 // Sunday evening: one note per person who learned or saved something that week (nothing for quiet weeks).
 function sendWeeklyNotes() {

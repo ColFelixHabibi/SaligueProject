@@ -11,6 +11,7 @@ import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
 import { CookieBanner } from '@/components/cookie-banner';
 import { AppUpdate } from '@/components/app-update';
+import { BackButton } from '@/components/back-button';
 import { ConfirmHost } from '@/components/confirm-dialog';
 import { ShareHost } from '@/components/share-sheet';
 import { LookPickerHost } from '@/components/look-picker';
@@ -75,6 +76,7 @@ export default function RootLayout({
           <PwaRegister />
           <CookieBanner />
           <AppUpdate />
+          <BackButton />
           <ConfirmHost />
           <ShareHost />
           <LookPickerHost />

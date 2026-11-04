@@ -1,10 +1,11 @@
 // The For You feed, learned from how everyone uses Saligue:
-//  - each shopper's own signals: likes, saves, bag, orders, comments, and what they open, watch, try on or skip
+//  - each shopper's own signals: likes, saves, Resaligues, bag, orders, comments, and what they open, watch, try on or skip
 //    (interactions, recorded with their consent), fading over about three weeks;
 //  - "shoppers who liked this also liked…": item-to-item similarity learned from all shoppers together,
 //    retrained every few minutes as people use the app;
 //  - how items look (AI image fingerprints), so new items with no history can still match a taste;
-//  - what is trending and fresh, with a little daily variety and no long runs of one kind of item.
+//  - what is trending and fresh, with a little daily variety and no long runs of one kind of item;
+//  - what the people you follow Resaligued (reposted), shown with their name.
 import { db, parse } from './db.mjs';
 
 const HALF_LIFE_DAYS = 21;
@@ -41,6 +42,8 @@ function allSignals(onlyUser = null) {
   for (const r of db.prepare(`select user_id, product_id, added_at from wishlists${where}`).all(...args)) add(r.user_id, r.product_id, 3 * decay(r.added_at));
   for (const r of db.prepare(`select user_id, product_id from cart_items${where}`).all(...args)) add(r.user_id, r.product_id, 3);
   for (const r of db.prepare(`select user_id, product_id, created_at from comments${where}`).all(...args)) add(r.user_id, r.product_id, 2 * decay(r.created_at));
+  // A Resaligue says "I love this, my followers should see it": stronger than a like.
+  for (const r of db.prepare(`select user_id, product_id, created_at from reposts${where}`).all(...args)) add(r.user_id, r.product_id, 4 * decay(r.created_at));
   const since = new Date(Date.now() - 120 * 86_400_000).toISOString();
   for (const r of db.prepare(`select user_id, product_id, weight, created_at from interactions where created_at > ?${onlyUser ? ' and user_id = ?' : ''}`).all(since, ...args)) {
     add(r.user_id, r.product_id, r.weight * decay(r.created_at));
@@ -94,6 +97,7 @@ export function train() {
   const week = new Date(Date.now() - 7 * 86_400_000).toISOString();
   for (const r of db.prepare('select product_id, sum(weight) as w from interactions where created_at > ? and weight > 0 group by product_id').all(week)) trending.set(r.product_id, r.w);
   for (const r of db.prepare('select product_id, count(*) as n from likes where created_at > ? group by product_id').all(week)) trending.set(r.product_id, (trending.get(r.product_id) ?? 0) + r.n * 3);
+  for (const r of db.prepare('select product_id, count(*) as n from reposts where created_at > ? group by product_id').all(week)) trending.set(r.product_id, (trending.get(r.product_id) ?? 0) + r.n * 5);
   model = { similar, trending, trainedAt: Date.now(), shoppers: users.size };
   return model;
 }
@@ -153,6 +157,17 @@ export function feedFor(userId, products, seed = '') {
       if (!because.has(other) || because.get(other).v < v) because.set(other, { v, id });
     }
   }
+  // Resaligued in the last two weeks by people this shopper follows: who (latest first) for each item.
+  const friends = new Map();
+  if (userId) {
+    const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    for (const r of db.prepare(`select r.product_id, u.id, u.display_name, u.email, u.role, u.shop from reposts r join follows f on f.seller_id = r.user_id and f.follower_id = ?
+      join users u on u.id = r.user_id where r.created_at > ? order by r.created_at desc`).all(userId, since)) {
+      if (friends.has(r.product_id)) continue;
+      const name = r.role === 'seller' ? parse(r.shop)?.name || r.display_name : r.display_name || r.email?.split('@')[0];
+      friends.set(r.product_id, { id: r.id, name: name || 'Someone you follow' });
+    }
+  }
   const maxCollab = Math.max(1e-9, ...collaborative.values());
   const maxTrend = Math.max(1e-9, ...m.trending.values());
 
@@ -195,15 +210,18 @@ export function feedFor(userId, products, seed = '') {
         + (1 - confidence * 0.5) * (0.35 * trend + 0.3 * fresh + popular)
         + dailyNoise(p.id, seed) * (seed ? 0.4 - confidence * 0.15 : 0.22 - confidence * 0.12)
         + 0.6 * sm.v
+        + (friends.has(p.id) && p.seller_id !== userId ? 0.5 : 0)
         - seen - (p.stock === 0 ? 0.6 : 0);
       let reason = null;
       const b = because.get(p.id);
-      if (sm.v > 0.4 && sm.word) reason = `Because you searched “${sm.word}”`;
+      const friend = p.seller_id !== userId ? friends.get(p.id) : null;
+      if (friend) reason = `Resaligued by ${friend.name}`;
+      else if (sm.v > 0.4 && sm.word) reason = `Because you searched “${sm.word}”`;
       else if (b && cf > 0.3) reason = `Shoppers who liked ${byId.get(b.id)?.name ?? 'your picks'} also liked this`;
       else if (look > 0.8 && positive.length) reason = 'Matches your style';
       else if (trend > 0.5) reason = 'Trending on Saligue';
       else if (ageDays < 3) reason = 'New';
-      return { p, score, reason };
+      return { p, score, reason, by: friend ?? null };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -241,5 +259,5 @@ export function feedFor(userId, products, seed = '') {
       feed.push({ ...x, reason: x.reason ?? 'New on Saligue' });
     } else feed.push(others.shift());
   }
-  return { items: feed.map((x) => ({ id: x.p.id, reason: x.reason })), personal: confidence, shoppers: m.shoppers };
+  return { items: feed.map((x) => ({ id: x.p.id, reason: x.reason, ...(x.by ? { resaliguedBy: x.by } : {}) })), personal: confidence, shoppers: m.shoppers };
 }

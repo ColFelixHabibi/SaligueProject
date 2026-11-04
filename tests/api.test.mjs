@@ -518,3 +518,66 @@ describe('security watch', () => {
     assert.ok(told.includes('fake payment confirmation'));
   });
 });
+
+describe('resaligue, pin and download', () => {
+  test('a shop resaligues another shop’s item: its followers see it in Following and For You, with the shop’s name', async () => {
+    const products = (await call('/products')).json.filter((p) => p.status === 'active' && !p.hidden);
+    const first = products.find((p) => !p.official);
+    const other = products.find((p) => p.sellerId !== first.sellerId);
+    const shop = await sampleShop(first.id);
+    const fan = await register('Resaligue Fan');
+    assert.equal((await call(`/follow/${shop.id}`, { token: fan.token, body: {} })).status, 200);
+    // Not your own item.
+    assert.equal((await call(`/products/${first.id}/resaligue`, { token: shop.token, body: {} })).status, 400);
+    const r = await call(`/products/${other.id}/resaligue`, { token: shop.token, body: {} });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.reposted, true);
+    assert.equal(r.json.repostCount, 1);
+    assert.deepEqual((await call('/me/resaligues', { token: shop.token })).json, [other.id]);
+    assert.deepEqual((await call(`/profiles/${shop.id}/resaligues`)).json, [other.id]);
+    const following = (await call('/me/following/resaligues', { token: fan.token })).json;
+    assert.equal(following[0].productId, other.id);
+    assert.equal(following[0].by.id, shop.id);
+    const feed = (await call('/feed', { token: fan.token })).json.items;
+    const item = feed.find((x) => x.id === other.id);
+    assert.equal(item.resaliguedBy.id, shop.id);
+    assert.match(item.reason, /^Resaligued by /);
+    // The shop that owns the item is told.
+    const owner = await sampleShop(other.id);
+    assert.ok((await call('/me/notifications', { token: owner.token })).json.some((n) => /resaligued your item/.test(n.title)));
+    // Taking it back.
+    const undo = await call(`/products/${other.id}/resaligue`, { token: shop.token, body: {} });
+    assert.equal(undo.json.reposted, false);
+    assert.equal(undo.json.repostCount, 0);
+    assert.equal((await call('/me/following/resaligues', { token: fan.token })).json.length, 0);
+  });
+
+  test('only the shop pins its items, at most 3', async () => {
+    const products = (await call('/products')).json;
+    const shopId = products.find((p) => !p.official).sellerId;
+    const mine = products.filter((p) => p.sellerId === shopId);
+    const shop = await sampleShop(mine[0].id);
+    const stranger = await register('Pin Stranger');
+    assert.equal((await call(`/products/${mine[0].id}/pin`, { token: stranger.token, body: {} })).status, 403);
+    assert.equal((await call(`/products/${mine[0].id}/pin`, { token: shop.token, body: {} })).status, 200);
+    assert.ok((await call('/products')).json.find((p) => p.id === mine[0].id).pinnedAt);
+    if (mine.length >= 4) {
+      for (const p of mine.slice(1, 3)) assert.equal((await call(`/products/${p.id}/pin`, { token: shop.token, body: {} })).status, 200);
+      assert.equal((await call(`/products/${mine[3].id}/pin`, { token: shop.token, body: {} })).status, 409);
+    }
+    assert.equal((await call(`/products/${mine[0].id}/pin`, { token: shop.token, body: { pinned: false } })).status, 200);
+    assert.equal((await call('/products')).json.find((p) => p.id === mine[0].id).pinnedAt, undefined);
+  });
+
+  test('download gives the picture with the Saligue mark as a JPEG file', async () => {
+    const p = (await call('/products')).json.find((x) => x.status === 'active' && !x.hidden && x.image?.startsWith('/media/'));
+    const r = await fetch(`${base}/api/products/${p.id}/download`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('content-type'), 'image/jpeg');
+    assert.match(r.headers.get('content-disposition'), /attachment; filename="saligue-.+\.jpg"/);
+    const bytes = Buffer.from(await r.arrayBuffer());
+    assert.equal(bytes[0], 0xff);
+    assert.equal(bytes[1], 0xd8);
+    assert.equal((await call('/products/nope/download')).status, 404);
+  });
+});

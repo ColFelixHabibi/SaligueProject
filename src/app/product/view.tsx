@@ -29,7 +29,7 @@ import { completeTheLook } from '@/lib/outfit';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { formatPrice } from '@/lib/orders';
 import { productHref } from '@/lib/links';
-import { ReportButton } from '@/components/social/report-button';
+import { MoreSheet } from '@/components/social/more-sheet';
 import { SoundChip } from '@/components/social/sound-chip';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { Reviews } from '@/components/reviews';
@@ -225,7 +225,7 @@ export default function ProductView({ id }: { id: string | null }) {
               <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5" title="Pay securely online or on delivery"><ShieldCheck className="h-4 w-4 text-primary" /> {t('Secure pay')}</span>
                 <span className="flex items-center gap-1.5" title="Delivered by the shop, tracked in My orders"><Truck className="h-4 w-4 text-primary" /> {t('Tracked')}</span>
-                <ReportButton product={product} iconOnly className="ml-auto" />
+                <MoreSheet product={product} inline className="ml-auto" />
               </div>
 
             </CardContent>

@@ -39,6 +39,9 @@ export type Product = {
   hidden?: boolean;
   // Number of people who liked the item (see use-likes.ts).
   likeCount?: number;
+  // Resaligues (reposts), and when the shop pinned it to the top of its profile.
+  repostCount?: number;
+  pinnedAt?: string;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
   sound?: { name: string; duration: number };
   // Short video (up to 1 min 30 s) and its cover picture; whether the photo shows the item alone or worn.

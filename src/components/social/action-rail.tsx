@@ -53,7 +53,7 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
   const overlay = variant === 'overlay';
   const button = cn(
     'flex items-center gap-1 text-xs font-semibold transition-transform active:scale-90',
-    overlay ? 'flex-col text-foreground [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]' : 'min-w-0 rounded-full p-2 text-foreground hover:bg-muted'
+    overlay ? 'flex-col text-foreground' : 'min-w-0 rounded-full p-2 text-foreground hover:bg-muted'
   );
   // On the feed every icon sits centred in the same white circle (one size, one line weight), so the column lines up and reads on any photo.
   const icon = (Glyph: typeof Heart, active = false, fill = '') =>

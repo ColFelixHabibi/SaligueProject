@@ -60,6 +60,17 @@ db.exec(`
   );
   create index if not exists likes_user on likes(user_id);
 
+  -- Resaligue (repost): someone passes an item on to the people who follow them. It also tells For You what they
+  -- love (a strong signal) and helps the item trend. Public: shown on their profile and in their followers' feeds.
+  create table if not exists reposts (
+    product_id text not null references products(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (product_id, user_id)
+  );
+  create index if not exists reposts_user on reposts(user_id, created_at);
+  create index if not exists reposts_time on reposts(created_at);
+
   create table if not exists comments (
     id text primary key,
     product_id text not null references products(id) on delete cascade,
@@ -734,6 +745,8 @@ for (const [table, column, type] of [
   ['users', 'username', 'text'], ['users', 'referred_by', 'text'], ['users', 'referral_rewarded', 'integer not null default 0'],
   ['orders', 'fee', 'real not null default 0'], ['orders', 'settlement_id', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
+  // Resaligue count, and when the shop pinned the item to the top of its profile.
+  ['products', 'repost_count', 'integer not null default 0'], ['products', 'pinned_at', 'text'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);

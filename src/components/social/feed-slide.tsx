@@ -11,8 +11,8 @@ import { adClicked, adOnScreen } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, EyeOff, HelpCircle, Layers, MapPin, MoreHorizontal, Music2, Play, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { BadgeCheck, MapPin, Music2, Play, Repeat2, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
+import { MoreSheet } from '@/components/social/more-sheet';
 import { useDataSaver } from '@/lib/data-saver';
 import { Button } from '@/components/ui/button';
 import { ActionRail } from '@/components/social/action-rail';
@@ -26,9 +26,6 @@ import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/components/auth/auth-provider';
-import { useFeatures } from '@/lib/features';
-import { addToLook } from '@/components/look-picker';
 import { ExpandableText } from '@/components/expandable-text';
 
 /** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
@@ -100,9 +97,7 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
 }
 
 /** One full-screen item in the For You feed. Comments open below the image. */
-export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: Product; reason?: string | null; sponsoredBy?: string; onHide?: () => void }) {
-  const { user } = useAuth();
-  const on = useFeatures();
+export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }: { product: Product; reason?: string | null; sponsoredBy?: string; resaliguedBy?: { id: string; name: string } | null; onHide?: () => void }) {
   const { toast } = useToast();
   const { addToCart } = useCart();
   const { soundOn, unlocked, toggle } = useSoundStore();
@@ -180,25 +175,6 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
             <Play className="h-8 w-8 fill-white" />
           </button>
         )}
-        {/* Why this item, and "show less": the viewer can see and steer the algorithm. */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" className="absolute right-3 top-[6.5rem] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-background/90 shadow backdrop-blur" aria-label="More options">
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel className="flex items-start gap-2 font-normal">
-              <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <span><b className="block text-sm">{t('Why am I seeing this?')}</b><span className="text-xs text-muted-foreground">{sponsoredBy ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {user && on('looks') && <DropdownMenuItem onClick={() => addToLook({ kind: 'product', id: product.id })}><Layers className="mr-2 h-4 w-4" /> {t('Add to a look')}</DropdownMenuItem>}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={showLess}><EyeOff className="mr-2 h-4 w-4" /> {t('Show less like this')}</DropdownMenuItem>
-            <DropdownMenuItem asChild><Link href="/how-feed-works"><HelpCircle className="mr-2 h-4 w-4" /> {t('How For You works')}</Link></DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
 
         {/* Sound on/off for the whole feed, on every item, so it can be turned on before reaching items with a sound. */}
         <button
@@ -214,6 +190,8 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
         <div className={cn('absolute bottom-6 right-3 z-10 flex flex-col items-center gap-5', commentsOpen && 'hidden')}>
           {product.sellerId && <ProfileAvatar id={product.sellerId} name={product.shop?.name ?? product.seller} src={product.sellerAvatar} />}
           <ActionRail product={product} variant="overlay" commentsOpen={commentsOpen} onToggleComments={() => setCommentsOpen((o) => !o)} />
+          {/* ⋯ More: Resaligue, Download, Pin, Add to a look, why this item, Show less, Report. */}
+          <MoreSheet product={product} reason={reason} sponsored={!!sponsoredBy} onHide={onHide ? showLess : undefined} className="-mt-1 transition-transform active:scale-90 [@media(max-height:700px)]:mt-0" />
         </div>
 
         {!commentsOpen && (
@@ -224,6 +202,11 @@ export function FeedSlide({ product, reason, sponsoredBy, onHide }: { product: P
               </span>
             )}
             {product.sample && <span className="mb-1.5 ml-1 inline-flex rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-black" title="A sample item while Saligue is new">Sample</span>}
+            {resaliguedBy && (
+              <p className="mb-1.5 flex w-fit max-w-full items-center gap-1.5 rounded-full bg-foreground/80 px-2.5 py-1 text-xs font-semibold text-background">
+                <Repeat2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{t('Resaligued by')} {resaliguedBy.name}</span>
+              </p>
+            )}
             {sponsoredBy && <p className="mb-1 inline-flex items-center rounded bg-foreground/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-background">Sponsored</p>}
             <Link href={productHref(product)} onClick={() => sponsoredBy && adClicked(sponsoredBy)} className="line-clamp-2 block text-xl font-bold leading-tight hover:underline" title={reason ?? undefined}>{product.name}</Link>
             {product.description && <ExpandableText text={product.description} lines={1} className="mt-0.5 text-sm text-muted-foreground" />}

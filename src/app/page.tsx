@@ -33,6 +33,12 @@ import { useCartStore } from '@/hooks/use-cart-store';
 import { useOrders } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 
+type FeedItem = { id: string; reason: string | null; resaliguedBy?: { id: string; name: string } };
+type FriendRepost = { productId: string; at: string; by: { id: string; name: string } };
+type Mode = 'foryou' | 'following' | 'local' | 'learn';
+type SavedFeed = { feed: FeedItem[]; mode: Mode; current: string | null; at: number };
+const FEED_STATE = 'saligue-feed-state';
+
 // "For You": a full-screen, swipeable feed ranked by what the visitor likes and saves.
 export default function ForYouPage() {
   const { products, isInitialized, error } = useProductStore();
@@ -51,12 +57,38 @@ export default function ForYouPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // The server's feed, learned from everyone's behaviour (server/recommend.mjs); the device's own ranking
   // is used until it arrives or when offline.
-  const [serverFeed, setServerFeed] = useState<{ id: string; reason: string | null }[] | null>(null);
+  const [serverFeed, setServerFeed] = useState<FeedItem[] | null>(null);
+  // Back from an item, a profile or another page: the feed comes back as it was (same order, same tab, same
+  // item on screen) instead of starting over. Kept for this visit only (sessionStorage), for 30 minutes.
+  const restoreTo = useRef<string | null>(null);
+  const restored = useRef(false);
+  const [mode, setMode] = useState<'foryou' | 'following' | 'local' | 'learn'>('foryou');
   useEffect(() => {
-    if (!likesInitialized) return;
-    api<{ items: { id: string; reason: string | null }[] }>('/feed').then((d) => setServerFeed(d.items)).catch(() => setServerFeed(null));
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(FEED_STATE) ?? 'null') as SavedFeed | null;
+      if (!saved || Date.now() - saved.at > 30 * 60_000 || !Array.isArray(saved.feed) || !saved.feed.length) return;
+      restored.current = true;
+      restoreTo.current = saved.current;
+      setServerFeed(saved.feed);
+      setMode(saved.mode);
+    } catch {
+      // Storage blocked or old format: start fresh.
+    }
+  }, []);
+  // The feed snaps to whole items, and the browser keeps the item it snapped to on screen when the order
+  // changes: when the server's order replaces the phone's first guess, it would jump to wherever that item went.
+  // So it goes back to the first item, unless the viewer already started scrolling.
+  const touched = useRef(false);
+  const toTop = useRef(false);
+  useEffect(() => {
+    if (!likesInitialized || restored.current) return;
+    api<{ items: FeedItem[] }>('/feed').then((d) => {
+      toTop.current = !touched.current;
+      setServerFeed(d.items);
+    }).catch(() => setServerFeed(null));
   }, [likesInitialized]);
   const reasons = useMemo(() => new Map((serverFeed ?? []).map((x) => [x.id, x.reason])), [serverFeed]);
+  const resaliguers = useMemo(() => new Map((serverFeed ?? []).filter((x) => x.resaliguedBy).map((x) => [x.id, x.resaliguedBy!])), [serverFeed]);
   const ranked = useMemo(() => {
     if (serverFeed?.length) {
       const known = new Map(products.map((p) => [p.id, p]));
@@ -96,10 +128,16 @@ export default function ForYouPage() {
 
   // The viewer chooses what to watch: For You (picked for them), Following (only shops and teachers they
   // follow, newest first), Local (shops in a city they choose) or Learn (Community fashion lessons).
-  const [mode, setMode] = useState<'foryou' | 'following' | 'local' | 'learn'>('foryou');
   const [followingIds, setFollowingIds] = useState<Set<string> | null>(null);
+  // Items the people you follow Resaligued (reposted), with who and when.
+  const [friendReposts, setFriendReposts] = useState<FriendRepost[]>([]);
+  const loadFollowing = async () => {
+    const [ids, reposts] = await Promise.all([api<string[]>('/me/following'), api<FriendRepost[]>('/me/following/resaligues').catch(() => [])]);
+    setFollowingIds(new Set(ids));
+    setFriendReposts(reposts);
+  };
   useEffect(() => {
-    if (mode === 'following') api<string[]>('/me/following').then((ids) => setFollowingIds(new Set(ids))).catch(() => setFollowingIds(new Set()));
+    if (mode === 'following') loadFollowing().catch(() => setFollowingIds(new Set()));
   }, [mode]);
   const [city, setCity] = useState<string | null>(null);
   useEffect(() => {
@@ -127,10 +165,22 @@ export default function ForYouPage() {
   const on = useFeatures();
   const shown = useMemo(() => {
     const active = feed.map((p) => byId.get(p.id)).filter((p): p is Product => p?.status === 'active' && !hidden.has(p.id) && !blocked.has(p.sellerId ?? ''));
-    if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')) : [];
+    if (mode === 'following') return followingIds ? [...active].filter((p) => followingIds.has(p.sellerId ?? '')) : [];
     if (mode === 'local') return city ? active.filter((p) => p.shop?.city?.trim().toLowerCase() === city.toLowerCase()) : [];
     return active;
   }, [feed, byId, hidden, mode, followingIds, city, blocked]);
+  // Following: the shops' own posts and what the people followed Resaligued, newest first, each item once.
+  const followingEntries = useMemo(() => {
+    if (mode !== 'following') return [];
+    const entries = new Map<string, { p: Product; at: string; by: FriendRepost['by'] | null }>();
+    for (const p of shown) entries.set(p.id, { p, at: p.createdAt ?? '', by: null });
+    for (const r of friendReposts) {
+      const p = byId.get(r.productId);
+      if (!p || p.status !== 'active' || hidden.has(p.id) || blocked.has(p.sellerId ?? '') || blocked.has(r.by.id)) continue;
+      if (!entries.has(p.id) || entries.get(p.id)!.at < r.at) entries.set(p.id, { p, at: r.at, by: r.by });
+    }
+    return [...entries.values()];
+  }, [mode, shown, friendReposts, byId, hidden, blocked]);
   // Which item is on screen, for the panel beside the feed on computers.
   const scroller = useRef<HTMLDivElement>(null);
   // Pull down at the top (or tap For You again): a fresh mix, counting what was just watched.
@@ -138,7 +188,7 @@ export default function ForYouPage() {
     await sendInterestsNow();
     const d = await api<{ items: { id: string; reason: string | null }[] }>(`/feed?r=${Date.now().toString(36)}`);
     setServerFeed(d.items);
-    if (mode === 'following') setFollowingIds(new Set(await api<string[]>('/me/following')));
+    if (mode === 'following') await loadFollowing();
     scroller.current?.scrollTo({ top: 0 });
   };
   const { pull, refreshing, ready } = usePullToRefresh(scroller, refresh, mode !== 'learn');
@@ -153,7 +203,7 @@ export default function ForYouPage() {
   }, []);
   useEffect(() => {
     const root = scroller.current;
-    if (!wide || !root) return;
+    if (!root) return;
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) if (e.isIntersecting) setCurrent((e.target as HTMLElement).dataset.feedProduct ?? null);
     }, { root, threshold: 0.6 });
@@ -165,7 +215,44 @@ export default function ForYouPage() {
       io.disconnect();
       mo.disconnect();
     };
-  }, [wide, mode]);
+  }, [mode]);
+  // Remember where the viewer is, for coming back.
+  useEffect(() => {
+    if (!serverFeed?.length) return;
+    try {
+      sessionStorage.setItem(FEED_STATE, JSON.stringify({ feed: serverFeed, mode, current, at: Date.now() } satisfies SavedFeed));
+    } catch {
+      // Storage full or blocked: the feed simply starts over next time.
+    }
+  }, [serverFeed, mode, current]);
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    const mark = () => (touched.current = true);
+    root.addEventListener('touchstart', mark, { passive: true });
+    root.addEventListener('wheel', mark, { passive: true });
+    root.addEventListener('keydown', mark);
+    return () => {
+      root.removeEventListener('touchstart', mark);
+      root.removeEventListener('wheel', mark);
+      root.removeEventListener('keydown', mark);
+    };
+  }, []);
+  useEffect(() => {
+    if (!toTop.current || !serverFeed) return;
+    toTop.current = false;
+    requestAnimationFrame(() => scroller.current?.scrollTo({ top: 0 }));
+  }, [serverFeed]);
+  // Back on the feed: scroll to the item that was on screen, once it is there.
+  useEffect(() => {
+    const id = restoreTo.current;
+    const root = scroller.current;
+    if (!id || !root) return;
+    const el = root.querySelector<HTMLElement>(`[data-feed-product="${CSS.escape(id)}"]`);
+    if (!el) return;
+    restoreTo.current = null;
+    root.scrollTo({ top: el.offsetTop });
+  });
 
   const tabs = [
     { value: 'following', label: 'Following' },
@@ -225,7 +312,7 @@ export default function ForYouPage() {
           <p className="text-muted-foreground">Check your connection and try again.</p>
           <Button onClick={retryProducts}>Retry</Button>
         </div>
-      ) : mode === 'following' && followingIds && shown.length === 0 && !followedLessons?.length ? (
+      ) : mode === 'following' && followingIds && followingEntries.length === 0 && !followedLessons?.length ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <Users className="h-14 w-14 text-primary" />
           <p className="text-xl font-bold">{tr('Follow shops and teachers to see them here')}</p>
@@ -249,7 +336,7 @@ export default function ForYouPage() {
         </div>
       ) : mode === 'following' ? (
         // Newest first from everyone followed: their items and their lessons together.
-        [...shown.map((p) => ({ at: p.createdAt ?? '', el: <FeedSlide key={p.id} product={p} reason="From a shop you follow" onHide={() => setHidden((h) => new Set(h).add(p.id))} /> })),
+        [...followingEntries.map(({ p, at, by }) => ({ at, el: <FeedSlide key={p.id} product={p} reason={by ? `Resaligued by ${by.name}` : 'From a shop you follow'} resaliguedBy={by} onHide={() => setHidden((h) => new Set(h).add(p.id))} /> })),
           ...(followedLessons ?? []).map((l) => ({ at: l.createdAt, el: <LessonSlide key={l.id} lesson={l} /> }))]
           .sort((a, b) => b.at.localeCompare(a.at))
           .map((x) => x.el)
@@ -272,6 +359,7 @@ export default function ForYouPage() {
           7
         ).map((p) => (
           <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : mode === 'local' ? `A shop in ${city}` : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy}
+            resaliguedBy={p.sponsoredBy || mode !== 'foryou' ? null : resaliguers.get(p.id) ?? null}
             onHide={() => setHidden((h) => new Set(h).add(p.id))} />
         )).concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
       )}

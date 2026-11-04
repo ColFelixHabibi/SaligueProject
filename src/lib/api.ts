@@ -10,6 +10,9 @@ export function mediaUrl<T extends string | undefined>(path: T): T {
   return (path?.startsWith('/media/') ? `${API_ORIGIN}${path}` : path) as T;
 }
 
+/** Full address of a server API path ("/products/…"), also inside the phone app. */
+export const apiUrl = (path: string) => `${API_ORIGIN}/api${path}`;
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);

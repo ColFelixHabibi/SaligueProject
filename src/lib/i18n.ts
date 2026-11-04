@@ -256,6 +256,26 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'A quiet week.': ['Icyumweru gituje.', 'Une semaine calme.'],
   'new from people you follow': ['bishya by’abo ukurikira', 'nouveautés de vos abonnements'],
   'Android app': ['Porogaramu ya Android', 'Application Android'],
+  // Resaligue (repost), Pin, Download and the ⋯ menu.
+  'Resaligue': ['Resaligue', 'Resaligue'],
+  'Resaligued': ['Wabisangije', 'Partagé'],
+  'Resaligued by': ['Byasangijwe na', 'Repartagé par'],
+  'Resaligue removed': ['Wakuyeho Resaligue', 'Resaligue retiré'],
+  'Your followers will see it in Following.': ['Abagukurikira bazakibona muri Following.', 'Vos abonnés le verront dans Abonnements.'],
+  'Download': ['Kuramo', 'Télécharger'],
+  'Photo': ['Ifoto', 'Photo'],
+  'Video': ['Videwo', 'Vidéo'],
+  'Saved to your gallery': ['Byabitswe mu mafoto yawe', 'Enregistré dans votre galerie'],
+  'Downloaded': ['Byakuweho', 'Téléchargé'],
+  'With the Saligue logo and the shop’s name.': ['Iriho ikirango cya Saligue n’izina ry’iduka.', 'Avec le logo Saligue et le nom de la boutique.'],
+  'Adding the Saligue logo…': ['Turashyiraho ikirango cya Saligue…', 'Ajout du logo Saligue…'],
+  'Pin': ['Shyira hejuru', 'Épingler'],
+  'Unpin': ['Kuraho hejuru', 'Désépingler'],
+  'Unpinned': ['Cyakuwe hejuru', 'Désépinglé'],
+  'Pinned to your profile': ['Cyashyizwe hejuru kuri profili yawe', 'Épinglé sur votre profil'],
+  'It stays first on your profile.': ['Kiguma imbere kuri profili yawe.', 'Il reste en premier sur votre profil.'],
+  'More': ['Ibindi', 'Plus'],
+  'Not done': ['Ntibyakunze', 'Pas fait'],
 };
 
 const KEY = 'saligue-lang';

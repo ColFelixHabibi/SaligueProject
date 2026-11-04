@@ -40,3 +40,43 @@ export async function saveImage(url: string, name: string) {
   a.remove();
   if (href !== url) setTimeout(() => URL.revokeObjectURL(href), 10_000);
 }
+
+/**
+ * Download: an item's picture (or video) with the Saligue logo and the shop's name, made by the server.
+ * In the phone app it goes straight into the gallery (Pictures/Saligue, Movies/Saligue); on older phones and
+ * if that fails, through the share menu; on the web, as a normal download.
+ * Returns where it went: 'gallery' | 'shared' | 'downloaded'.
+ */
+export async function downloadItem(productId: string, name: string, kind: 'image' | 'video') {
+  const { apiUrl, getToken, ApiError } = await import('@/lib/api');
+  const url = apiUrl(`/products/${productId}/download${kind === 'video' ? '?kind=video' : ''}`);
+  const token = getToken();
+  const mime = kind === 'video' ? 'video/mp4' : 'image/jpeg';
+  const file = `saligue-${name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item'}.${kind === 'video' ? 'mp4' : 'jpg'}`;
+  if (isNative()) {
+    const { registerPlugin } = await import('@capacitor/core');
+    const Gallery = registerPlugin<{ saveFromUrl(o: { url: string; name: string; mime: string; auth?: string }): Promise<{ uri: string }> }>('Gallery');
+    const absolute = url.startsWith('http') ? url : new URL(url, window.location.href).toString();
+    try {
+      await Gallery.saveFromUrl({ url: absolute, name: file, mime, auth: token ?? undefined });
+      return 'gallery' as const;
+    } catch (error) {
+      const code = String((error as Error)?.message ?? '');
+      if (code.includes('too_many_downloads')) throw new ApiError(429, 'too_many_downloads', 'You downloaded a lot just now. Try again in an hour.');
+      // Older Android (or the gallery refused): the share menu, where "Save" is.
+    }
+  }
+  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'same-origin' }).catch(() => null);
+  if (!response) throw new ApiError(0, 'unavailable', 'No connection to Saligue. Check your network and try again.');
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new ApiError(response.status, data?.error?.code ?? 'server_error', data?.error?.message ?? 'This item can’t be downloaded right now.');
+  }
+  const blob = URL.createObjectURL(await response.blob());
+  try {
+    await saveImage(blob, file);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(blob), 30_000);
+  }
+  return isNative() ? ('shared' as const) : ('downloaded' as const);
+}

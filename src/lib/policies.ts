@@ -128,7 +128,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   terms: {
         title: "Terms of Service",
-        updated: "3 November 2026",
+        updated: "4 November 2026",
         intro: "These terms apply when you use Saligue, the fashion marketplace by INDECIANA, on the web or in the app. By creating an account or using Saligue you accept them. If you do not agree, please do not use Saligue.",
         sections: [
           {
@@ -183,6 +183,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Your content',
             paragraphs: [
               'You keep the rights to the photos, comments and sounds you post. You allow Saligue to show them in the app and website so that Saligue can work.',
+              'Shoppers can Resaligue (repost) items to their followers, and download an item’s photo or video for their own use; downloads carry the Saligue logo and the shop’s name. Re-uploading someone else’s photos as your own items is not allowed.',
               'Do not post content that is unlawful, hateful, harassing, sexual, or that belongs to someone else. We may remove such content.',
             ],
           },
@@ -203,7 +204,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   privacy: {
         title: "Privacy Policy",
-        updated: "3 November 2026",
+        updated: "4 November 2026",
         intro: "This policy explains what information Saligue by INDECIANA collects, why, and the choices you have. We collect only what Saligue needs to work, and we never sell your personal information.",
         sections: [
           {
@@ -211,7 +212,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: [
               'Account: your name, email address, password (stored only as a secure hash) and whether you buy or sell. If you continue with Google, we receive your name and email address from Google.',
               'Shops: shop name, phone and WhatsApp number, address and opening hours, which are shown publicly with your items.',
-              'Shopping: your bag, saved items, likes, comments, orders and the delivery address and phone number you enter at checkout.',
+              'Shopping: your bag, saved items, likes, Resaligues, comments, orders and the delivery address and phone number you enter at checkout.',
               'Messages: what you write to shops or customers in Saligue Messages, so both sides can read the conversation. The other person also gets an email that a message is waiting.',
               'Reviews: the stars and text you post about items you received, shown publicly with your first name.',
               'Payments: when you pay online, Flutterwave handles your card or Mobile Money details on its own secure page. Saligue receives only whether the payment succeeded, the amount and a reference — never your card number or PIN.',
@@ -245,7 +246,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Who sees it',
             paragraphs: [
-              'Shops see the name, phone number, delivery address and items of orders placed with them. Comments and likes counts are public.',
+              'Shops see the name, phone number, delivery address and items of orders placed with them. Comments and likes counts are public. A Resaligue (repost) is public too: it shows on your profile and in the Following feed of the people who follow you, with your name; the shop is told. You can take it back at any time.',
               'We use service providers to send email and, if you choose it, Google to sign you in. They may use your information only to provide that service.',
               'We share information with authorities only when the law requires it.',
             ],
@@ -265,7 +266,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Your rights',
             paragraphs: [
-              'You can see and change your details in your account settings. You can delete your account yourself in Settings → Delete my account: your profile, comments, likes, follows, looks, history and (for shops) items, lessons and replays are removed, and the account can’t sign in again. Orders already placed are kept for the shop’s accounts, without the buyer’s name, email, phone or address (a shop’s name stays on its customers’ receipts). You can download everything we keep about you at any time in Settings → Download my data (one file you can keep or take elsewhere). You can also ask us to correct your information through Help & Support.',
+              'You can see and change your details in your account settings. You can delete your account yourself in Settings → Delete my account: your profile, comments, likes, Resaligues, follows, looks, history and (for shops) items, lessons and replays are removed, and the account can’t sign in again. Orders already placed are kept for the shop’s accounts, without the buyer’s name, email, phone or address (a shop’s name stays on its customers’ receipts). You can download everything we keep about you at any time in Settings → Download my data (one file you can keep or take elsewhere). You can also ask us to correct your information through Help & Support.',
             ],
           },
           {
@@ -289,7 +290,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Personalisation (For You)',
             paragraphs: [
               'saligue_consent: remembers your choice in the cookie banner ("all" or "essential"), for one year.',
-              'With "OK, personalise", Saligue records which items you open, how long you watch them in the feed, what you try on, add to your bag, message shops about or skip quickly, linked to your account. Together with likes, saves and orders, and with what shoppers with similar taste enjoy, this decides the order of your For You feed. It is kept for up to 6 months.',
+              'With "OK, personalise", Saligue records which items you open, how long you watch them in the feed, what you try on, add to your bag, message shops about or skip quickly, linked to your account. Together with likes, saves, Resaligues and orders, and with what shoppers with similar taste enjoy, this decides the order of your For You feed. It is kept for up to 6 months.',
               'With "Essential only" nothing of this is recorded. You can switch it off or clear what was learned any time in Settings → For You.',
             ],
           },

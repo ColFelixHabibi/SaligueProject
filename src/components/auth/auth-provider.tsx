@@ -9,6 +9,7 @@ import { subscribeToWishlist } from '@/hooks/use-wishlist';
 import { subscribeToCart } from '@/hooks/use-cart-store';
 import { subscribeToNotifications } from '@/hooks/use-notification-store';
 import { subscribeToLikes } from '@/hooks/use-likes';
+import { subscribeToResaligues } from '@/hooks/use-resaligues';
 import { subscribeToProducts } from '@/hooks/use-product-store';
 import { subscribeToMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
@@ -70,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const stopCart = subscribeToCart(account.id);
         const stopWishlist = subscribeToWishlist(account.id);
         const stopLikes = subscribeToLikes(account.id);
+        const stopResaligues = subscribeToResaligues(account.id);
         const stopNotifications = subscribeToNotifications(account.id);
         const stopMessages = subscribeToMessages(account.id);
         stopUserData = () => {
@@ -78,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           stopCart();
           stopWishlist();
           stopLikes();
+          stopResaligues();
         };
       }
       useUserRoleStore.setState({ role: account.role, official: account.official, admin: !!account.admin, shop: account.shop, avatar: mediaUrl(account.avatar ?? undefined) ?? null, pendingRole: null, isInitialized: true });

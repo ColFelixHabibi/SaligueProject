@@ -12,7 +12,7 @@ import { TipButton } from '@/components/tip-button';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Play, Radio, Settings, Share2, Store } from 'lucide-react';
+import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -48,9 +48,14 @@ function ProfileView({ id }: { id: string }) {
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'items' | 'videos' | 'lessons' | 'replays'>('items');
+  const [tab, setTab] = useState<'items' | 'videos' | 'lessons' | 'replays' | 'resaligued'>('items');
   // Lives the shop recorded: a playlist to watch again.
   const [replays, setReplays] = useState<Live[] | null>(null);
+  // Items this person Resaligued (reposted), newest first.
+  const [resaligued, setResaligued] = useState<string[] | null>(null);
+  useEffect(() => {
+    api<string[]>(`/profiles/${id}/resaligues`).then(setResaligued).catch(() => setResaligued([]));
+  }, [id]);
   useEffect(() => {
     api<Live[]>(`/profiles/${id}/replays`).then((l) => setReplays(l.map(withMedia))).catch(() => setReplays([]));
   }, [id]);
@@ -73,7 +78,13 @@ function ProfileView({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, follow.following]);
 
-  const items = useMemo(() => products.filter((p) => p.sellerId === id && p.status === 'active'), [products, id]);
+  // Pinned items first (newest pin first), then the rest as listed.
+  const items = useMemo(() => products.filter((p) => p.sellerId === id && p.status === 'active')
+    .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')), [products, id]);
+  const reposted = useMemo(() => {
+    const byId = new Map(products.map((p) => [p.id, p]));
+    return (resaligued ?? []).map((pid) => byId.get(pid)).filter((p): p is Product => !!p && p.status === 'active');
+  }, [products, resaligued]);
   const videos = items.filter((p) => p.video);
 
   const openList = async (kind: 'clients' | 'following') => {
@@ -99,6 +110,7 @@ function ProfileView({ id }: { id: string }) {
     { value: 'videos', icon: Play, label: 'Videos', count: videos.length, show: profile.isShop },
     { value: 'lessons', icon: GraduationCap, label: 'Lessons', count: lessons?.length ?? 0, show: true },
     { value: 'replays', icon: History, label: 'Replays', count: replays?.length ?? 0, show: profile.isShop && !!replays?.length },
+    { value: 'resaligued', icon: Repeat2, label: 'Resaligued', count: reposted.length, show: reposted.length > 0 },
   ].filter((t) => t.show) as { value: typeof tab; icon: typeof Grid3x3; label: string; count: number }[];
   const current = tabs.some((t) => t.value === tab) ? tab : tabs[0].value;
 
@@ -165,6 +177,7 @@ function ProfileView({ id }: { id: string }) {
 
       <div className="mt-4">
         {current === 'items' && (items.length ? <div className="grid grid-cols-3 gap-0.5">{items.map((p) => <ItemTile key={p.id} product={p} />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
+        {current === 'resaligued' && <div className="grid grid-cols-3 gap-0.5">{reposted.map((p) => <ItemTile key={p.id} product={p} />)}</div>}
         {current === 'videos' && (videos.length ? <div className="grid grid-cols-3 gap-1">{videos.map((p) => <PosterTile key={p.id} href={`/product?id=${p.id}`} poster={p.videoPoster ?? p.image} label={p.name} />)}</div> : <Empty icon={Play} text="No videos yet" />)}
         {current === 'replays' && (
           <div className="grid grid-cols-3 gap-1">
@@ -214,6 +227,7 @@ function ItemTile({ product }: { product: Product }) {
     <Link href={`/product?id=${product.id}`} className="relative block aspect-[3/4] overflow-hidden bg-muted" title={product.name}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={product.videoPoster ?? product.image} alt={product.name} loading="lazy" className={cn('h-full w-full', product.photoType === 'worn' || product.videoPoster ? 'object-cover' : 'object-contain p-3')} />
+      {product.pinnedAt && <span className="absolute left-1.5 top-1.5 flex items-center gap-0.5 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground"><Pin className="h-3 w-3" /> Pinned</span>}
       {product.video && <Play className="absolute right-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />}
       {product.stock === 0 && <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs font-bold text-white">Sold out</span>}
       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white">{formatPrice(Number(product.price))}</span>
