@@ -275,6 +275,12 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Pinned to your profile': ['Cyashyizwe hejuru kuri profili yawe', 'Épinglé sur votre profil'],
   'It stays first on your profile.': ['Kiguma imbere kuri profili yawe.', 'Il reste en premier sur votre profil.'],
   'More': ['Ibindi', 'Plus'],
+  'Repost': ['Sangiza abagukurikira', 'Republier'],
+  'Tap to undo': ['Kanda ubikureho', 'Touchez pour annuler'],
+  'To your phone': ['Muri telefoni yawe', 'Sur votre téléphone'],
+  'To your device': ['Mu gikoresho cyawe', 'Sur votre appareil'],
+  'Save photo': ['Bika ifoto', 'Enregistrer la photo'],
+  'Save video': ['Bika videwo', 'Enregistrer la vidéo'],
   'Not done': ['Ntibyakunze', 'Pas fait'],
 };
 

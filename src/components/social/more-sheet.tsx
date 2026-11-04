@@ -66,11 +66,12 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
     toast({ title: pinned ? t('Unpinned') : t('Pinned to your profile'), description: pinned ? undefined : t('It stays first on your profile.') });
   });
 
-  const tiles: { key: string; icon: typeof Repeat2; label: string; onClick: () => void; active?: boolean; show: boolean }[] = [
-    { key: 'resaligue', icon: Repeat2, label: resaligued ? t('Resaligued') : t('Resaligue'), onClick: resaligue, active: resaligued, show: !mine },
+  const device = typeof window !== 'undefined' && (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() ? t('To your phone') : t('To your device');
+  const tiles: { key: string; icon: typeof Repeat2; label: string; hint?: string; onClick: () => void; active?: boolean; show: boolean }[] = [
+    { key: 'resaligue', icon: Repeat2, label: resaligued ? t('Resaligued') : t('Resaligue'), hint: resaligued ? t('Tap to undo') : t('Repost'), onClick: resaligue, active: resaligued, show: !mine },
     { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('Unpin') : t('Pin'), onClick: pin, active: pinned, show: mine },
-    { key: 'download-image', icon: Download, label: product.video ? t('Photo') : t('Download'), onClick: () => download('image'), show: true },
-    { key: 'download-video', icon: Download, label: t('Video'), onClick: () => download('video'), show: !!product.video },
+    { key: 'download-image', icon: Download, label: product.video ? t('Save photo') : t('Download'), hint: device, onClick: () => download('image'), show: true },
+    { key: 'download-video', icon: Download, label: t('Save video'), hint: device, onClick: () => download('video'), show: !!product.video },
     { key: 'look', icon: Layers, label: t('Add to a look'), onClick: () => { setOpen(false); addToLook({ kind: 'product', id: product.id }); }, show: !!user && on('looks') },
   ];
 
@@ -98,6 +99,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
                   {busy === x.key ? <Loader2 className="h-6 w-6 animate-spin" /> : <x.icon className="h-6 w-6" />}
                 </span>
                 <span className="w-full truncate text-center">{x.label}</span>
+                {x.hint && <span className="-mt-1 w-full truncate text-center text-[11px] font-normal text-muted-foreground">{x.hint}</span>}
               </button>
             ))}
           </div>
