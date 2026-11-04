@@ -40,7 +40,7 @@ export function FollowButton({ sellerId, className, size = 'sm', showCount, onDa
     <Button type="button" size={size} onClick={toggle} variant={following ? 'outline' : 'default'}
       className={cn('rounded-full', following && onDark && 'border-white/60 bg-transparent text-white hover:bg-white/10', className)} aria-pressed={!!following}>
       {following ? <Check className={cn('h-4 w-4', !labelClassName && 'mr-1')} /> : <Plus className={cn('h-4 w-4', !labelClassName && 'mr-1')} />}
-      <span className={labelClassName}>{following ? t('Following') : t('Follow')}</span>
+      <span className={labelClassName}>{following ? t('In your network') : t('Follow')}</span>
       {showCount && clients != null ? <span className="ml-1.5 opacity-70">{clients.toLocaleString()}</span> : null}
     </Button>
   );

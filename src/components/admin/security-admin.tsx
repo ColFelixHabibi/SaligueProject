@@ -20,10 +20,10 @@ type Security = { last24h: Record<string, number>; topAddresses: { ip: string; c
 const KIND: Record<string, string> = {
   login_failed: 'Wrong password', account_locked: 'Account locked', admin_login: 'Admin signed in', admin_denied: 'Admin function refused',
   probe: 'Scan for weak spots', injection: 'Attack text', flood: 'Request flood', webhook_forged: 'Fake payment call',
-  signup_burst: 'Many new accounts', reset: 'Password reset asked', admin_change: 'Admin change', ssh_login: 'Server sign-in (SSH)', ssh_failed: 'Server password guesses (SSH)',
+  signup_burst: 'Many new accounts', reset: 'Password reset asked', admin_change: 'Admin change', ssh_login: 'Server sign-in (SSH)', ssh_failed: 'Server password guesses (SSH)', chat_spam: 'Messaging many people',
 };
 // The worrying ones are shown in red.
-const SERIOUS = new Set(['webhook_forged', 'admin_change', 'ssh_login', 'injection', 'account_locked', 'flood']);
+const SERIOUS = new Set(['chat_spam', 'webhook_forged', 'admin_change', 'ssh_login', 'injection', 'account_locked', 'flood']);
 const TILES: [string, string][] = [
   ['ssh_failed_attempts', 'Server password guesses'], ['login_failed', 'Wrong passwords'], ['probe', 'Scans'], ['injection', 'Attack texts'],
   ['admin_denied', 'Admin refused'], ['webhook_forged', 'Fake payments'], ['flood', 'Floods'], ['admin_change', 'Admin changes'],

@@ -55,7 +55,7 @@ export function WeekCard() {
           )}
         </>
       )}
-      {week.newFromFollowed > 0 && <p className="mt-2 text-xs text-muted-foreground">{week.newFromFollowed} {t('new from people you follow')}</p>}
+      {week.newFromFollowed > 0 && <p className="mt-2 text-xs text-muted-foreground">{week.newFromFollowed} {t('new from your Network')}</p>}
     </section>
   );
 }

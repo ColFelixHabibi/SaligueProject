@@ -224,6 +224,12 @@ export function signedUp(ip) {
   }
 }
 
+/** Someone starts chats with many people in a short time: how spam and scams look. */
+export function chatSpam(ip, userId, n) {
+  securityEvent('chat_spam', { ip, userId, detail: `${n} new chats in an hour` });
+  alert('chat_spam', ip ?? userId, 'Security: someone is messaging many people', `An account started ${n} new chats in an hour${where(ip)} (account ${userId}). It was stopped for now; check Admin → Security and the account.`);
+}
+
 export function resetRequested(ip, email) {
   securityEvent('reset', { ip, detail: email });
   if (recent('reset', 'ip', ip, HOUR) === 10) alert('reset_flood', ip, 'Security: many password-reset requests', `10 password-reset requests in an hour${where(ip)}.`);

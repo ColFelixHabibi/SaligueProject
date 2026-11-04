@@ -81,7 +81,7 @@ export default function LivesPage() {
             <Eye className="h-8 w-8 shrink-0 text-primary" />
             <div>
               <p className="font-semibold text-foreground">No one is live right now</p>
-              <p>{role === 'seller' ? 'Be the first: show your items on camera.' : 'Follow shops to get a notification when they go live.'}</p>
+              <p>{role === 'seller' ? 'Be the first: show your items on camera.' : 'Follow shops to add them to your Network: you get a notification when they go live.'}</p>
             </div>
           </div>
           <SuggestedShops />

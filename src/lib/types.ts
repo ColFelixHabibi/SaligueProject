@@ -135,12 +135,15 @@ export type Order = {
 // Direct chat between a buyer and a shop (see src/lib/messages.ts).
 export type Conversation = {
   id: string;
-  // The current account's side of the conversation.
-  role: 'buyer' | 'seller';
-  other: { id: string; name: string; official: boolean; isGuest: boolean; avatar: string | null };
+  // 'shop': a shopper and a shop; 'direct': two people in each other's Clients or Network.
+  kind?: 'shop' | 'direct';
+  // The current account's side of a shop chat ('direct' in a direct chat).
+  role: 'buyer' | 'seller' | 'direct';
+  other: { id: string; name: string; username?: string | null; official: boolean; verified?: boolean; isShop?: boolean; isGuest: boolean; avatar: string | null };
   lastMessage: { text: string; fromMe: boolean; productId: string | null; createdAt: string } | null;
   unread: number;
   lastMessageAt: string;
 };
 
-export type Message = { id: string; senderId: string; text: string; productId: string | null; orderId: string | null; createdAt: string };
+export type ChatAttachment = { kind: 'image' | 'video' | 'voice'; url: string; poster: string | null; width: number | null; height: number | null; duration: number | null };
+export type Message = { id: string; senderId: string; text: string; productId: string | null; orderId: string | null; attachment?: ChatAttachment | null; deleted?: boolean; createdAt: string };

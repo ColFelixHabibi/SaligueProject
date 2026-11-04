@@ -3,8 +3,8 @@
 import { noteInterest } from './taste';
 import { useCallback, useEffect, useState } from 'react';
 import { create } from 'zustand';
-import { api, onServerEvent } from './api';
-import type { Conversation, Message } from './types';
+import { ApiError, api, apiUrl, getToken, onServerEvent } from './api';
+import type { ChatAttachment, Conversation, Message } from './types';
 
 // Direct chat between buyers and shops (server: /api/conversations). Live through server events.
 
@@ -38,7 +38,7 @@ export function subscribeToMessages(_uid: string) {
  * Opens (or continues) the conversation with the shop of an item, the other side of an order, or a shop,
  * optionally sending a first message. Returns the conversation id.
  */
-export async function startConversation(about: { productId?: string; orderId?: string; sellerId?: string }, text?: string) {
+export async function startConversation(about: { productId?: string; orderId?: string; sellerId?: string; userId?: string }, text?: string) {
   if (about.productId) noteInterest(about.productId, 'message');
   const { id } = await api<{ id: string }>('/conversations', { body: { ...about, text } });
   void loadInbox();
@@ -85,7 +85,51 @@ export function useConversation(id: string | null) {
     [id]
   );
 
-  return { data: state, error, send, reload: load };
+  /** Sends a photo, video or voice note; `onProgress` gets 0–1 while it uploads. */
+  const sendFile = useCallback(
+    async (kind: ChatAttachment['kind'], file: Blob, onProgress?: (p: number) => void, caption = '') => {
+      if (!id) return;
+      const message = await uploadChatFile(id, kind, file, onProgress, caption);
+      setState((s) => (s && !s.messages.some((m) => m.id === message.id) ? { ...s, messages: [...s.messages, message] } : s));
+    },
+    [id]
+  );
+
+  /** Takes back one of your messages, for both people. */
+  const unsend = useCallback(
+    async (messageId: string) => {
+      if (!id) return;
+      await api(`/conversations/${id}/messages/${messageId}`, { method: 'DELETE' });
+      setState((s) => (s ? { ...s, messages: s.messages.map((m) => (m.id === messageId ? { ...m, text: '', attachment: null, productId: null, deleted: true } : m)) } : s));
+    },
+    [id]
+  );
+
+  return { data: state, error, send, sendFile, unsend, reload: load };
+}
+
+/** Uploads a chat file (with progress, for videos). The server re-makes it and answers with the message. */
+function uploadChatFile(conversationId: string, kind: ChatAttachment['kind'], file: Blob, onProgress?: (p: number) => void, caption = '') {
+  return new Promise<Message>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', apiUrl(`/conversations/${conversationId}/attachments/${kind}${caption ? `?caption=${encodeURIComponent(caption)}` : ''}`));
+    const token = getToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', (file.type || (kind === 'image' ? 'image/jpeg' : kind === 'video' ? 'video/mp4' : 'audio/webm')).split(';')[0]);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      let data: any = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as Message);
+      else reject(new ApiError(xhr.status, data?.error?.code ?? 'server_error', data?.error?.message ?? 'This file could not be sent. Try another one.'));
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'unavailable', 'No connection to Saligue. Check your network and try again.'));
+    xhr.send(file);
+  });
 }
 
 /** Quick replies sellers and buyers use most. */

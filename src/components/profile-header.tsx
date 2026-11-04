@@ -27,6 +27,9 @@ export type Profile = Person & {
   ratingCount: number;
   liveId: string | null;
   isClient: boolean;
+  // They follow you (you are in their Network), and whether you can chat with them.
+  followsYou?: boolean;
+  canMessage?: boolean;
   mine: boolean;
 };
 
@@ -51,8 +54,8 @@ export function ProfileHeader({ profile, avatar, onStat, statHref, children }: {
   const hideLikes = useHideLikes();
   const stats: { kind: StatKind; label: string; value: number }[] = [
     ...(profile.isShop ? [{ kind: 'items' as const, label: 'Items', value: profile.items }] : []),
-    { kind: 'clients', label: profile.isShop ? 'Clients' : 'Followers', value: profile.clients },
-    { kind: 'following', label: 'Following', value: profile.following },
+    { kind: 'clients', label: 'Clients', value: profile.clients },
+    { kind: 'following', label: 'Network', value: profile.following },
     // "Hide like counts" hides them on other people's profiles; your own always shows.
     ...(!hideLikes || profile.mine ? [{ kind: 'likes' as const, label: 'Likes', value: profile.likes ?? 0 }] : []),
   ];
@@ -73,7 +76,12 @@ export function ProfileHeader({ profile, avatar, onStat, statHref, children }: {
         {profile.official && <BadgeCheck className="h-5 w-5 shrink-0 text-primary" />}
         {profile.verified && <VerifiedBadge type={profile.verifiedType} className="h-5 w-5 shrink-0" />}
       </h1>
-      {profile.username && <p className="text-sm font-semibold text-muted-foreground">@{profile.username}</p>}
+      {(profile.username || (profile.followsYou && !profile.mine)) && (
+        <p className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          {profile.username && <span>@{profile.username}</span>}
+          {profile.followsYou && !profile.mine && <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-foreground">{t('Follows you')}</span>}
+        </p>
+      )}
 
       <div className="mt-4 flex w-full max-w-sm justify-center">
         {stats.map((s, i) => {

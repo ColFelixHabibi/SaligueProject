@@ -126,7 +126,7 @@ export default function ForYouPage() {
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const sponsored = useSponsored('feed', 3);
 
-  // The viewer chooses what to watch: For You (picked for them), Following (only shops and teachers they
+  // The viewer chooses what to watch: For You (picked for them), Network (only people they
   // follow, newest first), Local (shops in a city they choose) or Learn (Community fashion lessons).
   const [followingIds, setFollowingIds] = useState<Set<string> | null>(null);
   // Items the people you follow Resaligued (reposted), with who and when.
@@ -255,7 +255,7 @@ export default function ForYouPage() {
   });
 
   const tabs = [
-    { value: 'following', label: 'Following' },
+    { value: 'following', label: 'Network' },
     { value: 'local', label: 'Local' },
     { value: 'foryou', label: 'For You' },
     { value: 'learn', label: 'Learn' },
@@ -315,8 +315,8 @@ export default function ForYouPage() {
       ) : mode === 'following' && followingIds && followingEntries.length === 0 && !followedLessons?.length ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
           <Users className="h-14 w-14 text-primary" />
-          <p className="text-xl font-bold">{tr('Follow shops and teachers to see them here')}</p>
-          <p className="text-muted-foreground">{tr('Only people you follow, newest first. No algorithm.')}</p>
+          <p className="text-xl font-bold">{tr('Follow people to add them to your Network')}</p>
+          <p className="text-muted-foreground">{tr('Only your Network, newest first. No algorithm.')}</p>
           <Button onClick={() => setMode('foryou')}>Find shops in For You</Button>
         </div>
       ) : mode === 'local' && !city ? (
@@ -336,7 +336,7 @@ export default function ForYouPage() {
         </div>
       ) : mode === 'following' ? (
         // Newest first from everyone followed: their items and their lessons together.
-        [...followingEntries.map(({ p, at, by }) => ({ at, el: <FeedSlide key={p.id} product={p} reason={by ? `Resaligued by ${by.name}` : 'From a shop you follow'} resaliguedBy={by} onHide={() => setHidden((h) => new Set(h).add(p.id))} /> })),
+        [...followingEntries.map(({ p, at, by }) => ({ at, el: <FeedSlide key={p.id} product={p} reason={by ? `Resaligued by ${by.name}` : 'From your Network'} resaliguedBy={by} onHide={() => setHidden((h) => new Set(h).add(p.id))} /> })),
           ...(followedLessons ?? []).map((l) => ({ at: l.createdAt, el: <LessonSlide key={l.id} lesson={l} /> }))]
           .sort((a, b) => b.at.localeCompare(a.at))
           .map((x) => x.el)

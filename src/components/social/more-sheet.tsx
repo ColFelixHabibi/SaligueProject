@@ -50,7 +50,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
   const resaligue = () => run('resaligue', async () => {
     const now = await toggleResaligue(product.id);
     setOpen(false);
-    toast({ title: now ? t('Resaligued') : t('Resaligue removed'), description: now ? t('Your followers will see it in Following.') : undefined });
+    toast({ title: now ? t('Resaligued') : t('Resaligue removed'), description: now ? t('Your clients will see it in their Network.') : undefined });
   });
   const download = (kind: 'image' | 'video') => run(`download-${kind}`, async () => {
     const where = await downloadItem(product.id, product.name, kind);

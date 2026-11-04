@@ -11,7 +11,7 @@ import { TipButton } from '@/components/tip-button';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -23,7 +23,7 @@ import { AppealButton } from '@/components/appeal-button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { setBlocked, useBlockedIds } from '@/lib/blocks';
 import { useFollow } from '@/components/follow-button';
-import { MessageSellerButton } from '@/components/message-seller-button';
+import { startConversation } from '@/lib/messages';
 import ProductCard from '@/components/product-card';
 import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 import { SellerAvatar } from '@/components/seller-avatar';
@@ -88,13 +88,25 @@ function ProfileView({ id }: { id: string }) {
   const videos = items.filter((p) => p.video);
 
   const openList = async (kind: 'clients' | 'following') => {
-    setPeople({ title: kind === 'clients' ? 'Clients' : 'Following', list: null });
+    setPeople({ title: kind === 'clients' ? 'Clients' : 'Network', list: null });
     try {
       const list = await api<Person[]>(`/profiles/${id}/${kind}`);
-      setPeople({ title: kind === 'clients' ? 'Clients' : 'Following', list: list.map((p) => ({ ...p, avatar: mediaUrl(p.avatar ?? undefined) ?? null })) });
+      setPeople({ title: kind === 'clients' ? 'Clients' : 'Network', list: list.map((p) => ({ ...p, avatar: mediaUrl(p.avatar ?? undefined) ?? null })) });
     } catch (e) {
       setPeople(null);
       toast({ variant: 'destructive', title: 'Could not load', description: friendlyError(e) });
+    }
+  };
+  const router = useRouter();
+  const [opening, setOpening] = useState(false);
+  const message = async () => {
+    setOpening(true);
+    try {
+      router.push(`/messages?c=${await startConversation({ userId: id })}`);
+    } catch (e) {
+      toast({ variant: 'destructive', title: t('Not done'), description: friendlyError(e) });
+    } finally {
+      setOpening(false);
     }
   };
   const share = async () => {
@@ -124,12 +136,14 @@ function ProfileView({ id }: { id: string }) {
           </>
         ) : (
           <Button className="h-10 min-w-0 flex-1 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following}>
-            {follow.following ? t('Following') : t('Follow')}
+            {follow.following ? t('In your network') : t('Follow')}
           </Button>
         )}
-        {profile.isShop && !profile.mine && (
-          <MessageSellerButton product={{ id: '', sellerId: profile.id, name: profile.name, price: 0, image: '', category: '', seller: profile.name, status: 'active' } as unknown as Product}
-            label={`Message ${profile.name}`} size="icon" variant="outline" className="h-10 w-10 shrink-0 rounded-full" />
+        {/* Message: shops, and anyone in your Clients or Network (photos, videos, voice notes too). */}
+        {profile.canMessage && on('messages') && (
+          <Button variant="secondary" className="h-10 min-w-0 flex-1 rounded-full" disabled={opening} onClick={() => void message()}>
+            {opening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />} {t('Message')}
+          </Button>
         )}
         {profile.shop && (profile.shop.whatsapp || profile.shop.phone) && (
           <a href={`https://wa.me/${(profile.shop.whatsapp || profile.shop.phone).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className={round} aria-label="WhatsApp" title="WhatsApp">

@@ -49,7 +49,7 @@ const SECTIONS = [
 
 const CONTROLS = [
   { icon: EyeOff, text: 'Tap ••• on any item: “Why am I seeing this?” tells you the reason, and “Show less like this” steers the feed.' },
-  { icon: Layers, text: 'Following shows only shops and teachers you follow, newest first. No algorithm.' },
+  { icon: Layers, text: 'Network shows only the people you follow (and what they Resaligued), newest first. No algorithm.' },
   { icon: Radio, text: 'Local shows shops in a city you choose. Learn shows fashion lessons.' },
   { icon: Settings2, text: 'Settings → For You: turn off “Personalise my feed”, or “Reset my recommendations” to clear what Saligue learned. Choose “Essential only” in the cookie banner and nothing about what you watch is recorded.' },
   { icon: Megaphone, text: 'Pull down at the top of the feed, or tap For You again, for a fresh mix.' },

@@ -20,8 +20,9 @@ import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from '
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { launchNumbers, markActive } from './launch.mjs';
-import { accountLocked, adminChange, adminDenied, adminSignedIn, blockIp, connectSecurity, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
+import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, blockIp, connectSecurity, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
 import { sweepWatermarked, watermarked } from './download.mjs';
+import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFile, storeChatFile } from './chat-media.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 
@@ -563,7 +564,7 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     lessonComments: all('select lesson_id, parent_id, kind, text, created_at from lesson_comments where user_id = ?', id),
     questions: all('select product_id, text, answer, created_at from product_questions where user_id = ?', id),
     reviews: all('select product_id, rating, text, created_at from reviews where user_id = ?', id),
-    messagesSent: all('select m.conversation_id, m.text, m.product_id, m.order_id, m.created_at from messages m where m.sender_id = ? order by m.created_at', id),
+    messagesSent: all("select m.conversation_id, m.text, m.product_id, m.order_id, json_extract(m.attachment, '$.kind') as attachment, m.created_at from messages m where m.sender_id = ? and m.deleted_at is null order by m.created_at", id),
     following: all('select seller_id, created_at from follows where follower_id = ?', id),
     followers: all('select count(*) as n from follows where seller_id = ?', id)[0].n,
     likes: all('select product_id from likes where user_id = ?', id).map((r) => r.product_id),
@@ -599,6 +600,9 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
       db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(product_id);
     }
     db.prepare('delete from reposts where user_id = ?').run(id);
+    // Their chat messages (with photos, videos and voice notes) are deleted; the other person sees "Message unsent".
+    for (const m of db.prepare('select id, attachment from messages where sender_id = ? and attachment is not null').all(id)) removeChatFiles(m.attachment);
+    db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where sender_id = ? and deleted_at is null").run(now(), id);
     for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
@@ -1618,36 +1622,50 @@ function autoReceive() {
 setInterval(autoReceive, 60 * 60_000).unref();
 
 // ---------------------------------------------------------------------------
-// Messages: buyers talk directly with sellers (one conversation per buyer and shop), live and by email.
+// Messages: shoppers talk with shops (one conversation per shopper and shop), and people in each other's
+// Clients or Network talk directly. Text, photos, videos, voice notes and items; live and by email.
 // ---------------------------------------------------------------------------
 
 const shopNameOf = (u) => parse(u?.shop)?.name || u?.display_name || 'Shop';
 const personNameOf = (u) => (u?.is_guest ? 'Guest shopper' : u?.display_name || u?.email?.split('@')[0] || 'Saligue user');
 
+const nameOf = (u) => (u?.role === 'seller' ? shopNameOf(u) : personNameOf(u));
+
 function conversationOut(c, me) {
   const iAmBuyer = c.buyer_id === me.id;
-  const other = db.prepare('select id, display_name, email, shop, is_guest, official, avatar from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
+  const other = db.prepare('select id, display_name, email, shop, role, username, is_guest, official, verified, avatar from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
   const readAt = (iAmBuyer ? c.buyer_read_at : c.seller_read_at) ?? '';
   const last = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 1').get(c.id);
-  const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ?').get(c.id, me.id, readAt).n;
+  const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ? and deleted_at is null').get(c.id, me.id, readAt).n;
+  const direct = c.kind === 'direct';
   return {
     id: c.id,
-    role: iAmBuyer ? 'buyer' : 'seller',
+    kind: direct ? 'direct' : 'shop',
+    // In a shop chat: the current account's side. In a direct chat both are people ('direct').
+    role: direct ? 'direct' : iAmBuyer ? 'buyer' : 'seller',
     other: {
       id: other?.id,
-      name: iAmBuyer ? shopNameOf(other) : personNameOf(other),
+      name: nameOf(other),
+      username: other?.username ?? null,
       official: !!other?.official,
+      verified: !!other?.verified,
+      isShop: other?.role === 'seller',
       isGuest: !!other?.is_guest,
       avatar: other?.avatar ?? null,
     },
-    lastMessage: last ? { text: last.text, fromMe: last.sender_id === me.id, productId: last.product_id, createdAt: last.created_at } : null,
+    lastMessage: last ? { text: last.deleted_at ? 'Message unsent' : last.text || attachmentLabel(parse(last.attachment)), fromMe: last.sender_id === me.id, productId: last.product_id, createdAt: last.created_at } : null,
     unread,
     lastMessageAt: c.last_message_at,
   };
 }
 
 function messageOut(m) {
-  return { id: m.id, senderId: m.sender_id, text: m.text, productId: m.product_id ?? null, orderId: m.order_id ?? null, createdAt: m.created_at };
+  if (m.deleted_at) return { id: m.id, senderId: m.sender_id, text: '', productId: null, orderId: null, attachment: null, deleted: true, createdAt: m.created_at };
+  const a = parse(m.attachment);
+  return {
+    id: m.id, senderId: m.sender_id, text: m.text, productId: m.product_id ?? null, orderId: m.order_id ?? null, createdAt: m.created_at,
+    attachment: a ? { kind: a.kind, url: chatFileUrl(a.file), poster: chatFileUrl(a.poster), width: a.width ?? null, height: a.height ?? null, duration: a.duration ?? null } : null,
+  };
 }
 
 function ownConversation(user, id) {
@@ -1660,10 +1678,23 @@ const messageRuns = new Map();
 // Either of two people blocked the other.
 const blockedBetween = (a, b) => !!(a && b && db.prepare('select 1 from blocks where (blocker_id = ? and blocked_id = ?) or (blocker_id = ? and blocked_id = ?)').get(a, b, b, a));
 
-function addMessage(user, c, { text, productId = null, orderId = null }) {
+// Two people are connected when either follows the other (one is in the other's Clients or Network).
+const connected = (a, b) => !!db.prepare('select 1 from follows where (follower_id = ? and seller_id = ?) or (follower_id = ? and seller_id = ?)').get(a, b, b, a);
+
+function addMessage(user, c, { text, productId = null, orderId = null, attachment = null }) {
   if (blockedBetween(c.buyer_id, c.seller_id)) fail(403, 'blocked', 'You can’t message this account.');
   const clean = String(text ?? '').trim().slice(0, 3000);
-  if (!clean) fail(400, 'empty_message', 'Write a message first.');
+  if (!clean && !attachment && !productId) fail(400, 'empty_message', 'Write a message first.');
+  if (c.kind === 'direct') {
+    const otherId = c.buyer_id === user.id ? c.seller_id : c.buyer_id;
+    if (!connected(user.id, otherId)) fail(403, 'not_connected', 'You can message people in your Clients or Network.');
+    // Someone who doesn't follow you back gets one message from you until they answer (no spam from strangers).
+    const theyFollowMe = !!db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(otherId, user.id);
+    const theyAnswered = !!db.prepare('select 1 from messages where conversation_id = ? and sender_id = ?').get(c.id, otherId);
+    if (!theyFollowMe && !theyAnswered && db.prepare('select 1 from messages where conversation_id = ? and sender_id = ? and deleted_at is null').get(c.id, user.id)) {
+      fail(403, 'wait_for_reply', 'They don’t follow you yet. You can send more once they answer.');
+    }
+  }
   const minute = Date.now() - 60_000;
   const recent = (messageRuns.get(user.id) ?? []).filter((t) => t > minute);
   if (recent.length >= 30) fail(429, 'too_many', 'You are sending messages very fast. Wait a moment.');
@@ -1675,8 +1706,8 @@ function addMessage(user, c, { text, productId = null, orderId = null }) {
   const id = randomUUID();
   const iAmBuyer = c.buyer_id === user.id;
   transaction(() => {
-    db.prepare('insert into messages (id, conversation_id, sender_id, text, product_id, order_id, created_at) values (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, c.id, user.id, clean, productId, orderId, time);
+    db.prepare('insert into messages (id, conversation_id, sender_id, text, product_id, order_id, attachment, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, c.id, user.id, clean, productId, orderId, attachment ? json(attachment) : null, time);
     db.prepare(`update conversations set last_message_at = ?, ${iAmBuyer ? 'buyer_read_at' : 'seller_read_at'} = ? where id = ?`).run(time, time, c.id);
   });
   sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
@@ -1690,11 +1721,11 @@ function addMessage(user, c, { text, productId = null, orderId = null }) {
   const recipient = db.prepare('select email, is_guest from users where id = ?').get(recipientId);
   if (stale && recipient?.email && !recipient.is_guest) {
     db.prepare(`update conversations set ${iAmBuyer ? 'seller_emailed_at' : 'buyer_emailed_at'} = ? where id = ?`).run(time, c.id);
-    const from = iAmBuyer ? personNameOf(user) : shopNameOf(user);
+    const from = nameOf(user);
     const product = productId && db.prepare('select name from products where id = ?').get(productId);
     sendEmail(recipient.email, {
       subject: `New message from ${from}`,
-      lines: [`${from}${product ? ` about "${product.name}"` : ''}:`, `"${clean.slice(0, 400)}"`, 'Reply in Saligue so your conversation stays in one place.'],
+      lines: [`${from}${product ? ` about "${product.name}"` : ''}:`, clean ? `"${clean.slice(0, 400)}"` : attachmentLabel(attachment) || 'Shared an item', 'Reply in Saligue so your conversation stays in one place.'],
       button: { label: 'Reply', url: `/messages?c=${c.id}` },
     });
   }
@@ -1726,11 +1757,37 @@ route('POST', '/api/conversations', ({ user, body }) => {
   } else if (body.sellerId) {
     if (!db.prepare("select 1 from users where id = ? and role = 'seller'").get(String(body.sellerId))) fail(404, 'not_found', 'Shop not found.');
     sellerId = String(body.sellerId);
+  } else if (body.userId) {
+    // A person in your Clients or Network. With a shop it is the usual shop chat; otherwise a direct chat.
+    const other = db.prepare('select id, role, is_guest, suspended from users where id = ?').get(String(body.userId));
+    if (!other || other.is_guest || other.suspended) fail(404, 'not_found', 'This account does not exist.');
+    if (other.id === user.id) fail(400, 'own_account', 'This is you.');
+    if (user.is_guest) fail(401, 'not_signed_in', 'Create an account to message people.');
+    if (blockedBetween(user.id, other.id)) fail(403, 'blocked', 'You can’t message this account.');
+    const shopChat = (other.role === 'seller') !== (user.role === 'seller');
+    if (shopChat) [buyerId, sellerId] = other.role === 'seller' ? [user.id, other.id] : [other.id, user.id];
+    else {
+      if (!connected(user.id, other.id)) fail(403, 'not_connected', 'You can message people in your Clients or Network.');
+      let c = db.prepare("select * from conversations where kind = 'direct' and ((buyer_id = ? and seller_id = ?) or (buyer_id = ? and seller_id = ?))").get(user.id, other.id, other.id, user.id);
+      if (!c) {
+        // Starting many new chats quickly is how spam looks: limited, and the admins are told.
+        const lastHour = db.prepare("select count(*) as n from conversations where kind = 'direct' and buyer_id = ? and created_at > ?").get(user.id, new Date(Date.now() - 3_600_000).toISOString()).n;
+        if (lastHour >= 20) {
+          chatSpam(requestContext.getStore()?.ip ?? null, user.id, lastHour);
+          fail(429, 'too_many_chats', 'You started many chats just now. Try again later.');
+        }
+        const id = randomUUID();
+        db.prepare("insert into conversations (id, kind, buyer_id, seller_id, last_message_at, created_at) values (?, 'direct', ?, ?, ?, ?)").run(id, user.id, other.id, now(), now());
+        c = db.prepare('select * from conversations where id = ?').get(id);
+      }
+      if (body.text) addMessage(user, c, { text: body.text });
+      return { id: c.id };
+    }
   }
   if (!sellerId) fail(400, 'invalid', 'Choose who to message.');
   if (buyerId === sellerId) fail(400, 'own_item', 'This is your own shop.');
 
-  let c = db.prepare('select * from conversations where buyer_id = ? and seller_id = ?').get(buyerId, sellerId);
+  let c = db.prepare("select * from conversations where buyer_id = ? and seller_id = ? and kind = 'shop'").get(buyerId, sellerId);
   if (!c) {
     const id = randomUUID();
     db.prepare('insert into conversations (id, buyer_id, seller_id, last_message_at, created_at) values (?, ?, ?, ?, ?)').run(id, buyerId, sellerId, now(), now());
@@ -1755,6 +1812,20 @@ route('POST', '/api/conversations/([\\w-]+)/messages', ({ user, params, body }) 
   const c = ownConversation(user, params[0]);
   const id = addMessage(user, c, { text: body.text, productId: body.productId ? String(body.productId) : null, orderId: body.orderId ? String(body.orderId) : null });
   return messageOut(db.prepare('select * from messages where id = ?').get(id));
+});
+
+// Unsend: your own message disappears for both (its photo, video or voice note is deleted).
+route('DELETE', '/api/conversations/([\\w-]+)/messages/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  const m = db.prepare('select * from messages where id = ? and conversation_id = ?').get(params[1], c.id);
+  if (!m || m.sender_id !== user.id) fail(404, 'not_found', 'Message not found.');
+  if (!m.deleted_at) {
+    removeChatFiles(m.attachment);
+    db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where id = ?").run(now(), m.id);
+  }
+  sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
+  return { ok: true };
 });
 
 route('POST', '/api/conversations/([\\w-]+)/read', ({ user, params }) => {
@@ -4340,10 +4411,10 @@ route('GET', '/api/follow/([\\w-]+)', ({ user, params }) => ({
 
 route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
-  // Shops, and anyone who teaches in Community.
-  const seller = db.prepare("select id, display_name, shop from users where id = ? and (role = 'seller' or exists (select 1 from lessons where user_id = users.id))").get(params[0]);
-  if (!seller) fail(404, 'not_found', 'Shop not found.');
-  if (seller.id === user.id) fail(400, 'own_shop', 'This is your own shop.');
+  // Anyone with an account: shops, teachers and shoppers. Followers are someone's Clients; who they follow is their Network.
+  const seller = db.prepare('select id, display_name, shop, role from users where id = ? and is_guest = 0 and suspended = 0').get(params[0]);
+  if (!seller) fail(404, 'not_found', 'This account does not exist.');
+  if (seller.id === user.id) fail(400, 'own_shop', 'This is you.');
   if (blockedBetween(user.id, seller.id)) fail(403, 'blocked', 'You can’t follow this account.');
   const following = transaction(() => {
     if (db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, seller.id)) {
@@ -4353,18 +4424,18 @@ route('POST', '/api/follow/([\\w-]+)', ({ user, params }) => {
     db.prepare('insert into follows (follower_id, seller_id, created_at) values (?, ?, ?)').run(user.id, seller.id, now());
     return true;
   });
-  if (following && !user.is_guest) notify(seller.id, { type: 'account', title: `${personNameOf(user)} is now your client`, body: `You now have ${followerCount(seller.id)} clients.`, link: `/profile?id=${seller.id}`, email: false });
+  if (following && !user.is_guest) notify(seller.id, { type: 'account', title: `${nameOf(user)} is now your client`, body: `You now have ${followerCount(seller.id)} clients. Add them to your Network to chat freely.`, link: `/profile?id=${user.id}`, email: false });
   return { following, followers: followerCount(seller.id) };
 });
 
-// Profiles: every shop and teacher has one. "Clients" are the people who follow them.
-const PROFILE_PEOPLE = 'select u.id, u.display_name, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official, u.verified from follows f join users u on u.id = ';
+// Profiles: everyone with an account has one. "Clients" are the people who follow them, "Network" who they follow.
+const PROFILE_PEOPLE = 'select u.id, u.display_name, u.username, u.email, u.is_guest, u.role, u.shop, u.avatar, u.official, u.verified from follows f join users u on u.id = ';
 const personOut = (u) => ({ id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), username: u.username ?? null, avatar: u.avatar ?? null, isShop: u.role === 'seller', official: !!u.official, verified: !!u.verified });
 
 route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
   const u = db.prepare('select * from users where id = ?').get(params[0]);
   const teaches = u && db.prepare('select count(*) as n from lessons where user_id = ? and video is not null and hidden = 0').get(u.id).n;
-  if (!u || u.is_guest || (u.role !== 'seller' && !teaches && u.id !== user?.id)) fail(404, 'not_found', 'This profile does not exist.');
+  if (!u || u.is_guest || (u.suspended && u.id !== user?.id)) fail(404, 'not_found', 'This profile does not exist.');
   const shop = u.role === 'seller' ? parse(u.shop) : null;
   const rating = db.prepare('select avg(r.rating) as avg, count(*) as n from reviews r join products p on p.id = r.product_id where p.seller_id = ?').get(u.id);
   const live = db.prepare("select id from lives where seller_id = ? and status = 'live'").get(u.id);
@@ -4386,6 +4457,9 @@ route('GET', '/api/profiles/([\\w-]+)', ({ user, params }) => {
     ratingCount: rating.n,
     liveId: live?.id ?? null,
     isClient: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(user.id, u.id)),
+    // They follow the viewer (the viewer is in their Network), and whether the viewer can chat with them.
+    followsYou: !!(user && db.prepare('select 1 from follows where follower_id = ? and seller_id = ?').get(u.id, user.id)),
+    canMessage: !!(user && !user.is_guest && user.id !== u.id && !blockedBetween(user.id, u.id) && ((u.role === 'seller') !== (user.role === 'seller') || connected(user.id, u.id))),
     mine: user?.id === u.id,
     joinedAt: u.created_at,
   };
@@ -5000,6 +5074,42 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     return serveStatic(req, res, url.pathname);
+  }
+
+  // Chat files: only through a signed link (made for the people in the conversation, valid a few hours).
+  if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname.startsWith('/api/chat-files/')) return serveChatFile(req, res, url);
+
+  // A photo, video or voice note sent in a chat: the raw file streams in (too big for JSON), the server re-makes it.
+  const chatUpload = req.method === 'PUT' && /^\/api\/conversations\/([\w-]+)\/attachments\/(image|video|voice)$/.exec(url.pathname);
+  if (chatUpload) {
+    try {
+      if (!featureOn('messages')) fail(403, 'feature_off', 'Messages are turned off for now.');
+      const user = userOf(req);
+      if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+      const c = ownConversation(user, chatUpload[1]);
+      const kind = chatUpload[2];
+      const type = String(req.headers['content-type'] || '');
+      const fits = { image: /^image\//, video: /^video\//, voice: /^(audio|video)\//}[kind];
+      if (!fits.test(type)) fail(400, 'invalid_file', kind === 'image' ? 'Choose a photo.' : kind === 'video' ? 'Choose a video.' : 'This voice note could not be read.');
+      if (blockedBetween(c.buyer_id, c.seller_id)) fail(403, 'blocked', 'You can’t message this account.');
+      const upload = await receiveUpload(req, CHAT_LIMITS[kind].bytes);
+      const attachment = await storeChatFile(kind, upload);
+      const caption = String(url.searchParams.get('caption') ?? '').slice(0, 1000);
+      let id;
+      try {
+        id = addMessage(user, c, { text: caption, attachment });
+      } catch (error) {
+        removeChatFiles(attachment);
+        throw error;
+      }
+      return send(res, 200, messageOut(db.prepare('select * from messages where id = ?').get(id)));
+    } catch (error) {
+      if (error instanceof HttpError) return send(res, error.status, { error: { code: error.code, message: error.message } });
+      if (error.status === 413) return send(res, 413, { error: { code: 'too_large', message: `This file is too large (up to ${Math.round(CHAT_LIMITS[chatUpload[2]].bytes / 1048576)} MB).` } });
+      if (error.status) return send(res, error.status, { error: { code: 'invalid_file', message: error.message } });
+      console.error('Chat file failed:', error);
+      return send(res, 500, { error: { code: 'server_error', message: 'This file could not be sent. Try another one.' } });
+    }
   }
 
   // Lesson video (Community): up to 4 min 30 s (General studies 10 min), same conversion as item videos.

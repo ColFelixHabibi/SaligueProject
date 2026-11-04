@@ -581,3 +581,77 @@ describe('resaligue, pin and download', () => {
     assert.equal((await call('/products/nope/download')).status, 404);
   });
 });
+
+describe('clients, network and chat', () => {
+  const upload = async (token, conversationId, kind, type, bytes) => {
+    const r = await fetch(`${base}/api/conversations/${conversationId}/attachments/${kind}`, { method: 'PUT', headers: { 'Content-Type': type, Authorization: `Bearer ${token}` }, body: bytes });
+    return { status: r.status, json: await r.json().catch(() => null) };
+  };
+
+  test('anyone can follow anyone; connected people chat, strangers get one message until they answer', async () => {
+    const amina = await register('Amina Chat');
+    const grace = await register('Grace Chat');
+    const zed = await register('Zed Stranger');
+    // Not connected: no direct chat.
+    assert.equal((await call('/conversations', { token: zed.token, body: { userId: amina.id, text: 'hi' } })).status, 403);
+    // Grace follows Amina: Grace is one of Amina's Clients, Amina is in Grace's Network.
+    assert.equal((await call(`/follow/${amina.id}`, { token: grace.token, body: {} })).status, 200);
+    assert.deepEqual((await call(`/profiles/${amina.id}/clients`)).json.map((p) => p.id), [grace.id]);
+    assert.deepEqual((await call(`/profiles/${grace.id}/following`)).json.map((p) => p.id), [amina.id]);
+    const profile = (await call(`/profiles/${grace.id}`, { token: amina.token })).json;
+    assert.equal(profile.followsYou, true);
+    assert.equal(profile.canMessage, true);
+    // Grace writes first; Amina doesn't follow Grace back, so Grace waits for an answer after one message.
+    const start = await call('/conversations', { token: grace.token, body: { userId: amina.id, text: 'Hello Amina!' } });
+    assert.equal(start.status, 200);
+    const c = start.json.id;
+    assert.equal((await call(`/conversations/${c}/messages`, { token: grace.token, body: { text: 'Are you there?' } })).status, 403);
+    assert.equal((await call(`/conversations/${c}/messages`, { token: amina.token, body: { text: 'Hi Grace' } })).status, 200);
+    assert.equal((await call(`/conversations/${c}/messages`, { token: grace.token, body: { text: 'Great!' } })).status, 200);
+    // The same chat whoever opens it.
+    assert.equal((await call('/conversations', { token: amina.token, body: { userId: grace.id } })).json.id, c);
+    const inbox = (await call('/conversations', { token: amina.token })).json.find((x) => x.id === c);
+    assert.equal(inbox.kind, 'direct');
+    assert.equal(inbox.other.id, grace.id);
+    // A stranger can't read it.
+    assert.equal((await call(`/conversations/${c}`, { token: zed.token })).status, 404);
+  });
+
+  test('photos and voice notes are private files behind signed links; messages can be unsent', async () => {
+    const a = await register('Media Sender');
+    const b = await register('Media Friend');
+    await call(`/follow/${a.id}`, { token: b.token, body: {} });
+    await call(`/follow/${b.id}`, { token: a.token, body: {} });
+    const c = (await call('/conversations', { token: a.token, body: { userId: b.id } })).json.id;
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#e21376' } }).png().toBuffer();
+    const photo = await upload(a.token, c, 'image', 'image/png', png);
+    assert.equal(photo.status, 200, JSON.stringify(photo.json));
+    assert.equal(photo.json.attachment.kind, 'image');
+    const file = await fetch(`${base}${photo.json.attachment.url}`);
+    assert.equal(file.status, 200);
+    assert.equal(file.headers.get('content-type'), 'image/jpeg');
+    // A changed signature, or no signature: nothing.
+    assert.equal((await fetch(`${base}${photo.json.attachment.url.replace(/s=[^&]+/, 's=forged')}`)).status, 404);
+    assert.equal((await fetch(`${base}${photo.json.attachment.url.split('?')[0]}`)).status, 404);
+    // Not a photo.
+    assert.equal((await upload(a.token, c, 'image', 'image/png', Buffer.from('not a picture'))).status, 400);
+    // A one-second voice note (made with ffmpeg) becomes an M4A.
+    const { spawnSync: run } = await import('node:child_process');
+    const wav = run('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=duration=1', '-f', 'wav', '-'], { maxBuffer: 10_000_000 }).stdout;
+    const voice = await upload(b.token, c, 'voice', 'audio/wav', wav);
+    assert.equal(voice.status, 200, JSON.stringify(voice.json));
+    assert.equal(voice.json.attachment.kind, 'voice');
+    assert.equal(voice.json.attachment.duration, 1);
+    assert.equal((await fetch(`${base}${voice.json.attachment.url}`)).headers.get('content-type'), 'audio/mp4');
+    // Someone outside the chat can't add to it.
+    const z = await register('Media Outsider');
+    assert.equal((await upload(z.token, c, 'image', 'image/png', png)).status, 404);
+    // Unsend: gone for both, file deleted.
+    assert.equal((await call(`/conversations/${c}/messages/${photo.json.id}`, { method: 'DELETE', token: b.token })).status, 404);
+    assert.equal((await call(`/conversations/${c}/messages/${photo.json.id}`, { method: 'DELETE', token: a.token })).status, 200);
+    const thread = (await call(`/conversations/${c}`, { token: b.token })).json.messages;
+    assert.equal(thread.find((m) => m.id === photo.json.id).deleted, true);
+    assert.equal((await fetch(`${base}${photo.json.attachment.url}`)).status, 404);
+  });
+});
