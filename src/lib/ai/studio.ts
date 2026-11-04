@@ -19,6 +19,15 @@ function clean(url: string | null | undefined) {
 }
 
 let resolved: Promise<string | null> | null = null;
+let cloud: Promise<boolean> | null = null;
+let unlimited = false;
+
+/** Forget what was found before, so a changed Studio address or feature switch is picked up at once. */
+function forgetAvailability() {
+  resolved = null;
+  cloud = null;
+  unlimited = false;
+}
 
 export function setStudioUrl(url: string | null) {
   try {
@@ -27,7 +36,7 @@ export function setStudioUrl(url: string | null) {
   } catch {
     // Storage unavailable.
   }
-  resolved = null;
+  forgetAvailability();
 }
 
 async function findStudioUrl(): Promise<string | null> {
@@ -100,30 +109,44 @@ async function padToShape(src: string, ratio: number): Promise<Padded> {
   ctx.drawImage(img, box.x, box.y);
   return { url: out.toDataURL('image/jpeg', 0.92), width: W, height: H, box };
 }
+// Each AI fits the photo into its own frame and centres it, and those frames differ (FASHN 2:3, Leffa 3:4), so the
+// picture that comes back is not always the shape that was sent. Undoing that fit first keeps the crop square when
+// the two shapes differ; when they match it does exactly what a plain scale would.
 async function cropBack(result: string, padded: Padded): Promise<string> {
   if (padded.box.w === padded.width && padded.box.h === padded.height) return result;
   const img = await loadImage(result);
-  const sx = img.naturalWidth / padded.width, sy = img.naturalHeight / padded.height;
-  const out = createCanvas(Math.round(padded.box.w * sx), Math.round(padded.box.h * sy));
-  context2d(out).drawImage(img, padded.box.x * sx, padded.box.y * sy, padded.box.w * sx, padded.box.h * sy, 0, 0, out.width, out.height);
+  const scale = Math.min(img.naturalWidth / padded.width, img.naturalHeight / padded.height);
+  const left = (img.naturalWidth - padded.width * scale) / 2;
+  const top = (img.naturalHeight - padded.height * scale) / 2;
+  const out = createCanvas(Math.round(padded.box.w * scale), Math.round(padded.box.h * scale));
+  context2d(out).drawImage(img, left + padded.box.x * scale, top + padded.box.y * scale, padded.box.w * scale, padded.box.h * scale, 0, 0, out.width, out.height);
   return out.toDataURL('image/jpeg', 0.92);
 }
+
+// One redraw at a time is queued behind the last (see realisticTryOn), so a request that never answers would hold
+// every other look behind it: a GPU that is busy or a network that has gone quiet ends here instead of hanging.
+const CALL_TIMEOUT = 180_000;
 
 async function call(path: string, body: object): Promise<string> {
   const url = await getStudio();
   if (!url) throw new Error('Saligue AI Studio is not running right now.');
-  const response = await fetch(`${url}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(CALL_TIMEOUT),
+    });
+  } catch (error) {
+    if ((error as Error)?.name === 'TimeoutError') throw new Error('Saligue AI Studio is taking too long. Tap Try again.');
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || `AI Studio error (${response.status}).`);
+  if (!data.image) throw new Error('Saligue AI Studio sent no picture. Tap Try again.');
   return data.image;
 }
-
-let cloud: Promise<boolean> | null = null;
-let unlimited = false;
 
 /** True when the server has the paid try-on (no daily limit): every result can be dressed. */
 export const isUnlimited = () => unlimited;
@@ -131,19 +154,23 @@ export const isUnlimited = () => unlimited;
 /**
  * Whether "Make it realistic" can run: on Saligue's own AI Studio, or through the Saligue server,
  * which uses the public Leffa model (see server/tryon.mjs).
+ *
+ * The server is asked first even when a Studio address is saved: the App calls the Studio straight from the
+ * browser, so Admin → Features and the per-country rules (server/index.mjs needFeature) would otherwise never
+ * apply to it, and realistic try-on could not be closed where it must be.
  */
 export function getRealistic(): Promise<boolean> {
   if (!cloud) {
-    cloud = getStudio().then(async (url) => {
-      if (url) return true;
+    cloud = (async () => {
       try {
         const info = await api<{ available?: boolean; unlimited?: boolean }>('/ai/tryon');
         unlimited = !!info?.unlimited;
-        return !!info?.available;
+        if (!info?.available) return false;
       } catch {
         return false;
       }
-    });
+      return !!(await getStudio());
+    })();
   }
   return cloud;
 }
@@ -157,6 +184,9 @@ function fingerprint(text: string) {
 }
 
 // Looks already made in this visit, and one redraw at a time (the AI handles one picture at once).
+// Each kept look holds a whole picture, so only the most recent ones are held: a long visit tapping through
+// choices would otherwise fill the phone's memory.
+const LOOKS_KEPT = 40;
 const looks = new Map<string, Promise<string>>();
 let lane: Promise<unknown> = Promise.resolve();
 
@@ -200,6 +230,8 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
     lane = look.catch(() => {});
     looks.set(key, look);
     look.catch(() => looks.delete(key));
+    // The map keeps insertion order, so the oldest look goes first.
+    while (looks.size > LOOKS_KEPT) looks.delete(looks.keys().next().value as string);
   }
   return look;
 }

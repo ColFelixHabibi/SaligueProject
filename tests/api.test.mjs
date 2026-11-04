@@ -495,6 +495,13 @@ describe('try-on photos', () => {
     assert.equal(r.status, 400);
     assert.equal(r.json.error.code, 'consent_needed');
   });
+  test('a photo far bigger than the app sends is refused before the AI is asked', async () => {
+    const a = await register('Mirror Big Photo');
+    const huge = `data:image/jpeg;base64,${'A'.repeat(2_600_000)}`;
+    const r = await call('/ai/tryon', { token: a.token, body: { person: huge, garment: 'data:image/jpeg;base64,AAAA', category: 'top', consent: 'self' } });
+    assert.equal(r.status, 413);
+    assert.equal(r.json.error.code, 'too_large');
+  });
   test('finished looks are deleted after 24 hours', async () => {
     const { mkdirSync, writeFileSync, utimesSync, existsSync } = await import('node:fs');
     const dir = join(data, 'tryon-cache');

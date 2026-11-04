@@ -397,6 +397,13 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
                 <Sparkles className="mr-2 h-4 w-4" /> Try the realistic AI again
               </Button>
             )}
+            {/* Clothes are never pasted onto the photo, so with the realistic AI off the mirror would quietly
+                show the outfit's shoes and bags only. Say why, as the single-item cards already do. */}
+            {!studio && person && redrawable.length > 0 && (
+              <p className="text-center text-[11px] text-muted-foreground">
+                Realistic try-on is not available right now, so clothes aren’t drawn on you. Shoes, hats, glasses and bags still are.
+              </p>
+            )}
             {studio && person && redrawable.length > 0 && (
               <p className="text-center text-[11px] text-muted-foreground">
                 About 20 s per item

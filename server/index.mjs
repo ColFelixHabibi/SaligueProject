@@ -4846,6 +4846,11 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
   needFeature('tryon');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   if (!REALISTIC_CATEGORIES.includes(body.category)) fail(400, 'unsupported', 'Realistic try-on works for tops, jackets, trousers and dresses.');
+  // The app sends both pictures trimmed to 1024 px (about 300 KB each). Anything far bigger would only waste the
+  // free AI's daily allowance, the upload and the GPU time, so it is refused as product photos are (see /products).
+  for (const photo of [body.person, body.garment]) {
+    if (typeof photo === 'string' && photo.length > 2_500_000) fail(413, 'too_large', 'This photo is too large for realistic try-on.');
+  }
   // The person confirmed in the app that the photo is of them (src/lib/ai/consent.ts). Older app versions
   // never asked, so they are told to update.
   if (body.consent !== 'self') fail(400, 'consent_needed', 'Update Saligue and confirm the photo is of you to use realistic try-on.');
