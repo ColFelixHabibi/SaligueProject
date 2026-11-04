@@ -168,6 +168,18 @@ db.exec(`
     value text not null                 -- JSON
   );
 
+  -- An account's own AI key (e.g. DeepSeek), so two accounts never share one key. Kept with the account that added
+  -- it, never shown again (only the last 4 characters are kept for the app), and checked with the company on save.
+  create table if not exists user_ai_keys (
+    user_id text not null references users(id) on delete cascade,
+    provider text not null,             -- deepseek
+    secret text not null,
+    hint text not null,                 -- "••••" and the last 4 characters, all the app ever shows
+    created_at text not null,
+    checked_at text,                    -- last time the company accepted this key
+    primary key (user_id, provider)
+  );
+
   -- Direct chat between a buyer and a seller: one conversation per pair, messages may point at an item or order.
   create table if not exists conversations (
     id text primary key,

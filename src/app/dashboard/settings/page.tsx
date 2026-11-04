@@ -6,6 +6,7 @@ import { CommentControls } from '@/components/comment-controls';
 import { BlockedCard } from '@/components/blocked-card';
 
 import { PersonalisationCard } from '@/components/personalisation-card';
+import { AiKeyCard } from '@/components/ai-key-card';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { friendlyError } from '@/lib/errors';
 
@@ -110,6 +111,7 @@ export default function SettingsPage() {
   return (
     <div className="grid gap-6">
       <PersonalisationCard />
+      <AiKeyCard />
       <BlockedCard />
       <Card className="p-6">
         <ProfilePhotoField name={user?.displayName} required />

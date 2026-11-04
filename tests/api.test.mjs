@@ -5,6 +5,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +14,39 @@ const root = new URL('..', import.meta.url).pathname;
 const data = mkdtempSync(join(tmpdir(), 'saligue-test-'));
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
+
+// A stand-in for DeepSeek (DEEPSEEK_API_URL), so the AI key tests never touch the network: one key works and every
+// other key is refused, exactly like the real /user/balance and /chat/completions.
+const GOOD_KEY = `sk-${'a1b2c3d4'.repeat(4)}`;
+const deepseek = createServer((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  if (req.headers.authorization !== `Bearer ${GOOD_KEY}`) {
+    res.statusCode = 401;
+    res.end(JSON.stringify({ error: { message: 'Authentication Fails' } }));
+    return;
+  }
+  if (req.url === '/user/balance') {
+    res.end(JSON.stringify({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: '12.34' }] }));
+    return;
+  }
+  if (req.url === '/chat/completions') {
+    req.resume();
+    req.on('end', () => res.end(JSON.stringify({
+      model: 'deepseek-chat',
+      usage: { total_tokens: 42 },
+      choices: [{ message: { content: 'A soft cotton jacket in like-new condition.' } }],
+    })));
+    return;
+  }
+  res.statusCode = 404;
+  res.end('{}');
+});
+await new Promise((done) => deepseek.listen(0, '127.0.0.1', done));
+const deepseekUrl = `http://127.0.0.1:${deepseek.address().port}`;
+
 const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
+  // The AI key tests ask the stand-in above, never DeepSeek; no platform key, so an account's own key is the only one.
+  DEEPSEEK_API_URL: deepseekUrl, DEEPSEEK_API_KEY: '',
   // Live works against a LiveKit that is not there; no server recorder answers, so hosts' phones record.
   LIVEKIT_URL: 'ws://127.0.0.1:9', LIVEKIT_API_KEY: 'test', LIVEKIT_API_SECRET: 'test-secret', LIVEKIT_API_URL: 'http://127.0.0.1:9', EGRESS_HEALTH_PORT: '9' };
 let server;
@@ -50,6 +83,7 @@ before(async () => {
 });
 after(() => {
   server?.kill();
+  deepseek.close();
   rmSync(data, { recursive: true, force: true });
 });
 
@@ -473,6 +507,92 @@ describe('try-on photos', () => {
     const sweep = spawnSync(process.execPath, ['--no-warnings', '-e', "await import('./server/tryon.mjs'); process.exit(0)"], { cwd: root, env, encoding: 'utf8' });
     assert.equal(sweep.status, 0, sweep.stderr);
     assert.equal(existsSync(file), false);
+  });
+});
+
+describe('AI keys', () => {
+  const rightShape = `sk-${'z9y8x7'.repeat(4)}`; // looks like a key, but the stand-in refuses it
+  test('a key that is not a DeepSeek key is refused without asking anyone', async () => {
+    const a = await register('Key Typo');
+    const r = await call('/ai/keys/deepseek', { method: 'PUT', token: a.token, body: { key: 'my-secret-key' } });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error.code, 'key_refused');
+    assert.match(r.json.error.message, /sk-/);
+    assert.equal((await call('/ai/keys', { token: a.token })).json.deepseek.saved, false);
+  });
+
+  test('a key DeepSeek refuses is not saved', async () => {
+    const a = await register('Key Refused');
+    const r = await call('/ai/keys/deepseek', { method: 'PUT', token: a.token, body: { key: rightShape } });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error.code, 'key_refused');
+    assert.equal((await call('/ai/keys', { token: a.token })).json.deepseek.saved, false);
+  });
+
+  test('an accepted key is saved sealed, comes back only as a hint, and is removed on request', async () => {
+    const a = await register('Key Owner');
+    const r = await call('/ai/keys/deepseek', { method: 'PUT', token: a.token, body: { key: GOOD_KEY } });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.saved, true);
+    assert.equal(r.json.checked, true);
+    assert.equal(r.json.balance, '12.34 USD');
+    assert.equal(r.json.source, 'yours');
+    assert.equal(r.json.hint, `••••${GOOD_KEY.slice(-4)}`);
+    // The app never gets the key back, in the summary either.
+    const summary = await call('/ai/keys', { token: a.token });
+    assert.equal(JSON.stringify(summary.json).includes(GOOD_KEY), false);
+    // A copy of the database is not a copy of the key: only the sealed form is written.
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const saved = db.prepare('select secret from user_ai_keys where user_id = ?').get(a.id);
+    db.close();
+    assert.ok(saved?.secret.startsWith('enc1:'), 'kept sealed');
+    assert.equal(saved.secret.includes(GOOD_KEY), false);
+    // Another account has none of it, and is never told it exists.
+    const b = await register('Key Stranger');
+    assert.equal((await call('/ai/keys', { token: b.token })).json.deepseek.saved, false);
+    // "Check again" asks about the saved key without the app holding it.
+    const checked = await call('/ai/keys/deepseek/check', { method: 'POST', token: a.token });
+    assert.equal(checked.status, 200, JSON.stringify(checked.json));
+    assert.equal(checked.json.checked, true);
+    // Removing it returns the account to no key at all.
+    const removed = await call('/ai/keys/deepseek', { method: 'DELETE', token: a.token });
+    assert.equal(removed.json.saved, false);
+    assert.equal(removed.json.source, 'none');
+  });
+
+  test('an item’s description is written with the account’s own key, and refused when it has none', async () => {
+    const a = await register('Key Writer');
+    const none = await call('/ai/write', { token: a.token, body: { title: 'Vintage denim jacket' } });
+    assert.equal(none.status, 503);
+    assert.equal(none.json.error.code, 'no_key');
+    // Nothing to describe: the AI is not asked at all.
+    await call('/ai/keys/deepseek', { method: 'PUT', token: a.token, body: { key: GOOD_KEY } });
+    assert.equal((await call('/ai/write', { token: a.token, body: { title: '', category: '' } })).status, 400);
+    const written = await call('/ai/write', {
+      token: a.token,
+      body: { title: 'Vintage denim jacket', category: 'Jackets', condition: 'Like new', size: 'M', lang: 'rw' },
+    });
+    assert.equal(written.status, 200, JSON.stringify(written.json));
+    assert.equal(written.json.source, 'yours');
+    assert.match(written.json.text, /jacket/);
+  });
+
+  test('the data download shows only the key’s hint, and deleting the account removes the key', async () => {
+    const a = await register('Key Leaving');
+    assert.equal((await call('/ai/keys/deepseek', { method: 'PUT', token: a.token, body: { key: GOOD_KEY } })).status, 200);
+    // "Download my data" is everything Saligue keeps about the person, so the key is there as its hint, never itself.
+    const file = await (await fetch(`${base}/api/auth/me/export`, { headers: { Authorization: `Bearer ${a.token}` } })).json();
+    assert.equal(file.aiKey.saved, true);
+    assert.equal(file.aiKey.hint, `••••${GOOD_KEY.slice(-4)}`);
+    assert.equal(JSON.stringify(file).includes(GOOD_KEY), false);
+    // Deleting an account empties it rather than removing the row, so nothing else would ever clean the key up.
+    assert.equal((await call('/auth/me/delete', { token: a.token, body: { confirm: 'DELETE' } })).status, 200);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const left = db.prepare('select count(*) as n from user_ai_keys where user_id = ?').get(a.id).n;
+    db.close();
+    assert.equal(left, 0);
   });
 });
 

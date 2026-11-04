@@ -25,6 +25,7 @@ import { sweepWatermarked, watermarked } from './download.mjs';
 import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFile, storeChatFile } from './chat-media.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
+import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, saveAiKey } from './ai-keys.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -579,6 +580,8 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     itemsOpenedFromSharedLinks: all('select product_id, created_at from share_visits where user_id = ?', id),
     daysYouUsedSaligue: all('select day from active_days where user_id = ? order by day', id).map((r) => r.day),
     notifications: all('select type, title, body, link, created_at from notifications where user_id = ? order by created_at desc limit 500', id),
+    // The AI key the person added: its last 4 characters and the dates, never the key itself (ai-keys.mjs).
+    aiKey: aiKeySummary(id, 'deepseek'),
   };
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="saligue-my-data-${now().slice(0, 10)}.json"` });
   res.end(JSON.stringify(data, null, 2));
@@ -603,7 +606,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
     // Their chat messages (with photos, videos and voice notes) are deleted; the other person sees "Message unsent".
     for (const m of db.prepare('select id, attachment from messages where sender_id = ? and attachment is not null').all(id)) removeChatFiles(m.attachment);
     db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where sender_id = ? and deleted_at is null").run(now(), id);
-    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'active_days']) {
+    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
     db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
@@ -4859,6 +4862,96 @@ route('POST', '/api/ai/tryon', async ({ user, body }) => {
   } catch (error) {
     if (error.cause) console.error('Realistic try-on failed:', error.cause?.message ?? error.cause);
     fail(error.status ?? 502, 'tryon_failed', error.message);
+  }
+});
+
+// An account's own AI key (see ai-keys.mjs). Two accounts never share one: the key is stored with the account that
+// added it and never comes back to the app. A few checks an hour, so this cannot be used to guess keys.
+const keyChecks = new Map();
+route('GET', '/api/ai/keys', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  return { deepseek: aiKeySummary(user.id, 'deepseek') };
+});
+route('PUT', '/api/ai/keys/deepseek', async ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (user.is_guest) fail(403, 'not_signed_in', 'Create an account to add your own AI key.');
+  const secret = String(body.key ?? '').trim();
+  if (!secret) fail(400, 'incomplete', 'Paste your DeepSeek key.');
+  const hour = Date.now() - 3_600_000;
+  const recent = (keyChecks.get(user.id) ?? []).filter((t) => t > hour);
+  if (recent.length >= 10) fail(429, 'too_many', 'You checked keys a lot this hour. Try again a bit later.');
+  keyChecks.set(user.id, [...recent, Date.now()]);
+  const check = await checkAiKey('deepseek', secret);
+  if (check.refused) fail(400, 'key_refused', check.reason);
+  // DeepSeek did not answer: the key is kept anyway (checked_at stays null), so a network hiccup does not lose it.
+  saveAiKey(user.id, 'deepseek', secret, check.ok ? now() : null);
+  return { ...aiKeySummary(user.id, 'deepseek'), checked: !!check.ok, reason: check.ok ? null : check.reason, balance: check.balance ?? null };
+});
+route('DELETE', '/api/ai/keys/deepseek', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  removeAiKey(user.id, 'deepseek');
+  return aiKeySummary(user.id, 'deepseek');
+});
+
+// Checks the key the account already saved (the card's "Check again"). The key never travels to the app, so this is
+// the only way a key kept while DeepSeek was unreachable is retried. Counted with the same few-checks-an-hour limit.
+route('POST', '/api/ai/keys/deepseek/check', async ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (user.is_guest) fail(403, 'not_signed_in', 'Create an account to add your own AI key.');
+  const hour = Date.now() - 3_600_000;
+  const recent = (keyChecks.get(user.id) ?? []).filter((t) => t > hour);
+  if (recent.length >= 10) fail(429, 'too_many', 'You checked keys a lot this hour. Try again a bit later.');
+  keyChecks.set(user.id, [...recent, Date.now()]);
+  const check = await recheckAiKey(user.id, 'deepseek');
+  return { ...aiKeySummary(user.id, 'deepseek'), checked: !!check.ok, reason: check.ok ? null : check.reason, balance: check.balance ?? null };
+});
+
+// Text written by AI for a seller, using this account's own DeepSeek key when it has one and Saligue's otherwise
+// (ai-keys.mjs → aiKeyOf), so two accounts never spend the same key. The details are data, never instructions:
+// the rules live in the system message, on the server, where the app cannot change them.
+const writeRuns = new Map();
+const WRITE_PER_HOUR = 20;
+const WRITE_LANGUAGES = { en: 'English', rw: 'Kinyarwanda', fr: 'French' };
+route('POST', '/api/ai/write', async ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  if (user.is_guest) fail(403, 'not_signed_in', 'Create an account to write descriptions with AI.');
+  const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const item = {
+    title: clip(body.title, 120),
+    category: clip(body.category, 40),
+    type: clip(body.type, 60),
+    brand: clip(body.brand, 60),
+    size: clip(body.size, 30),
+    color: clip(body.color, 30),
+    condition: clip(body.condition, 60),
+    note: clip(body.note, 300),
+  };
+  if (!item.title && !item.category) fail(400, 'incomplete', 'Add the item’s title first, so the AI knows what it is.');
+  const hour = Date.now() - 3_600_000;
+  const recent = (writeRuns.get(user.id) ?? []).filter((t) => t > hour);
+  if (recent.length >= WRITE_PER_HOUR) fail(429, 'too_many', 'You used AI writing a lot this hour. Try again a bit later.');
+  writeRuns.set(user.id, [...recent, Date.now()]);
+  // The seller's language, so the description matches the app they are using; English otherwise.
+  const language = WRITE_LANGUAGES[body.lang] ?? WRITE_LANGUAGES.en;
+  try {
+    const written = await aiComplete(user.id, [
+      {
+        role: 'system',
+        content: [
+          'You write product descriptions for Saligue, a marketplace in Rwanda for second-hand and new fashion.',
+          `Write in ${language}.`,
+          'Write 40 to 70 words as one plain paragraph a seller can paste as it is: no title, no price, no emojis, no markdown, no lists, no greetings.',
+          'Use only the details given. Never invent fabric, measurements, flaws, brand claims or a return policy.',
+          'Mention the condition and the size when they are given. Be honest and easy to read.',
+          'If the details are too thin to describe the item, answer with one sentence asking for the missing detail.',
+        ].join(' '),
+      },
+      { role: 'user', content: JSON.stringify(item) },
+    ], { maxTokens: 220, temperature: 0.5 });
+    return { text: written.text.slice(0, 900), source: written.source };
+  } catch (error) {
+    if (error.code === 'no_key') fail(503, 'no_key', error.message);
+    fail(error.status ?? 502, error.code ?? 'ai_failed', error.message);
   }
 });
 

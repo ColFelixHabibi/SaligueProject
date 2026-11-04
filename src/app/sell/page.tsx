@@ -19,6 +19,7 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { Product } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField, type FashionSuggestion } from '@/components/item-photo-field';
+import { WriteWithAi } from '@/components/write-with-ai';
 import { SoundField, type ChosenSound } from '@/components/sound-field';
 import { makeClip, saveProductSound } from '@/lib/audio';
 import { isShopComplete } from '@/lib/types';
@@ -292,7 +293,23 @@ export default function SellPage() {
               </div>
 
               <div className="space-y-2">
-                  <Label htmlFor="description" className="text-lg font-medium">Description</Label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label htmlFor="description" className="text-lg font-medium">Description</Label>
+                      {/* Written from the details above, so nothing has to be invented. */}
+                      <WriteWithAi
+                          hasText={!!formValues.description.trim()}
+                          facts={{
+                              title: formValues.title,
+                              category,
+                              type,
+                              brand: formValues.brand,
+                              size: formValues.size,
+                              color: formValues.color,
+                              condition: formValues.condition,
+                          }}
+                          onWrite={(text) => setFormValues((prev) => ({ ...prev, description: text }))}
+                      />
+                  </div>
                   <Textarea id="description" placeholder="Describe your item, its condition, material, etc." className="min-h-[120px] text-base" required value={formValues.description} onChange={handleInputChange} />
               </div>
 
