@@ -5484,7 +5484,14 @@ const server = http.createServer(async (req, res) => {
     } catch {
       // No app built yet.
     }
-    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${siteUrl()}/download/saligue.apk` } : null);
+    // The real file size, so the download page states the truth instead of a number typed once and forgotten.
+    let bytes = 0;
+    try {
+      bytes = statSync(join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.apk')).size;
+    } catch {
+      // The APK is not on disk (the version file survived a move): the page just leaves the size out.
+    }
+    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${siteUrl()}/download/saligue.apk`, ...(bytes ? { bytes } : {}) } : null);
   }
   // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
   if (url.pathname === '/download/saligue.apk') {

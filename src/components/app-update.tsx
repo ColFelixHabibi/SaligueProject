@@ -42,9 +42,12 @@ export function AppUpdate() {
   );
 }
 
-/** "Version 1.7": the newest app on the server (download page). */
+/** "Version 2.20 · about 18 MB": the newest app on the server (download page). The size comes from the file itself. */
 export function AppVersion() {
-  const [name, setName] = useState<string | null>(null);
-  useEffect(() => void api<{ versionName: string } | null>('/app/version').then((v) => setName(v?.versionName ?? null)).catch(() => {}), []);
-  return <>{name ? `Version ${name}` : 'Latest version'}</>;
+  const [info, setInfo] = useState<{ versionName: string; bytes?: number } | null>(null);
+  useEffect(() => void api<{ versionName: string; bytes?: number } | null>('/app/version')
+    .then((v) => setInfo(v ? { versionName: v.versionName, bytes: v.bytes } : null))
+    .catch(() => {}), []);
+  const size = info?.bytes ? ` · about ${Math.round(info.bytes / 1_000_000)} MB` : '';
+  return <>{info ? `Version ${info.versionName}${size}` : 'Latest version'}</>;
 }
