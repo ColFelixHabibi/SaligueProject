@@ -11,7 +11,7 @@ import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirro
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BarChart3, Camera, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, Clock, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,7 +24,8 @@ import { CoverPicker, GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveSt
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { decideGuest, endLive, goLive, inviteOnCamera, muteInLive, removeLiveComment, sendLiveComment, setLiveModerator, updateLive, useElapsed, useLive, useLiveRoom, useLives, type Live, type LiveComment, type LiveGuest, type Watcher } from '@/lib/live';
+import { closeDrop, decideGuest, dropItem, endLive, goLive, inviteOnCamera, muteInLive, removeLiveComment, sendLiveComment, setLiveModerator, updateLive, useElapsed, useLive, useLiveRoom, useLives, type Live, type LiveComment, type LiveDrop, type LiveGuest, type Watcher } from '@/lib/live';
+import { DropsPanel } from '@/components/live/live-drop';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 import { onServerEvent } from '@/lib/api';
@@ -268,7 +269,7 @@ function Studio({ id }: { id: string }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
   const { products } = useProductStore();
-  const { live, comments, guests, bursts, error, blockedWords, setBlockedWords, gift } = useLive(id, authUid);
+  const { live, comments, guests, drops, bursts, error, blockedWords, setBlockedWords, gift, reload } = useLive(id, authUid);
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const { tiles, viewers, audience, status, error: roomError, camOn, micOn, toggleCam, toggleMic, flipCamera, restartCamera, facing, mirror, flipMirror, switchMic, retry, videoTrack, sentTracks, zoomInfo, setLiveZoom: applyZoom } = useLiveRoom(id, live?.status === 'live', true);
   // Saligue's server records the replay. Only when its recorder is off does this phone record it:
@@ -290,10 +291,12 @@ function Studio({ id }: { id: string }) {
   const [goal, setGoal] = useState('');
   const [wordsDraft, setWordsDraft] = useState('');
   const elapsed = useElapsed(live?.startedAt);
-  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | 'viewers' | 'poll' | null>(null);
+  const [panel, setPanel] = useState<'products' | 'guests' | 'settings' | 'viewers' | 'poll' | 'drops' | null>(null);
   const [selected, setSelected] = useState<LiveComment | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [say, setSay] = useState('');
+  // Holding an item up for claiming, or taking it down again: which one is waiting on the server.
+  const [dropBusy, setDropBusy] = useState<string | null>(null);
 
   // A viewer answered the invitation to come on camera.
   useEffect(() => onServerEvent('live', (d: { liveId?: string; type?: string; name?: string; accepted?: boolean }) => {
@@ -329,6 +332,32 @@ function Studio({ id }: { id: string }) {
 
   const share = async () => {
     await shareLink({ title: live?.title ?? 'Saligue Live', text: 'I’m live on Saligue: come and watch', url: absoluteUrl(`/live/watch?id=${id}`) });
+  };
+
+  // A drop: the item goes up on every screen and shoppers claim a place, first come first served.
+  // Claiming holds a place for ten minutes, not the stock — the order still checks that at checkout.
+  const dropNow = async (productId: string) => {
+    setDropBusy(productId);
+    try {
+      await dropItem(id, productId);
+      toast({ title: 'Dropped', description: 'Everyone can claim a place for the next ten minutes.' });
+      await reload();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Not dropped', description: friendlyError(e) });
+    } finally {
+      setDropBusy(null);
+    }
+  };
+  const takeDown = async (dropId: string) => {
+    setDropBusy(dropId);
+    try {
+      await closeDrop(id, dropId);
+      await reload();
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Not taken down', description: friendlyError(e) });
+    } finally {
+      setDropBusy(null);
+    }
   };
 
   if (error) return <p className="p-10 text-center text-muted-foreground">{error}</p>;
@@ -370,6 +399,10 @@ function Studio({ id }: { id: string }) {
       <button type="button" onClick={toggleCam} className={cn(button, camOn ? 'bg-black/45' : 'bg-destructive')} aria-label={camOn ? 'Camera off' : 'Camera on'}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
       <button type="button" onClick={flipCamera} className={cn(button, 'bg-black/45')} aria-label="Switch camera"><SwitchCamera className="h-5 w-5" /></button>
       <button type="button" onClick={() => setPanel('products')} className={cn(button, 'bg-black/45')} aria-label="Items"><Package className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('drops')} className={cn(button, 'relative', drops.length ? 'bg-primary' : 'bg-black/45')} aria-label="Drops">
+        <Clock className="h-5 w-5" />
+        {drops.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-foreground">{drops.length}</span>}
+      </button>
       <button type="button" onClick={() => setPanel('poll')} className={cn(button, live.poll?.open ? 'bg-primary' : 'bg-black/45')} aria-label="Poll"><BarChart3 className="h-5 w-5" /></button>
       <button type="button" onClick={() => setPanel('guests')} className={cn(button, 'relative bg-black/45')} aria-label="Guests">
         <Users className="h-5 w-5" />
@@ -539,8 +572,9 @@ function Studio({ id }: { id: string }) {
             <div className="rounded-xl bg-muted p-2"><p className="text-lg font-bold">{elapsed}</p><p className="text-xs text-muted-foreground">Live for</p></div>
           </div>
         </div>
-        <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} />
+        <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} drops={drops} onDrop={dropNow} dropping={dropBusy} />
         <div className="rounded-2xl border bg-card p-5"><h2 className="mb-3 flex items-center gap-2 font-bold"><BarChart3 className="h-4 w-4 text-primary" /> Poll</h2><PollPanel id={id} live={live} /></div>
+        <DropsPanel drops={drops} busy={dropBusy} onClose={takeDown} />
         <GuestsPanel id={id} requests={requests} onCamera={onCamera} />
         <ViewersPanel id={id} live={live} audience={audience} guests={guests} />
         <div className="rounded-2xl border bg-card p-5"><h2 className="mb-4 font-bold">Live settings</h2>{settingsPanel}</div>
@@ -548,9 +582,9 @@ function Studio({ id }: { id: string }) {
 
       <Sheet open={!!panel} onOpenChange={(v) => !v && setPanel(null)}>
         <SheetContent side="bottom" className={cn('max-h-[80vh] overflow-y-auto rounded-t-3xl px-4 min-[360px]:px-6', panel !== 'settings' && panel !== 'poll' && 'md:hidden')}>
-          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'settings' ? 'Live settings' : panel === 'poll' ? 'Poll' : panel === 'viewers' ? `Watching (${audience.length})` : 'Guests'}</SheetTitle></SheetHeader>
+          <SheetHeader><SheetTitle>{panel === 'products' ? 'Items in your live' : panel === 'drops' ? 'Live drops' : panel === 'settings' ? 'Live settings' : panel === 'poll' ? 'Poll' : panel === 'viewers' ? `Watching (${audience.length})` : 'Guests'}</SheetTitle></SheetHeader>
           <div className="mt-4">
-            {panel === 'viewers' ? <ViewersPanel id={id} live={live} audience={audience} guests={guests} bare /> : panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} bare /> : panel === 'settings' ? settingsPanel : panel === 'poll' ? <PollPanel id={id} live={live} /> : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
+            {panel === 'viewers' ? <ViewersPanel id={id} live={live} audience={audience} guests={guests} bare /> : panel === 'products' ? <ProductsPanel id={id} featured={featured} mine={mine} pinnedId={live.pinnedProductId} drops={drops} onDrop={dropNow} dropping={dropBusy} bare /> : panel === 'drops' ? <DropsPanel drops={drops} busy={dropBusy} onClose={takeDown} bare /> : panel === 'settings' ? settingsPanel : panel === 'poll' ? <PollPanel id={id} live={live} /> : <GuestsPanel id={id} requests={requests} onCamera={onCamera} bare />}
           </div>
         </SheetContent>
       </Sheet>
@@ -635,7 +669,7 @@ function PollPanel({ id, live }: { id: string; live: Live }) {
   );
 }
 
-function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; featured: ReturnType<typeof useProductStore.getState>['products']; mine: ReturnType<typeof useProductStore.getState>['products']; pinnedId: string | null; bare?: boolean }) {
+function ProductsPanel({ id, featured, mine, pinnedId, drops, onDrop, dropping, bare }: { id: string; featured: ReturnType<typeof useProductStore.getState>['products']; mine: ReturnType<typeof useProductStore.getState>['products']; pinnedId: string | null; drops: LiveDrop[]; onDrop: (productId: string) => void; dropping?: string | null; bare?: boolean }) {
   const { toast } = useToast();
   const featuredIds = featured.map((p) => p.id);
   const save = (body: Parameters<typeof updateLive>[1]) => updateLive(id, body).catch((e) => toast({ variant: 'destructive', title: 'Not saved', description: friendlyError(e) }));
@@ -649,11 +683,13 @@ function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; fea
   return (
     <div className={cn(!bare && 'rounded-2xl border bg-card p-5')}>
       {!bare && <h2 className="mb-1 font-bold">Items in your live</h2>}
-      <p className="mb-3 text-xs text-muted-foreground">Tap <b>Show now</b> to pin an item on every viewer’s screen with a Buy button.</p>
+      <p className="mb-3 text-xs text-muted-foreground">Tap <b>Show now</b> to pin an item on every viewer’s screen with a Buy button. <b>Drop it</b> holds one up to claim: the first shoppers take a place and have ten minutes to pay.</p>
       <div className="space-y-2">
         {mine.map((p) => {
           const inLive = featuredIds.includes(p.id);
           const isPinned = pinnedId === p.id;
+          // Already held up: the drop is running, so the button shows where it is instead of dropping twice.
+          const dropped = drops.some((d) => d.productId === p.id);
           return (
             <div key={p.id} className="space-y-1.5">
             <div className={cn('flex items-center gap-3 rounded-xl border p-2', isPinned && 'border-primary bg-primary/5')}>
@@ -668,6 +704,11 @@ function ProductsPanel({ id, featured, mine, pinnedId, bare }: { id: string; fea
                 onClick={() => (p.deal?.liveId === id ? void setDeal(p.id, null) : setDealFor(dealFor === p.id ? null : p.id))}
                 className={cn('rounded-full p-1.5', p.deal?.liveId === id ? 'bg-amber-500 text-white' : 'text-amber-600 hover:bg-amber-50')}>
                 <Zap className="h-4 w-4" />
+              </button>
+              <button type="button" title={dropped ? 'Already held up: see Live drops' : 'Drop it: viewers claim a place'} aria-label={dropped ? 'Already held up' : 'Drop it'}
+                disabled={dropped || dropping === p.id} onClick={() => onDrop(p.id)}
+                className={cn('rounded-full p-1.5 disabled:opacity-60', dropped ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10')}>
+                {dropping === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
               </button>
               {isPinned ? (
                 <Button size="sm" variant="secondary" onClick={() => save({ pinnedProductId: null })}><PinOff className="mr-1 h-3.5 w-3.5" /> Hide</Button>

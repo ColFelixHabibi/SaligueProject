@@ -1453,6 +1453,23 @@ route('POST', '/api/orders', ({ user, body }) => {
       return { id, sellerId, group };
     });
   });
+  // A live drop the buyer just paid for gives its place back at once: a claim holds a place in the queue, not
+  // the stock (the order above already took the stock), so the host should see who is still waiting.
+  const paidDrops = [];
+  transaction(() => {
+    for (const line of lines) {
+      const held = db.prepare(`select c.id, c.drop_id, d.live_id from live_claims c join live_drops d on d.id = c.drop_id
+        where c.user_id = ? and c.status = 'held' and d.product_id = ?`).all(user.id, String(line.productId));
+      for (const claim of held) {
+        db.prepare("update live_claims set status = 'released' where id = ?").run(claim.id);
+        paidDrops.push(claim);
+      }
+    }
+  });
+  for (const claim of paidDrops) {
+    const drop = db.prepare('select * from live_drops where id = ?').get(claim.drop_id);
+    if (drop) liveEvent(claim.live_id, { type: 'drop', drop: dropOut(drop, null) });
+  }
   // Sales from ads: items this buyer clicked or saw in an ad shortly before.
   for (const { id } of ids) {
     try {
@@ -2304,6 +2321,121 @@ const sellerProductIds = (userId, ids) =>
   (Array.isArray(ids) ? ids.map(String) : []).filter((id) => db.prepare('select 1 from products where id = ? and seller_id = ?').get(id, userId)).slice(0, 30);
 
 // ---------------------------------------------------------------------------
+// Live drops: the host holds one item up, viewers claim a place, first come first served.
+// A claim holds a place in the queue for ten minutes (not the stock itself: the order still checks stock),
+// so a shopper who claims and never pays does not keep the item away from everyone else.
+// ---------------------------------------------------------------------------
+const CLAIM_MINUTES = 10;
+const MAX_DROPS = 5;
+
+// Ten minutes passed without a payment: the place goes back into the drop for the next shopper.
+function releaseLateClaims(dropId) {
+  db.prepare("update live_claims set status = 'released' where drop_id = ? and status = 'held' and expires_at <= ?").run(dropId, now());
+}
+
+/** A drop as viewers see it: the item, its price, the places left, and the viewer's own claim if they have one. */
+function dropOut(drop, viewer) {
+  releaseLateClaims(drop.id);
+  const product = db.prepare('select * from products where id = ?').get(drop.product_id);
+  const claims = db.prepare('select id, user_id, name, status, expires_at from live_claims where drop_id = ? order by created_at').all(drop.id);
+  const held = claims.filter((c) => c.status === 'held');
+  const mine = viewer ? claims.find((c) => c.user_id === viewer.id && c.status === 'held') ?? null : null;
+  // A live deal lowers the price; whatever is shown here is what checkout charges.
+  const onSale = !!product && product.status === 'active' && !product.hidden && (product.stock == null || product.stock > 0);
+  return {
+    id: drop.id,
+    productId: drop.product_id,
+    name: product?.name ?? 'Item',
+    image: product?.cutout ?? product?.image ?? null,
+    price: product ? priceOf(product) : 0,
+    was: product?.price ?? 0,
+    slots: drop.slots,
+    claimed: held.length,
+    // No places left, or the item cannot be sold any more: the claim button says so instead of failing later.
+    open: drop.status === 'open' && onSale && held.length < drop.slots,
+    mine: mine ? { claimId: mine.id, expiresAt: mine.expires_at } : null,
+    claimers: held.map((c) => ({ name: c.name })).slice(0, 20),
+    at: drop.created_at,
+  };
+}
+
+// Host: hold one of your own items up in the live.
+route('POST', '/api/lives/([\\w-]+)/drops', ({ user, params, body }) => {
+  needFeature('live');
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = ownLive(user, params[0]);
+  if (live.status !== 'live') fail(400, 'not_live', 'Drops are only during a live.');
+  const product = db.prepare('select * from products where id = ? and seller_id = ?').get(String(body.productId ?? ''), user.id);
+  if (!product) fail(404, 'not_found', 'Drop one of your own items.');
+  if (product.status !== 'active' || product.hidden) fail(400, 'not_for_sale', 'This item is not on sale.');
+  if (product.stock != null && product.stock <= 0) fail(400, 'out_of_stock', 'You have none of this item left.');
+  if (db.prepare("select 1 from live_drops where live_id = ? and product_id = ? and status = 'open'").get(live.id, product.id)) fail(400, 'already_dropped', 'That item is already dropped.');
+  if (db.prepare("select count(*) as n from live_drops where live_id = ? and status = 'open'").get(live.id).n >= MAX_DROPS) fail(400, 'too_many_drops', `Close one drop first: ${MAX_DROPS} at a time.`);
+  const slots = Math.max(1, Math.min(Math.floor(Number(body.slots) || 1), product.stock ?? 20, 20));
+  const drop = { id: randomUUID(), live_id: live.id, product_id: product.id, slots, status: 'open', created_at: now() };
+  db.prepare('insert into live_drops (id, live_id, product_id, slots, status, created_at) values (?, ?, ?, ?, ?, ?)')
+    .run(drop.id, drop.live_id, drop.product_id, drop.slots, drop.status, drop.created_at);
+  // The item goes up beside the video too, so nobody has to scroll for it.
+  db.prepare('update lives set pinned_product_id = ? where id = ?').run(product.id, live.id);
+  const out = dropOut(drop, null);
+  liveEvent(live.id, { type: 'drop', drop: out });
+  liveEvent(live.id, { type: 'updated', live: liveOut(db.prepare('select * from lives where id = ?').get(live.id)) });
+  return out;
+});
+
+// A shopper claims a place in a drop.
+route('POST', '/api/lives/([\\w-]+)/drops/([\\w-]+)/claim', ({ user, params }) => {
+  needFeature('live');
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to claim an item.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  if (live.seller_id === user.id) fail(400, 'host', 'This is your own drop.');
+  const drop = db.prepare('select * from live_drops where id = ? and live_id = ?').get(params[1], live.id);
+  if (!drop) fail(404, 'not_found', 'This drop is no longer here.');
+  if (drop.status !== 'open') fail(409, 'closed', 'This drop is closed.');
+  if (blockedBetween(user.id, live.seller_id)) fail(403, 'blocked', 'You can’t claim items here.');
+  const name = personNameOf(user).slice(0, 60);
+  const claim = transaction(() => {
+    releaseLateClaims(drop.id);
+    if (db.prepare("select 1 from live_claims where drop_id = ? and user_id = ? and status = 'held'").get(drop.id, user.id)) fail(409, 'already_claimed', 'You already have a place: pay for it from your bag.');
+    if (db.prepare("select count(*) as n from live_claims where drop_id = ? and status = 'held'").get(drop.id).n >= drop.slots) fail(409, 'all_claimed', 'Someone was faster. Places come free again after ten minutes — stay close.');
+    const row = { id: randomUUID(), drop_id: drop.id, user_id: user.id, name, status: 'held', created_at: now(), expires_at: new Date(Date.now() + CLAIM_MINUTES * 60_000).toISOString() };
+    db.prepare('insert into live_claims (id, drop_id, user_id, name, status, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.drop_id, row.user_id, row.name, row.status, row.created_at, row.expires_at);
+    return row;
+  });
+  // A line in the chat, so everyone sees the item going (and it stays in the replay).
+  const line = { id: randomUUID(), live_id: live.id, user_id: user.id, name, text: `claimed ${dropOut(drop, null).name}`, kind: 'comment', created_at: now() };
+  db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, created_at) values (?, ?, ?, ?, ?, ?, ?)')
+    .run(line.id, line.live_id, line.user_id, line.name, line.text, line.kind, line.created_at);
+  liveEvent(live.id, { type: 'comment', comment: liveCommentOut(line) });
+  liveEvent(live.id, { type: 'drop', drop: dropOut(drop, null) });
+  engage(user.id, live.seller_id, 'comments');
+  return { claim: { claimId: claim.id, expiresAt: claim.expires_at }, drop: dropOut(drop, user) };
+});
+
+// Giving a place back (changed my mind, or I claimed before signing in on another phone).
+route('DELETE', '/api/lives/([\\w-]+)/drops/([\\w-]+)/claim', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const live = getLive(params[0]);
+  const drop = db.prepare('select * from live_drops where id = ? and live_id = ?').get(params[1], live.id);
+  if (!drop) fail(404, 'not_found', 'This drop is no longer here.');
+  db.prepare("update live_claims set status = 'released' where drop_id = ? and user_id = ? and status = 'held'").run(drop.id, user.id);
+  liveEvent(live.id, { type: 'drop', drop: dropOut(drop, null) });
+  return { ok: true };
+});
+
+// Host: take the drop down (the live moves on to the next item).
+route('DELETE', '/api/lives/([\\w-]+)/drops/([\\w-]+)', ({ user, params }) => {
+  const live = ownLive(user, params[0]);
+  const drop = db.prepare('select * from live_drops where id = ? and live_id = ?').get(params[1], live.id);
+  if (!drop) fail(404, 'not_found', 'This drop is no longer here.');
+  db.prepare("update live_drops set status = 'closed' where id = ?").run(drop.id);
+  liveEvent(live.id, { type: 'drop_closed', dropId: drop.id });
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
 // Where people are (for ranking only, never shown): the visitor's country from their address, their city from
 // their latest delivery address or their own shop; a shop's from its address. Closer comes first:
 // same city, same country, same region (Africa's UN sub-regions), same continent, then the rest.
@@ -2432,6 +2564,8 @@ route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
   return {
     live: liveOut(live), comments, guests, myGuestStatus: me, muted: user ? (parse(live.muted) ?? []).includes(user.id) : false, invited: user ? (parse(live.invited) ?? []).includes(user.id) : false,
     myVote: user ? parse(live.poll)?.votes?.[user.id] ?? null : null,
+    // Items dropped during this live, newest first (see dropOut).
+    drops: db.prepare('select * from live_drops where live_id = ? order by created_at desc limit 5').all(live.id).map((d) => dropOut(d, user)),
     // Only the host and moderators see the words they filter out of the chat.
     blockedWords: staff ? parse(live.blocked_words) ?? [] : undefined,
   };
@@ -2677,6 +2811,11 @@ route('POST', '/api/lives/([\\w-]+)/end', async ({ user, params }) => {
   db.prepare("update lives set status = 'ended', ended_at = ? where id = ?").run(now(), live.id);
   // Live-only deals end with the live.
   if (db.prepare('update products set deal_price = null, deal_until = null, deal_live_id = null where deal_live_id = ?').run(live.id).changes) broadcast('products');
+  // Drops end with the live too: nobody can claim after the host has gone.
+  for (const d of db.prepare("select id from live_drops where live_id = ? and status = 'open'").all(live.id)) {
+    db.prepare("update live_drops set status = 'closed' where id = ?").run(d.id);
+    liveEvent(live.id, { type: 'drop_closed', dropId: d.id });
+  }
   // The server's recording is saved now. The host's phone sends its last recording piece and says done; if it never
   // does (closed, no network), save what arrived.
   if (live.egress_id) finishReplay(live.id);

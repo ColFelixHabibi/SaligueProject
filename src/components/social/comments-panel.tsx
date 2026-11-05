@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/auth-provider';
 import { api, onServerEvent } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
+import { useFeatures } from '@/lib/features';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { RichText } from '@/components/rich-text';
@@ -30,6 +31,10 @@ function timeAgo(value?: string | null) {
 export function CommentsPanel({ productId, sellerId, className }: { productId: string; sellerId?: string; className?: string }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
+  const on = useFeatures();
+  // Admin → Features can switch comments off. The server refuses them; this keeps the panel itself shut,
+  // including when it was already open when the switch changed.
+  const commentsOn = on('comments');
   const blocked = useBlockedIds();
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [text, setText] = useState('');
@@ -38,6 +43,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
   useEffect(() => {
+    if (!commentsOn) return;
     let active = true;
     const load = () =>
       api<Comment[]>(`/products/${productId}/comments`)
@@ -51,7 +57,7 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
       active = false;
       stop();
     };
-  }, [productId]);
+  }, [productId, commentsOn]);
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +78,8 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
   const remove = async (id: string) => {
     await api(`/comments/${id}`, { method: 'DELETE' }).catch((error) => toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) }));
   };
+
+  if (!commentsOn) return null;
 
   return (
     <div className={cn('space-y-3', className)}>

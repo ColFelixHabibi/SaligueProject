@@ -11,6 +11,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
 import { onServerEvent } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
+import { useFeatures } from '@/lib/features';
 import { deleteLessonComment, lessonComments, postLessonComment, type Lesson, type LessonComment } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { RichText } from '@/components/rich-text';
@@ -22,6 +23,9 @@ import { ReportComment } from '@/components/report-comment';
 export function LessonComments({ lesson }: { lesson: Lesson }) {
   const { toast } = useToast();
   const { user, authUid } = useAuth();
+  const on = useFeatures();
+  // Admin → Features can switch comments off; the server refuses them, so the box stays closed too.
+  const commentsOn = on('comments');
   const blocked = useBlockedIds();
   const t = useT();
   const [list, setList] = useState<LessonComment[] | null>(null);
@@ -32,10 +36,11 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
   const [filter, setFilter] = useState<'all' | 'questions'>('all');
 
   useEffect(() => {
+    if (!commentsOn) return;
     const load = () => lessonComments(lesson.id).then(setList).catch(() => setList([]));
     void load();
     return onServerEvent('lesson_comments', (d: { lessonId?: string }) => d.lessonId === lesson.id && void load());
-  }, [lesson.id]);
+  }, [lesson.id, commentsOn]);
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +79,8 @@ export function LessonComments({ lesson }: { lesson: Lesson }) {
       </div>
     </div>
   );
+
+  if (!commentsOn) return null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">

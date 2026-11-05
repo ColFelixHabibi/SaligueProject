@@ -3,18 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalAudioTrack, LocalVideoTrack, Room, RoomEvent, Track, type LocalTrack, type Participant, type RemoteTrack } from 'livekit-client';
 import { DIGITAL_ZOOM_MAX, digitalZoom, loadCameraChoice, openCamera, saveCameraChoice, setZoom, zoomRange, type CameraChoice } from './camera';
-import { api, onServerEvent } from './api';
-import { withMedia, type Burst, type Live, type LiveComment, type LiveGift, type LiveGuest, type LivePoll } from './lives';
+import { api, mediaUrl, onServerEvent } from './api';
+import { withMedia, type Burst, type Live, type LiveComment, type LiveDrop, type LiveGift, type LiveGuest, type LivePoll } from './lives';
 
-export { useLives, useElapsed, type Burst, type Live, type LiveComment, type LiveGift, type LiveGuest, type LivePoll } from './lives';
+export { useLives, useElapsed, type Burst, type Live, type LiveComment, type LiveDrop, type LiveGift, type LiveGuest, type LivePoll } from './lives';
 
 // Saligue Live (server: /api/lives…). Video through LiveKit; chat, hearts, pins and guests through Saligue's server.
+
+/** A drop's picture is stored like any item photo: the client asks the media route for it. */
+const withDropMedia = (d: LiveDrop): LiveDrop => ({ ...d, image: mediaUrl(d.image ?? undefined) ?? null });
 
 /** One live: details, chat, hearts, guests and the host's pins, live. */
 export function useLive(id: string | null, me: string | null) {
   const [live, setLive] = useState<Live | null>(null);
   const [comments, setComments] = useState<LiveComment[]>([]);
   const [guests, setGuests] = useState<LiveGuest[]>([]);
+  // Items the host has held up for claiming, newest first.
+  const [drops, setDrops] = useState<LiveDrop[]>([]);
   const [myGuestStatus, setMyGuestStatus] = useState<'requested' | 'accepted' | 'declined' | null>(null);
   const [muted, setMuted] = useState(false);
   // The host asked me to come on camera.
@@ -37,12 +42,13 @@ export function useLive(id: string | null, me: string | null) {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const d = await api<{ live: Live; comments: LiveComment[]; guests: LiveGuest[]; myGuestStatus: typeof myGuestStatus; muted: boolean; invited?: boolean; myVote?: number | null; blockedWords?: string[] }>(`/lives/${id}`);
+      const d = await api<{ live: Live; comments: LiveComment[]; guests: LiveGuest[]; drops?: LiveDrop[]; myGuestStatus: typeof myGuestStatus; muted: boolean; invited?: boolean; myVote?: number | null; blockedWords?: string[] }>(`/lives/${id}`);
       setMyVote(d.myVote ?? null);
       if (d.blockedWords) setBlockedWords(d.blockedWords);
       setLive(withMedia(d.live));
       setComments(d.comments);
       setGuests(d.guests);
+      setDrops((d.drops ?? []).map(withDropMedia));
       setMyGuestStatus(d.myGuestStatus);
       setMuted(d.muted);
       setInvited(!!d.invited);
@@ -72,6 +78,16 @@ export function useLive(id: string | null, me: string | null) {
         });
       }
       if (d.type === 'ended') setLive((l) => (l ? { ...l, status: 'ended' } : l));
+      if (d.type === 'drop') {
+        // The broadcast carries no personal place: keep mine if I already have one.
+        setDrops((list) => {
+          const drop = withDropMedia(d.drop);
+          const was = list.find((x) => x.id === drop.id);
+          return [{ ...drop, mine: drop.mine ?? was?.mine ?? null }, ...list.filter((x) => x.id !== drop.id)]
+            .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+        });
+      }
+      if (d.type === 'drop_closed') setDrops((list) => list.filter((x) => x.id !== d.dropId));
       if (d.type === 'guest_invite') setInvited(true);
       if (d.type === 'gift') {
         const key = Date.now();
@@ -86,7 +102,7 @@ export function useLive(id: string | null, me: string | null) {
   // My own comment shows at once (also when the host's word filter keeps it from everyone else).
   const addMine = useCallback((c: LiveComment) => setComments((list) => (list.some((x) => x.id === c.id) ? list : [...list.slice(-150), c])), []);
 
-  return { live, comments, guests, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords, addMine, gift };
+  return { live, comments, guests, drops, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload: load, myVote, setMyVote, blockedWords, setBlockedWords, addMine, gift };
 }
 
 // Actions
@@ -98,6 +114,17 @@ export const votePoll = (id: string, option: number) => api<{ myVote: number; po
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment', replyToId?: string | null) =>
   api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind, replyToId: replyToId ?? undefined } });
 export const sendGift = (id: string, gift: string) => api<{ balance: number }>(`/lives/${id}/gift`, { body: { gift } });
+/** Host: hold one of your items up in the live. */
+export const dropItem = (id: string, productId: string, slots?: number) =>
+  api<LiveDrop>(`/lives/${id}/drops`, { body: { productId, slots } }).then(withDropMedia);
+/** Shopper: take a place in a drop (ten minutes to pay). */
+export const claimDrop = (id: string, dropId: string) =>
+  api<{ claim: { claimId: string; expiresAt: string }; drop: LiveDrop }>(`/lives/${id}/drops/${dropId}/claim`, { body: {} })
+    .then((r) => ({ ...r, drop: withDropMedia(r.drop) }));
+/** Shopper: give the place back. */
+export const releaseClaim = (id: string, dropId: string) => api(`/lives/${id}/drops/${dropId}/claim`, { method: 'DELETE' });
+/** Host: take the drop down. */
+export const closeDrop = (id: string, dropId: string) => api(`/lives/${id}/drops/${dropId}`, { method: 'DELETE' });
 export type Coins = { balance: number; packs: { coins: number; price: number }[]; gifts: LiveGift[]; onlinePayment: boolean; momoNumber: string | null; momoName: string; pending: { coins: number; amount: number; reference: string }[]; history?: { amount: number; reason: string; createdAt: string }[] };
 export const getCoins = () => api<Coins>('/coins');
 export const buyCoins = (coins: number) => api<{ link?: string; manual?: boolean; reference: string; amount: number; momoNumber?: string | null; momoName?: string }>('/coins/buy', { body: { coins } });

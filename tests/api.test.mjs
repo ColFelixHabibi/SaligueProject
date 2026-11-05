@@ -481,6 +481,59 @@ describe('profiles, lives and the admin log', () => {
     await call(`/lives/${live.json.id}/end`, { token: shop.token, body: {} });
   });
 
+  // A live drop: the host holds an item up, shoppers claim a place, ten minutes to pay. The place — not the
+  // stock — is held, so a shopper who never pays cannot keep the item away from everyone else.
+  test('a drop gives one place per person, frees it when given back or closed, and ends with the live', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 0));
+    const shop = await sampleShop(product.id);
+    const live = (await call('/lives', { token: shop.token, body: { title: 'Drops tonight', productIds: [product.id] } })).json;
+    const dropAt = `/lives/${live.id}/drops`;
+
+    const drop = await call(dropAt, { token: shop.token, body: { productId: product.id, slots: 1 } });
+    assert.equal(drop.status, 200, JSON.stringify(drop.json));
+    assert.equal(drop.json.slots, 1);
+    assert.equal(drop.json.claimed, 0);
+    assert.equal(drop.json.open, true);
+    // One open drop per item: holding the same item up twice is refused rather than doubling the queue.
+    assert.equal((await call(dropAt, { token: shop.token, body: { productId: product.id } })).json.error.code, 'already_dropped');
+
+    const a = await register('Fast Shopper');
+    const b = await register('Slow Shopper');
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { body: {} })).json.error.code, 'not_signed_in');
+    const mine = await call(`${dropAt}/${drop.json.id}/claim`, { token: a.token, body: {} });
+    assert.equal(mine.status, 200, JSON.stringify(mine.json));
+    assert.ok(mine.json.drop.mine.expiresAt, 'the place has a deadline');
+    // The line in the chat, so the claim is visible to everyone and stays in the replay.
+    const seen = await call(`/lives/${live.id}`, { token: a.token });
+    assert.ok(seen.json.comments.some((c) => c.text === `claimed ${product.name}`), 'the claim shows in the chat');
+    assert.equal(seen.json.drops[0].mine.claimId, mine.json.claim.claimId, 'my own place is mine to see, and nobody else’s');
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { token: a.token, body: {} })).json.error.code, 'already_claimed');
+    const late = await call(`${dropAt}/${drop.json.id}/claim`, { token: b.token, body: {} });
+    assert.equal(late.status, 409);
+    assert.equal(late.json.error.code, 'all_claimed');
+    assert.equal((await call(`/lives/${live.id}`, { token: b.token })).json.drops[0].mine, null, 'someone else’s place is not shown as mine');
+
+    // Giving the place back puts it in the queue again.
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { method: 'DELETE', token: a.token })).status, 200);
+    const second = await call(`${dropAt}/${drop.json.id}/claim`, { token: b.token, body: {} });
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+
+    // Paying for it from the bag gives the place back at once: the host sees who is still waiting.
+    assert.equal((await call('/orders', { token: b.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery: { fullName: 'Live Shopper', phone: '0780000011', city: 'Kigali', street: 'KN 11 Ave' } } })).status, 200);
+    assert.equal((await call(`/lives/${live.id}`, { token: shop.token })).json.drops[0].claimed, 0);
+
+    // The host moves on: the drop closes, so the place can no longer be claimed.
+    assert.equal((await call(`${dropAt}/${drop.json.id}`, { method: 'DELETE', token: shop.token })).status, 200);
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { token: b.token, body: {} })).json.error.code, 'closed');
+
+    // A second drop, still open when the live ends: nobody can claim after the host has gone.
+    const again = (await call(dropAt, { token: shop.token, body: { productId: product.id, slots: 2 } })).json;
+    await call(`/lives/${live.id}/end`, { token: shop.token, body: {} });
+    const after = await call(`${dropAt}/${again.id}/claim`, { token: b.token, body: {} });
+    assert.equal(after.status, 410);
+    assert.equal(after.json.error.code, 'ended');
+  });
+
   test('changing the money rules logs only what changed, in words, with tidy numbers', async () => {
     const admin = await register('Rules Admin');
     const { DatabaseSync } = await import('node:sqlite');

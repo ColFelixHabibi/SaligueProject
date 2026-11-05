@@ -289,6 +289,32 @@ db.exec(`
     primary key (live_id, user_id)
   );
 
+  -- A live "drop": the host holds one item up during the live and viewers claim it, first come first served.
+  -- Claiming only takes a place in the queue (see live_claims); stock itself is still checked when the order is placed.
+  create table if not exists live_drops (
+    id text primary key,
+    live_id text not null references lives(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    slots integer not null default 1,     -- how many of this item the host is giving at this price
+    status text not null default 'open' check (status in ('open', 'closed')),
+    created_at text not null
+  );
+  create index if not exists live_drops_live on live_drops(live_id, created_at desc);
+
+  -- One place in a drop. 'held' until the shopper pays or their ten minutes run out, then freed for someone else.
+  create table if not exists live_claims (
+    id text primary key,
+    drop_id text not null references live_drops(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    name text not null,
+    status text not null default 'held' check (status in ('held', 'released', 'paid')),
+    created_at text not null,
+    expires_at text not null
+  );
+  create index if not exists live_claims_drop on live_claims(drop_id, status, expires_at);
+  -- One place per person per drop (they may claim again once theirs is released).
+  create unique index if not exists live_claims_one_place on live_claims(drop_id, user_id) where status = 'held';
+
   -- Community lessons: anyone with an account teaches fashion in a short video (up to 4 min 30 s).
   create table if not exists lessons (
     id text primary key,

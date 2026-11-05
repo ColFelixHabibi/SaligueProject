@@ -20,12 +20,13 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip, useDoubleTapHeart } from '@/components/live/live-parts';
 import { GiftSheet } from '@/components/live/gift-sheet';
+import { LiveDropCard } from '@/components/live/live-drop';
 import ProductCard from '@/components/product-card';
 import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { answerInvite, askToJoin, muteInLive, removeLiveComment, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, votePoll, type LiveComment } from '@/lib/live';
+import { answerInvite, askToJoin, claimDrop, muteInLive, releaseClaim, removeLiveComment, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, votePoll, type LiveComment, type LiveDrop } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { LiveTryOn } from '@/components/live/live-try-on';
@@ -41,7 +42,10 @@ function Watch() {
   const { authUid, user } = useAuth();
   const { products } = useProductStore();
   const { addToCart } = useCart();
-  const { live, comments, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote, addMine, gift } = useLive(id, authUid);
+  const { live, comments, drops, myGuestStatus, muted, invited, setInvited, bursts, burst, error, reload, myVote, setMyVote, addMine, gift } = useLive(id, authUid);
+  // Claiming a dropped item: which drop is being claimed, and the newest one worth showing.
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const activeDrop = useMemo(() => drops.find((d) => d.mine) ?? drops.find((d) => d.open) ?? null, [drops]);
   // Replying to a comment, and the gift sheet.
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const [giftsOpen, setGiftsOpen] = useState(false);
@@ -140,6 +144,52 @@ function Watch() {
   const share = async () => {
     if (!id) return;
     await shareLink({ title: live?.title ?? 'Saligue Live', text: `${live?.sellerName} is live on Saligue`, url: absoluteUrl(`/live/watch?id=${id}`) });
+  };
+  // A place in a live drop: ten minutes to pay, then it goes back for someone else.
+  const claim = async (dropId: string) => {
+    if (!id) return;
+    if (!authUid) {
+      toast({ title: 'Create an account to claim', description: 'Then the shop can keep the item for you.' });
+      return;
+    }
+    setClaiming(dropId);
+    try {
+      await claimDrop(id, dropId);
+      toast({ title: 'Yours for ten minutes', description: 'Pay now: after that the place goes to someone else.' });
+      // Everyone else hears about it over the live channel; my own place (mine, expiresAt) comes from the server.
+      await reload();
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not claimed', description: friendlyError(err) });
+    } finally {
+      setClaiming(null);
+    }
+  };
+
+  // Paying for a claimed drop goes through the normal bag and checkout, so the live price and the
+  // delivery choices behave exactly like any other order.
+  const payFor = async (drop: LiveDrop) => {
+    const product = products.find((p) => p.id === drop.productId);
+    if (!product) {
+      toast({ variant: 'destructive', title: 'Not available', description: 'This item is no longer on sale.' });
+      return;
+    }
+    try {
+      await addToCart(product);
+      router.push('/checkout');
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not added', description: friendlyError(err) });
+    }
+  };
+
+  const release = async (dropId: string) => {
+    if (!id) return;
+    try {
+      await releaseClaim(id, dropId);
+      toast({ title: 'Place given back', description: 'Someone else can claim it now.' });
+      await reload();
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not released', description: friendlyError(err) });
+    }
   };
 
   const vote = async (option: number) => {
@@ -274,6 +324,10 @@ function Watch() {
               </button>
             </div>
           </div>
+          {/* A drop the host has held up: claim a place, pay within ten minutes, or let it go. */}
+          {activeDrop && (
+            <LiveDropCard drop={activeDrop} signedIn={!!authUid} busy={claiming === activeDrop.id} onClaim={claim} onPay={payFor} onRelease={release} />
+          )}
           {bagOpen && featured.length > 0
             ? <ProductStrip products={featured} pinnedId={live.pinnedProductId} onBuy={buy} onTryOn={setTrying} deals={live.deals} />
             : pinned && <PinnedProduct product={pinned} onBuy={() => buy(pinned.id)} onTryOn={() => setTrying(pinned)} deal={live.deals?.[pinned.id]} />}

@@ -51,6 +51,23 @@ export type LiveComment = {
   gift?: LiveGift | null;
 };
 export type LiveGuest = { uid: string; name: string; status: 'requested' | 'accepted' };
+/** An item the host held up during the live, with the places shoppers have claimed. */
+export type LiveDrop = {
+  id: string;
+  productId: string;
+  name: string;
+  image: string | null;
+  price: number;
+  was: number;
+  slots: number;
+  claimed: number;
+  // Places left and the item still sellable: the claim button is only useful then.
+  open: boolean;
+  // My place, while it lasts.
+  mine: { claimId: string; expiresAt: string } | null;
+  claimers: { name: string }[];
+  at: string;
+};
 export type Burst = { id: number; emoji: string; x: number };
 
 export const withMedia = (l: Live): Live => ({
