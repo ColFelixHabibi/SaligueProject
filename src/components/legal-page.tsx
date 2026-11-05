@@ -36,6 +36,8 @@ export function LegalPage({ policy }: { policy: PolicyKey }) {
         See also the <Link href="/terms" className="text-primary hover:underline">Terms of Service</Link> and the{' '}
         <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>. If an item uses a
         photo, brand or design of yours, <Link href="/takedown" className="text-primary hover:underline">send us a notice</Link>.
+        Who is responsible for your information, what is processed and for how long, and who sends money to
+        people who earn is set out on the <Link href="/data-protection" className="text-primary hover:underline">Data Protection</Link> page.
       </p>
     </article>
   );

@@ -16,7 +16,7 @@ import { useT } from '@/lib/i18n';
 import { formatPrice } from '@/lib/orders';
 
 type Reward = { id: string; productId: string; name: string; image: string | null; sale: number; amount: number; state: 'pending' | 'review' | 'earned' | 'paid' | 'void'; createdAt: string };
-type Shares = { on: boolean; rate: number; days: number; cap: number; pending: number; ready: number; paid: number; sales: number; rewards: Reward[]; momo: { number: string; name: string } | null };
+type Shares = { on: boolean; rate: number; days: number; cap: number; pending: number; ready: number; paid: number; sales: number; rewards: Reward[]; momo: { number: string; name: string } | null; payout: { open: boolean; mode: string; payer: string | null; message: string | null } };
 
 const STATE = {
   pending: { icon: Clock, tone: 'text-amber-600', label: 'On its way' },
@@ -64,6 +64,12 @@ export default function ShareEarnPage() {
       </div>
       <p className="text-xs text-muted-foreground">{t('Up to')} {formatPrice(data.cap)} {t('per item. Sales paid in cash or straight to the shop are checked by Saligue before they count.')}</p>
       {!data.on && <p className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{t('Share & earn is paused for now. What you already earned is still paid.')}</p>}
+      {data.on && data.payout && !data.payout.open && (
+        <p className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          {data.payout.message ?? t('Payouts are paused for now. What you earned stays yours and is paid as soon as they open again.')}
+          {' '}<Link href="/data-protection" className="underline">{t('Who pays')}</Link>
+        </p>
+      )}
 
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-2xl border bg-card p-3"><p className="text-lg font-extrabold">{formatPrice(data.pending)}</p><p className="text-[11px] text-muted-foreground">{t('On its way')}</p></div>

@@ -24,6 +24,7 @@ import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, block
 import { sweepWatermarked, watermarked } from './download.mjs';
 import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFile, storeChatFile } from './chat-media.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
+import { controller, dpia, paidThisMonth, payoutRefused, payoutRules, payoutState, processingRecord, saveController, savePayoutRules } from './compliance.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, saveAiKey } from './ai-keys.mjs';
 
@@ -3656,6 +3657,7 @@ route('GET', '/api/me/tips', ({ user }) => {
   const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare("select momo_number, momo_name from creators where user_id = ?").get(user.id);
   return {
     share: tipRules().share,
+    payout: payoutState(),
     total: Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100,
     waiting: Math.round(rows.filter((r) => !r.payout_id).reduce((s, r) => s + r.share, 0) * 100) / 100,
     momo: account ? { number: account.momo_number, name: account.momo_name } : null,
@@ -3678,10 +3680,13 @@ route('GET', '/api/admin/tips', ({ user }) => {
   const waiting = db.prepare("select t.*, f.display_name as from_name, r.display_name as to_name, r.shop as to_shop, r.role as to_role from tips t join users f on f.id = t.from_user join users r on r.id = t.to_user where t.status = 'pending_payment' and t.created_at > ? order by t.created_at desc").all(new Date(Date.now() - 14 * 86_400_000).toISOString());
   const due = db.prepare("select t.to_user, sum(t.share) as amount, count(*) as n, u.display_name, u.shop, u.role from tips t join users u on u.id = t.to_user where t.status = 'paid' and t.payout_id is null group by t.to_user").all();
   return {
+    payout: payoutState(),
     waiting: waiting.map((t) => ({ id: t.id, reference: t.reference, amount: t.amount, from: t.from_name, to: t.to_role === 'seller' ? shopNameOf({ shop: t.to_shop, display_name: t.to_name }) : t.to_name, createdAt: t.created_at })),
     due: due.map((d) => {
       const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(d.to_user) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(d.to_user);
-      return { userId: d.to_user, name: d.role === 'seller' ? shopNameOf(d) : d.display_name, amount: Math.round(d.amount * 100) / 100, tips: d.n, momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null };
+      const amount = Math.round(d.amount * 100) / 100;
+      const refused = payoutRefused(d.to_user, amount);
+      return { userId: d.to_user, name: d.role === 'seller' ? shopNameOf(d) : d.display_name, amount, tips: d.n, momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null, blocked: refused?.code ?? null, why: refused?.message ?? null };
     }),
   };
 });
@@ -3702,9 +3707,11 @@ route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
   requireAdmin(user, 'money');
   const rows = db.prepare("select id, share from tips where to_user = ? and status = 'paid' and payout_id is null").all(params[0]);
   if (!rows.length) fail(400, 'nothing', 'Nothing to pay.');
+  const amount = Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100;
+  const refused = payoutRefused(params[0], amount);
+  if (refused) fail(400, refused.code, refused.message);
   if (!db.prepare('select 1 from tip_accounts where user_id = ?').get(params[0]) && !db.prepare('select 1 from creators where user_id = ?').get(params[0])) fail(400, 'no_momo', 'This person has not added a Mobile Money number yet (My tips).');
   const id = randomUUID();
-  const amount = Math.round(rows.reduce((s, r) => s + r.share, 0) * 100) / 100;
   transaction(() => {
     db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, paid_at, created_at) values (?, ?, ?, ?, ?, 'paid', ?, ?)").run(id, params[0], `tips-${now()}`, amount, json({ tips: rows.length }), now(), now());
     for (const r of rows) db.prepare('update tips set payout_id = ? where id = ?').run(id, r.id);
@@ -3815,7 +3822,7 @@ route('PUT', '/api/admin/features', ({ user, body }) => {
 });
 
 // Policies: the text of each policy page can be edited (headings and paragraphs); empty = Saligue's default text.
-const POLICIES = ['monetization', 'ads', 'verification', 'terms', 'privacy', 'cookies', 'takedown'];
+const POLICIES = ['monetization', 'ads', 'verification', 'terms', 'privacy', 'cookies', 'takedown', 'dataprotection'];
 route('GET', '/api/policies/([\\w-]+)', ({ params }) => {
   if (!POLICIES.includes(params[0])) fail(404, 'not_found', 'Not found.');
   return parse(db.prepare('select value from app_config where key = ?').get(`policy:${params[0]}`)?.value);
@@ -3837,6 +3844,39 @@ route('PUT', '/api/admin/policies/([\\w-]+)', ({ user, params, body }) => {
   saveConfig(`policy:${params[0]}`, policy);
   logAdmin(user, 'policy edited', params[0]);
   return policy;
+});
+
+// Data protection, in the open: who is responsible, what is processed and for how long, the assessment made
+// before building the try-on, and who sends a user's money (server/compliance.mjs). Public on purpose.
+route('GET', '/api/compliance', () => ({
+  controller: controller(),
+  payouts: payoutState(),
+  dpia: dpia(),
+  processing: processingRecord(),
+}));
+
+// Admin → Rules & policies → Data protection: the registration number once it is issued, the protection
+// contact, and the payout decision (who moves users' money, and the limits on it).
+route('GET', '/api/admin/compliance', ({ user }) => {
+  requireAdmin(user, 'policies');
+  return { controller: controller(), payouts: payoutRules(), state: payoutState(), dpia: dpia(), processing: processingRecord() };
+});
+route('PUT', '/api/admin/compliance', ({ user, body }) => {
+  requireAdmin(user, 'policies');
+  if (body?.controller !== undefined) {
+    const saved = saveController(body.controller ?? {});
+    if (saved.error === 'invalid_email') fail(400, 'invalid_email', 'Enter an email address that works, or leave it empty.');
+    if (saved.error === 'invalid_name') fail(400, 'invalid_name', 'Say who is responsible for the data (the company’s name).');
+    logAdmin(user, 'data protection details saved', [body.controller?.registrationNumber ? 'registration number set' : '', body.controller?.dpoName ? 'contact set' : '', body.controller?.lastReview ? `reviewed ${body.controller.lastReview}` : ''].filter(Boolean).join(', '));
+  }
+  if (body?.payouts !== undefined) {
+    if (body.payouts?.mode !== undefined && !['partner', 'self', 'off'].includes(body.payouts.mode)) fail(400, 'invalid_mode', 'Choose how users are paid: through a licensed partner, from Saligue’s own account, or not at all.');
+    if (body.payouts?.mode === 'partner' && body.payouts?.partner !== undefined && !String(body.payouts.partner ?? '').trim()) fail(400, 'partner_missing', 'Name the licensed partner that sends the money, or choose "Pause all payouts" until you have one.');
+    if (body.payouts?.mode === 'self' && body.payouts?.licence !== undefined && !String(body.payouts.licence ?? '').trim()) fail(400, 'licence_missing', 'Paying from Saligue’s own account needs the licence or written authorisation reference.');
+    const saved = savePayoutRules(body.payouts ?? {});
+    logAdmin(user, 'payout rules saved', `${saved.mode}${saved.mode === 'partner' ? `: ${saved.partner || 'no partner yet'}` : saved.mode === 'self' ? `: ${saved.licence || 'no licence yet'}` : ''}${saved.monthlyCap ? `, limit ${money(saved.monthlyCap)}/month` : ', no monthly limit'}${saved.requireIdentity ? ', identity required' : ''}`);
+  }
+  return { controller: controller(), payouts: payoutRules(), state: payoutState() };
 });
 
 // Money rules: monetization requirements, creators' share, ad prices, tips.
@@ -3929,7 +3969,7 @@ route('POST', '/api/share/visit', ({ user, body }) => {
 route('GET', '/api/me/shares', ({ user }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to see what your shares earned.');
   const account = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(user.id) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(user.id);
-  return { on: featureOn('shares'), ...sharesOf(user.id), momo: account ? { number: account.momo_number, name: account.momo_name } : null };
+  return { on: featureOn('shares'), ...sharesOf(user.id), payout: payoutState(), momo: account ? { number: account.momo_number, name: account.momo_name } : null };
 });
 const accountName = (id) => {
   const u = db.prepare('select display_name, email, is_guest, shop, role from users where id = ?').get(id);
@@ -3939,11 +3979,15 @@ route('GET', '/api/admin/shares', ({ user }) => {
   requireAdmin(user, 'money');
   const ageDays = (id) => Math.floor((Date.now() - Date.parse(db.prepare('select created_at from users where id = ?').get(id)?.created_at ?? now())) / 86_400_000);
   return {
+    payout: payoutState(),
     // Sales not paid online: check the sale looks real before the sharer earns (who bought, how it was delivered).
     review: sharesToReview().map((r) => ({ ...r, sharer: accountName(r.sharerId), buyer: accountName(r.buyerId), shop: accountName(r.sellerId), buyerAgeDays: ageDays(r.buyerId), sharerAgeDays: ageDays(r.sharerId), shopSales: db.prepare("select count(*) as n from orders where seller_id = ? and status = 'delivered'").get(r.sellerId).n })),
     due: sharesDue().map((d) => {
       const acc = db.prepare('select momo_number, momo_name from tip_accounts where user_id = ?').get(d.userId) ?? db.prepare('select momo_number, momo_name from creators where user_id = ?').get(d.userId);
-      return { ...d, name: accountName(d.userId), momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null };
+      // Why this one may not be paid right now (payouts paused, no licensed payer recorded, identity not
+      // checked, monthly limit reached): the admin sees the reason before pressing anything.
+      const refused = payoutRefused(d.userId, d.amount);
+      return { ...d, name: accountName(d.userId), momoNumber: acc?.momo_number ?? null, momoName: acc?.momo_name ?? null, blocked: refused?.code ?? null, why: refused?.message ?? null };
     }),
   };
 });
@@ -3959,6 +4003,11 @@ route('POST', '/api/admin/shares/payout/([\\w-]+)', ({ user, params, body }) => 
   requireAdmin(user, 'money');
   const { ids, amount } = earnedUnpaid(params[0]);
   if (!ids.length) fail(400, 'nothing', 'Nothing to pay.');
+  // Who is allowed to move this money (server/compliance.mjs): never from Saligue's own account without a
+  // licence or a licensed partner recorded, never past the monthly limit, and only for a checked identity
+  // when that rule is on.
+  const refused = payoutRefused(params[0], amount);
+  if (refused) fail(400, refused.code, refused.message);
   if (!db.prepare('select 1 from tip_accounts where user_id = ?').get(params[0]) && !db.prepare('select 1 from creators where user_id = ?').get(params[0])) fail(400, 'no_momo', 'This person has not added a Mobile Money number yet (Share & earn).');
   const id = randomUUID();
   const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
@@ -4786,6 +4835,9 @@ route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
   requireAdmin(user, 'money');
   const payout = db.prepare('select * from payouts where id = ?').get(params[0]);
   if (!payout) fail(404, 'not_found', 'Payout not found.');
+  if (payout.status === 'paid') fail(400, 'already_paid', 'This payout was already marked as sent.');
+  const refused = payoutRefused(payout.user_id, payout.amount);
+  if (refused) fail(400, refused.code, refused.message);
   db.prepare("update payouts set status = 'paid', paid_at = ?, reference = ? where id = ?").run(now(), String(body.reference ?? '').slice(0, 80) || null, payout.id);
   notify(payout.user_id, { type: 'sale', title: `Payout sent: ${money(payout.amount)}`, body: `Your Saligue earnings for ${payout.period} were sent by Mobile Money.`, link: '/dashboard/earnings' });
   return { ok: true };

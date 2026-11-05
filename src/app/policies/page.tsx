@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { BadgeCheck, ChevronRight, Coins, Cookie, FileText, Flag, Lock, Megaphone, Sparkles } from 'lucide-react';
+import { BadgeCheck, ChevronRight, Coins, Cookie, FileText, Flag, Lock, Megaphone, ShieldCheck, Sparkles } from 'lucide-react';
 
 export const metadata: Metadata = { title: 'Policies · Saligue' };
 
 const POLICIES = [
   { href: '/terms', title: 'Terms of Service', text: 'The rules for using Saligue.', icon: FileText },
   { href: '/privacy', title: 'Privacy Policy', text: 'What we collect and the choices you have.', icon: Lock },
+  { href: '/data-protection', title: 'Data Protection', text: 'Who is responsible, what is processed, the AI try-on assessment, and who sends money.', icon: ShieldCheck },
   { href: '/cookies', title: 'Cookie Policy', text: 'What is stored on your device and why.', icon: Cookie },
   { href: '/monetization-policy', title: 'Monetization Policy', text: 'How creators earn: Share & earn, tips, ad income, payouts.', icon: Coins },
   { href: '/ads-policy', title: 'Ads Policy', text: 'Sponsored items: prices, review and rules.', icon: Megaphone },

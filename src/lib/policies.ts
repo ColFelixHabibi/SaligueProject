@@ -3,7 +3,7 @@
 import type { LegalSection } from '@/components/legal-page';
 
 export type Policy = { title: string; updated: string; intro: string; sections: LegalSection[] };
-export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'privacy' | 'cookies' | 'takedown';
+export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'privacy' | 'cookies' | 'takedown' | 'dataprotection';
 
 export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   monetization: {
@@ -59,6 +59,9 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             heading: 'Payouts',
             paragraphs: [
               'Payouts are sent by Mobile Money to the number you give, in the first days of the following month. Make sure the number and name are correct; Saligue is not responsible for money sent to a number you entered wrongly.',
+              'Who sends the money: Saligue does not pay earnings out of its own pocket. Earnings are sent through the licensed payment partner named on the Data Protection page (Me → Policies → Data Protection), which decides how the Mobile Money reaches you. If no partner is recorded yet, or payouts are paused, nothing is sent — and nothing is lost: what you earned stays on your account and is paid once payouts run again.',
+              'What is a sale and what is a reward: settling a shop for its own delivered sales is the shop\'s own money and is paid once the order is delivered. A reward — Share & earn, a tip, a gift in a live — is money Saligue pays for something other than the item itself.',
+              'Two things can hold a payout back without cancelling it: a monthly payout limit, and, if Saligue turns it on, a requirement that your identity is verified first. Both are shown on the Data Protection page, and the reason is shown to you rather than kept quiet.',
               'You are responsible for any taxes on your earnings.',
             ],
           },
@@ -342,6 +345,88 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'You can delete cookies and site data at any time in your browser settings; this signs you out and clears the items saved on this device.',
               'You can change your choice in the cookie banner by clearing this site’s data, which shows the banner again.',
             ],
+          },
+        ]},
+  dataprotection: {
+        title: "Data Protection",
+        updated: "4 November 2026",
+        intro: "This page says who is responsible for your information, what Saligue keeps and for how long, what was weighed before building the AI that dresses you in an item, and who sends money to people who earn on Saligue. It is written against what the program actually does, so you can check it.",
+        sections: [
+          {
+            heading: 'Who is responsible',
+            paragraphs: [
+              'INDECIANA Ltd, which runs Saligue, is the controller of your information. Its address, the registration number issued by Rwanda’s data protection authority once it is issued, and the contact for data questions are shown at the top of this page.',
+              'For anything about your information, write to that contact, or from Help & Support if no contact is shown yet. You can also complain to the National Cyber Security Authority in Rwanda.',
+            ],
+          },
+          {
+            heading: 'What we keep, why, and for how long',
+            paragraphs: [
+              'Your account: name, email, password (stored only as a hash), photo, language, and the version of these Terms you accepted. Kept until you delete your account. Basis: the agreement between us.',
+              'Your orders: name, phone, delivery details, what you bought, the handover code. Kept with the order until your account is deleted, because a delivery can be questioned long after it happens. Basis: the agreement between us.',
+              'Money: amounts, the Mobile Money number you give us and the name on it, and the reference of each payout. Kept with your account, because a payment can be disputed later. Basis: the agreement, and keeping records of payments.',
+              'Your shop or items, if you sell: shop name, shop phone, item photos, prices. Public while the item is for sale. Removed when you delete the item or the account.',
+              'What the feed learns: which items you open, how long you watch, what you try on, skip or ask a shop about. Old signals fade (half of their weight is lost about every three weeks). Basis: our legitimate interest in showing clothes you may want, and you can switch it off or clear it in Settings → For You at any time.',
+              'Security: the address a request came from, what was asked, and blocked addresses. Security events are deleted after 90 days. Basis: keeping Saligue and its users safe.',
+              'Moderation: reports, what was decided, and notices from rights-holders. Kept with the account so a decision can be explained. When an item is hidden after reports, the person is told an item was hidden, never who reported it.',
+              'The full list — each purpose, the exact data, the basis, the retention and the tables it lives in — is shown on this page under "Record of processing". It is generated from the same description the server uses (server/compliance.mjs), so it cannot quietly drift from the code.',
+            ],
+          },
+          {
+            heading: 'Your own photo and the AI',
+            paragraphs: [
+              'You choose the photo; Saligue never takes one. Before any try-on, the app asks once per device whether you want to use your own photo, and the server refuses to make a look without that answer.',
+              'By default the look is made on your own phone: the body points, the clothing map and the drawn item are all worked out on the device. Your photo is not uploaded at all on that path.',
+              'The realistic look is different and it is the only time a photo leaves your phone: the picture is sent to an AI engine (Saligue’s own AI server when one is connected, otherwise a paid service, otherwise a free public demo). It is used to produce that one look and nothing else. It is never published, never shown to the shop, never used for advertising and never used to train a model.',
+              'A look made by a realistic engine is kept on Saligue’s server for 24 hours so you can move between screens without waiting again, then it is deleted. The body points are never sent to the server, and a look is stored under a hash of its inputs, not under your name.',
+              'Every realistic look is checked before you see it: if the item was not really drawn, or other clothes or the face changed, the picture is thrown away and tried once more instead of being shown. That is deliberate — a try-on that dresses you in something the shop is not selling would be a lie.',
+            ],
+          },
+          {
+            heading: 'Who sees it',
+            paragraphs: [
+              'Other people see what you publish: your name, photo, shop, items, comments, lessons and lives. They never see your email, your phone, your orders or your try-on photos.',
+              'A shop sees the orders placed with it, and the delivery details needed to bring them. When you pay online, the payment provider (Flutterwave) handles the card or Mobile Money details; Saligue never sees them.',
+              'When a payout is made, the licensed payment partner and the mobile-money operator see the number and the name on it, because they are the ones moving the money.',
+              'Saligue’s admins can see accounts, orders and moderation records when they need to, and main admins are told when an admin account is added, changed or uses its powers.',
+            ],
+          },
+          {
+            heading: 'Your rights',
+            paragraphs: [
+              'You can see and correct your details in your account settings.',
+              'You can download everything Saligue keeps about you in Settings → Download my data: one file, at any time, with no request to make.',
+              'You can delete your account yourself in Settings → Delete my account. Your profile, items, comments, likes, Resaligues, follows, looks and history are removed and the account can no longer sign in; orders already placed stay with the shops, without your name, email, phone or address.',
+              'You can switch off personalisation, clear what was learned about you, refuse the try-on, and turn off notifications.',
+              'You can object to a decision, or ask us to explain one, through Help & Support. You can complain to the data protection authority in Rwanda.',
+            ],
+          },
+          {
+            heading: 'Children',
+            paragraphs: [
+              'Saligue is for people of 16 and over. Signing up asks you to confirm your age and to accept the Terms and this page, and the version you accepted is recorded on your account.',
+              'Because a try-on uses a photo of a body, the try-on separately asks for your agreement before it is used, and the Fitting Room’s photo never leaves your device unless you choose a realistic look.',
+              'If you believe a child is using Saligue, tell us from Help & Support and the account is suspended while it is checked.',
+            ],
+          },
+          {
+            heading: 'Where it is kept',
+            paragraphs: [
+              'Your account, orders and items are kept on Saligue’s own server. Some things are handled by services outside Rwanda: the mail account that sends Saligue’s emails, Google when you choose to sign in with Google, Flutterwave when you pay online, and the AI engine when a realistic look is made and Saligue is not running its own.',
+              'Saligue keeps an AI engine of its own (ai-server/) so that a deployment can keep photos inside its own servers; when a free public demo is used instead, that is shown to admins and can be replaced at any time.',
+            ],
+          },
+          {
+            heading: 'How we keep it safe',
+            paragraphs: [
+              'Passwords are stored only as hashes, sessions are HttpOnly cookies, and every admin action is written to a log. Security events are deleted after 90 days and blocked addresses are recorded while they stay blocked.',
+              'Documents sent for a verification badge are deleted from the server as soon as the check is decided; only the result, the last four characters of the document number and the country are kept.',
+              'Data protection is assessed before a feature that touches bodies or money is built, and the assessment for the AI try-on is published on this page, including the risks that remain.',
+            ],
+          },
+          {
+            heading: 'Changes',
+            paragraphs: ['If this page changes in an important way, we will tell you in the app or by email before the change applies.'],
           },
         ]},
 };

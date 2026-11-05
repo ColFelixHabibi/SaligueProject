@@ -10,7 +10,8 @@ import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { formatPrice } from '@/lib/orders';
 
-type Data = { waiting: { id: string; reference: string; amount: number; from: string; to: string }[]; due: { userId: string; name: string; amount: number; tips: number; momoNumber: string | null; momoName: string | null }[] };
+type Payout = { open: boolean; mode: string; payer: string | null; message: string | null };
+type Data = { payout: Payout; waiting: { id: string; reference: string; amount: number; from: string; to: string }[]; due: { userId: string; name: string; amount: number; tips: number; momoNumber: string | null; momoName: string | null; blocked: string | null; why: string | null }[] };
 
 /** Admin: confirm Mobile Money tips by reference, then pay what each receiver is owed. */
 export function TipsAdmin() {
@@ -34,6 +35,12 @@ export function TipsAdmin() {
         <CardDescription>Confirm Mobile Money tips by their reference, then send each receiver their share and mark it paid.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
+        {data?.payout && !data.payout.open && (
+          <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            {data.payout.message ?? 'Payouts are stopped until a licensed payer is recorded.'}{' '}
+            <a href="/admin?tab=rules" className="underline">Rules &amp; policies → Who moves users&apos; money</a>
+          </p>
+        )}
         {data?.waiting.map((t) => (
           <div key={t.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
             <span className="min-w-0 flex-1">{t.from} → <b>{t.to}</b> · {formatPrice(t.amount)} · ref <b className="select-all">{t.reference}</b></span>
@@ -44,7 +51,7 @@ export function TipsAdmin() {
         {data?.due.map((d) => (
           <div key={d.userId} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3">
             <span className="min-w-0 flex-1"><b>{d.name}</b> · {formatPrice(d.amount)} ({d.tips} tips) → MoMo {d.momoNumber ?? 'not set yet'} {d.momoName && `(${d.momoName})`}</span>
-            <Button size="sm" disabled={!d.momoNumber} onClick={() => act(`/admin/tips/payout/${d.userId}`, {}, 'Marked as paid')}>Mark paid</Button>
+            {d.blocked ? <span className="text-xs font-medium text-amber-900 dark:text-amber-200">{d.why ?? 'Payout stopped'}</span> : <Button size="sm" disabled={!d.momoNumber} onClick={() => act(`/admin/tips/payout/${d.userId}`, {}, 'Marked as paid')}>Mark paid</Button>}
           </div>
         ))}
         {data && !data.waiting.length && !data.due.length && <p className="text-muted-foreground">Nothing waiting.</p>}
@@ -84,7 +91,7 @@ export function CoinsAdmin() {
   );
 }
 
-type ShareDue = { userId: string; name: string; amount: number; sales: number; momoNumber: string | null; momoName: string | null };
+type ShareDue = { userId: string; name: string; amount: number; sales: number; momoNumber: string | null; momoName: string | null; blocked: string | null; why: string | null };
 type ShareReview = { id: string; item: string; sale: number; amount: number; paymentMethod: string; receivedBy: string | null; orderedAt: string; sharer: string; buyer: string; shop: string; buyerAgeDays: number; sharerAgeDays: number; shopSales: number };
 
 const PAID: Record<string, string> = { cash_on_delivery: 'cash on delivery', mobile_money: 'Mobile Money to the shop', pickup: 'paid at pickup' };
@@ -95,9 +102,9 @@ const PAID: Record<string, string> = { cash_on_delivery: 'cash on delivery', mob
  */
 export function SharesAdmin() {
   const { toast } = useToast();
-  const [data, setData] = useState<{ review: ShareReview[]; due: ShareDue[] } | null>(null);
+  const [data, setData] = useState<{ payout: Payout; review: ShareReview[]; due: ShareDue[] } | null>(null);
   const [refs, setRefs] = useState<Record<string, string>>({});
-  const load = useCallback(() => api<{ review: ShareReview[]; due: ShareDue[] }>('/admin/shares').then(setData).catch(() => {}), []);
+  const load = useCallback(() => api<{ payout: Payout; review: ShareReview[]; due: ShareDue[] }>('/admin/shares').then(setData).catch(() => {}), []);
   useEffect(() => void load(), [load]);
   const act = (path: string, body: object, done: string) =>
     api(path, { body })
@@ -111,6 +118,12 @@ export function SharesAdmin() {
         <CardDescription>Rewards for delivered sales that came from people’s shared links (Saligue pays them, not the shop). Sales not paid online are checked first: no money reached Saligue, so make sure the sale looks real (new accounts, a shop with few sales, the same people again and again). Then send what is due by Mobile Money and mark it paid.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
+        {data && !data.payout.open && (
+          <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            {data.payout.message ?? 'Payouts are stopped until a licensed payer is recorded.'}{' '}
+            <a href="/admin?tab=rules" className="underline">Rules &amp; policies → Who moves users&apos; money</a>
+          </p>
+        )}
         {data && !count && <p className="text-muted-foreground">Nothing waiting.</p>}
         {!!data?.review.length && <p className="font-semibold">To check</p>}
         {data?.review.map((r) => (
@@ -128,7 +141,7 @@ export function SharesAdmin() {
           <div key={d.userId} className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 p-3">
             <span className="min-w-0 flex-1"><b>{d.name}</b> · {formatPrice(d.amount)} ({d.sales} sale{d.sales === 1 ? '' : 's'}) → MoMo {d.momoNumber ?? 'not set yet'} {d.momoName && `(${d.momoName})`}</span>
             <input className="h-9 w-28 rounded-md border bg-background px-2" placeholder="Reference" value={refs[d.userId] ?? ''} onChange={(e) => setRefs({ ...refs, [d.userId]: e.target.value })} aria-label="Mobile Money reference" />
-            <Button size="sm" disabled={!d.momoNumber} onClick={() => act(`/admin/shares/payout/${d.userId}`, { reference: refs[d.userId] ?? '' }, `Marked as paid: ${formatPrice(d.amount)}`)}>Mark paid</Button>
+            {d.blocked ? <span className="text-xs font-medium text-amber-900 dark:text-amber-200">{d.why ?? 'Payout stopped'}</span> : <Button size="sm" disabled={!d.momoNumber} onClick={() => act(`/admin/shares/payout/${d.userId}`, { reference: refs[d.userId] ?? '' }, `Marked as paid: ${formatPrice(d.amount)}`)}>Mark paid</Button>}
           </div>
         ))}
       </CardContent>

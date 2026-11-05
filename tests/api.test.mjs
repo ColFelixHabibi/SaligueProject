@@ -105,6 +105,23 @@ describe('accounts', () => {
     assert.equal((await call('/auth/me', { method: 'PATCH', token: b.token, body: { username: 'a' } })).status, 400);
     assert.equal((await call('/usernames/jp.style')).json.id, a.id);
   });
+  // The Terms and the age line on the register form are only worth anything if the account records which Terms it
+  // accepted, and if an account cannot be made without ticking the box at all.
+  test('an account cannot be made without accepting the Terms, and the version accepted is kept', async () => {
+    const refused = await call('/auth/register', {
+      body: { name: 'No Terms', email: `noterms${Math.random().toString(36).slice(2, 7)}@example.com`, password: 'Test12345!', role: 'buyer' },
+    });
+    assert.equal(refused.status, 400);
+    assert.equal(refused.json.error.code, 'terms_not_accepted');
+
+    const a = await register('Terms Keeper');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const row = db.prepare('select terms_accepted_at, terms_version from users where id = ?').get(a.id);
+    db.close();
+    assert.ok(row.terms_accepted_at, 'the date is kept on the account');
+    assert.match(row.terms_version, /^\d{1,2} \w+ \d{4}$/, 'the version of the Terms that was accepted is kept too');
+  });
 });
 
 describe('catalogue', () => {
@@ -196,12 +213,23 @@ describe('safety and privacy', () => {
     const product = (await call('/products')).json[1];
     const writer = await register('Rude Writer');
     const c = await call(`/products/${product.id}/comments`, { token: writer.token, body: { text: 'Something rude' } });
-    for (const name of ['R One', 'R Two', 'R Three']) {
-      const r = await register(name);
-      assert.equal((await call('/comment-reports', { token: r.token, body: { kind: 'item', id: c.json.id, reason: 'rude' } })).status, 200);
-    }
+    // Reports count by weight, not by number (server/index.mjs reportWeight): an account opened minutes ago counts
+    // half, so three throwaway accounts cannot hide someone's words. Settled accounts weigh one each here.
+    const reporters = [];
+    for (const name of ['R One', 'R Two', 'R Three']) reporters.push(await register(name));
+    const report = async () => {
+      for (const r of reporters) {
+        assert.equal((await call('/comment-reports', { token: r.token, body: { kind: 'item', id: c.json.id, reason: 'rude' } })).status, 200);
+      }
+    };
+    await report();
+    const early = (await call(`/products/${product.id}/comments`)).json;
+    assert.ok(early.some((x) => x.id === c.json.id), 'three accounts opened minutes ago must not hide a comment');
+    await settle(reporters);
+    // The same people report again (one report per person is kept): now they weigh one each, and it goes.
+    await report();
     const list = (await call(`/products/${product.id}/comments`)).json;
-    assert.ok(!list.some((x) => x.id === c.json.id));
+    assert.ok(!list.some((x) => x.id === c.json.id), 'three settled accounts hide the comment');
   });
   test('item comments are limited to 8 a minute', async () => {
     const product = (await call('/products')).json[2];
@@ -229,6 +257,68 @@ describe('safety and privacy', () => {
   });
 });
 
+// Item reports count by weight too, so a shop cannot bury a rival's listing with accounts opened the same day.
+describe('reports count by weight, not by number', () => {
+  test('three accounts opened minutes ago do not hide an item; settled ones do', async () => {
+    const product = (await call('/products')).json[2];
+    const people = [];
+    for (const name of ['Watcher One', 'Watcher Two', 'Watcher Three']) people.push(await register(name));
+    const report = async () => {
+      for (const p of people) {
+        assert.equal((await call(`/products/${product.id}/report`, { token: p.token, body: { reason: 'not_fashion' } })).status, 200);
+      }
+    };
+    await report();
+    assert.equal((await call(`/products/${product.id}`)).status, 200, 'half-weight reports alone must not hide an item');
+    await settle(people);
+    // The same people report again (one report per person is kept): now they weigh one each, and it goes.
+    await report();
+    assert.equal((await call(`/products/${product.id}`)).status, 404, 'three settled reports hide the item until INDECIANA looks');
+  });
+});
+
+// Notices from people whose photo, brand or work was used (page /takedown). No account is needed: the person whose
+// photo was used often has none. Only a notice that names one of our items and carries both statements hides it.
+describe('notice and takedown', () => {
+  const notice = (body) => call('/takedowns', {
+    body: {
+      name: 'Ana Mukamana', email: 'ana@example.com', rights: 'copyright', target: '',
+      details: 'The main photo on this item is one I took in my shop in June, and it was used without my agreement.',
+      ...body,
+    },
+  });
+
+  test('a notice without the two statements is kept, and hides nothing', async () => {
+    const product = (await call('/products')).json[0];
+    const r = await notice({ target: product.id });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.hidden, false);
+    assert.match(r.json.reference, /^[0-9A-F]{8}$/);
+    assert.equal((await call(`/products/${product.id}`)).status, 200, 'nothing is hidden without both statements');
+  });
+
+  test('naming one of our items and confirming both statements hides it at once', async () => {
+    const product = (await call('/products')).json[0];
+    const r = await notice({ target: `https://saligue.com/product?id=${product.id}`, goodFaith: true, accuracy: true, rights: 'privacy' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.hidden, true);
+    assert.equal(r.json.item, product.name);
+    assert.equal((await call(`/products/${product.id}`)).status, 404, 'the item is out of sight while INDECIANA checks the notice');
+  });
+
+  test('a notice must be answerable and say what is yours', async () => {
+    assert.equal((await notice({ name: '', target: 'some-item' })).json.error.code, 'missing_name');
+    assert.equal((await notice({ name: 'Ana', target: 'some-item', email: 'not-an-email' })).json.error.code, 'invalid_email');
+    assert.equal((await notice({ name: 'Ana', target: '' })).json.error.code, 'missing_target');
+    assert.equal((await notice({ name: 'Ana', target: 'some-item', details: 'too short' })).json.error.code, 'missing_details');
+  });
+
+  test('notices are read by INDECIANA, not by shoppers', async () => {
+    const a = await register('Nosy Shopper');
+    assert.equal((await call('/admin/takedowns', { token: a.token })).status, 403);
+  });
+});
+
 describe('catalogue pages', () => {
   test('the list comes in pages, and one item can be fetched alone', async () => {
     const all = (await call('/products')).json;
@@ -242,6 +332,16 @@ describe('catalogue pages', () => {
     assert.equal((await call('/products/does-not-exist')).status, 404);
   });
 });
+
+// Makes accounts look settled — opened more than a day ago — so that their reports weigh one each instead of half
+// (server/index.mjs reportWeight). Takes what register() returned, or account ids.
+async function settle(accounts) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(join(data, 'saligue.db'));
+  const when = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  for (const a of accounts) db.prepare('update users set created_at = ? where id = ?').run(when, typeof a === 'string' ? a : a.id);
+  db.close();
+}
 
 // Signs in as a sample shop in the test database (sample shops have no password).
 async function sampleShop(productId) {
@@ -433,7 +533,12 @@ describe('share & earn', () => {
     assert.equal(mine.ready, Math.min(mine.cap, Math.round(product.price * mine.rate * 100) / 100));
     // The admin pays it once the sharer has a Mobile Money number.
     assert.ok((await call('/admin/shares', { token: admin.token })).json.due.some((d) => d.userId === sharer.id));
-    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: {} })).status, 400);
+    // Who moves the money is a decision, not a default: nothing goes out until it is made (server/compliance.mjs).
+    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: {} })).json.error.code, 'partner_missing');
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'self' } } });
+    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: {} })).json.error.code, 'licence_missing');
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'partner', partner: 'Test Mobile Money aggregator' } } });
+    assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: {} })).json.error.code, 'no_momo');
     await call('/me/tips/account', { method: 'PUT', token: sharer.token, body: { momoNumber: '0780000010', momoName: 'Style Sharer' } });
     assert.equal((await call(`/admin/shares/payout/${sharer.id}`, { token: admin.token, body: { reference: 'MM123' } })).status, 200);
     mine = (await call('/me/shares', { token: sharer.token })).json;
@@ -780,5 +885,88 @@ describe('clients, network and chat', () => {
     const thread = (await call(`/conversations/${c}`, { token: b.token })).json.messages;
     assert.equal(thread.find((m) => m.id === photo.json.id).deleted, true);
     assert.equal((await fetch(`${base}${photo.json.attachment.url}`)).status, 404);
+  });
+});
+
+describe('data protection, and who moves users’ money', () => {
+  const mainAdmin = async (name) => {
+    const a = await register(name);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(a.id);
+    db.close();
+    return a;
+  };
+
+  test('the public page says who is responsible, what is processed and who pays — without leaking the licence', async () => {
+    const r = await call('/compliance');
+    assert.equal(r.status, 200);
+    assert.ok(r.json.controller.name);
+    assert.equal(typeof r.json.controller.registered, 'boolean');
+    assert.ok(r.json.processing.length >= 8, 'every purpose is listed');
+    assert.ok(r.json.processing.every((p) => p.what && p.why && p.kept && p.where), 'each row says what, why, how long and where');
+    assert.ok(r.json.dpia.risks.length >= 4, 'the try-on risks are assessed');
+    assert.ok(r.json.dpia.risks.every((x) => x.risk && x.measures.length && x.residual), 'each risk says what answers it and what remains');
+    assert.equal(typeof r.json.payouts.open, 'boolean');
+    // The licence reference is an internal control, never published.
+    assert.equal(r.json.payouts.licence, undefined);
+  });
+
+  test('only an admin with the policies right may read or change it', async () => {
+    const shopper = await register('Data Visitor');
+    assert.equal((await call('/admin/compliance', { token: shopper.token })).status, 403);
+    assert.equal((await call('/admin/compliance', { method: 'PUT', token: shopper.token, body: { payouts: { mode: 'off' } } })).status, 403);
+    // No session at all is refused with 403 by requireAdmin, like every admin route: an anonymous call has no
+    // admin right, and the security watch counts that 403 as an attempt on admin functions (security.mjs adminDenied).
+    assert.equal((await call('/admin/compliance', { method: 'PUT', body: { payouts: { mode: 'off' } } })).status, 403);
+  });
+
+  test('the registration number is published only once it is recorded, and a broken contact is refused', async () => {
+    const admin = await mainAdmin('Controller Admin');
+    const bad = await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { controller: { dpoEmail: 'not-an-email' } } });
+    assert.equal(bad.json.error.code, 'invalid_email');
+    const noName = await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { controller: { name: '  ' } } });
+    assert.equal(noName.json.error.code, 'invalid_name');
+    assert.equal((await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { controller: { registrationNumber: 'DP/2026/0042', registeredAt: '2026-11-04', dpoName: 'Data desk', dpoEmail: 'data@example.com', lastReview: '2026-11-04' } } })).status, 200);
+    const pub = (await call('/compliance')).json;
+    assert.equal(pub.controller.registrationNumber, 'DP/2026/0042');
+    assert.equal(pub.controller.registered, true);
+    assert.equal(pub.controller.dpoEmail, 'data@example.com');
+    assert.equal(pub.dpia.reviewedAt, '2026-11-04');
+  });
+
+  test('a payout is refused for the right reason, and sent only when the answer is complete', async () => {
+    const admin = await mainAdmin('Payout Admin');
+    const earner = await register('Payout Earner');
+    // A payout waiting to be sent, inserted the way the monthly job creates one.
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const id = `po-${Math.random().toString(36).slice(2, 10)}`;
+    db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, created_at) values (?, ?, '2026-11', 5, '{}', 'pending', ?)").run(id, earner.id, new Date().toISOString());
+    db.close();
+    const send = () => call(`/admin/payouts/${id}/paid`, { token: admin.token, body: { reference: 'MM9' } });
+
+    // An invalid choice of payer is refused before it is saved.
+    assert.equal((await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'everyone' } } })).json.error.code, 'invalid_mode');
+    assert.equal((await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'partner', partner: '' } } })).json.error.code, 'partner_missing');
+
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'off' } } });
+    assert.equal((await send()).json.error.code, 'payouts_closed');
+
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { mode: 'partner', partner: 'Test Mobile Money aggregator', requireIdentity: true } } });
+    assert.equal((await send()).json.error.code, 'identity_required');
+
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { requireIdentity: false, monthlyCap: 1 } } });
+    assert.equal((await send()).json.error.code, 'monthly_cap');
+
+    await call('/admin/compliance', { method: 'PUT', token: admin.token, body: { payouts: { monthlyCap: 0 } } });
+    assert.equal((await send()).status, 200);
+    // Paid once only, ever.
+    assert.equal((await send()).json.error.code, 'already_paid');
+    // The admin queues say the same thing, so nobody presses a button that cannot work.
+    const shares = (await call('/admin/shares', { token: admin.token })).json;
+    assert.equal(shares.payout.open, true);
+    assert.equal(shares.payout.payer, 'Test Mobile Money aggregator');
+    assert.equal((await call('/admin/tips', { token: admin.token })).json.payout.open, true);
   });
 });
