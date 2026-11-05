@@ -45,6 +45,8 @@ next-env.d.ts
 
 # AI models bundled into the mobile apps (scripts/bundle-models.mjs)
 /public/models/
+# Models parked during an app build (scripts/build-app.mjs)
+/.models-parked/
 # AI engine copied from node_modules (scripts/copy-ort.mjs)
 /public/ort/
 
