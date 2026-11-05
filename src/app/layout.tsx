@@ -19,6 +19,9 @@ import { Welcome } from '@/components/welcome';
 import { NativeLinks } from '@/components/native-links';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+// The site's own address, so a shared card's picture is a link WhatsApp and Facebook can fetch instead of a
+// page-relative path they ignore.
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_API_URL || 'https://78-47-151-100.sslip.io').replace(/\/+$/, '');
 
 // The Android app (Capacitor) writes the system bar sizes onto <html> as soon as the page shows, before React
 // starts, and React then wipes them. This copies them into their own stylesheet the moment they arrive (and
@@ -28,6 +31,7 @@ const KEEP_SAFE_AREA = `(function(){try{var s=document.createElement('style');s.
 const DESCRIPTION = 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: 'Saligue by INDECIANA',
   description: DESCRIPTION,
   manifest: `${basePath}/manifest.webmanifest`,

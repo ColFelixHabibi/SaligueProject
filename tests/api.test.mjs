@@ -381,11 +381,13 @@ describe('links shared into other apps show a card', { skip: built ? false : 'no
     assert.equal(tagIn(html, 'og:title'), `#${tag} · 1 item on Saligue`);
     assert.match(tagIn(html, 'og:image'), /^https?:\/\//);
   });
-  test('a page with nothing behind it gets no made-up card', async () => {
+  test('a page with nothing behind it gets the site card, never a made-up item', async () => {
     const { html } = await page('/product?id=does-not-exist');
-    // The site-wide card from src/app/layout.tsx is allowed to answer; inventing an item is not.
+    // The site-wide card from src/app/layout.tsx answers: the site's name and its own icon, as full addresses
+    // other apps can fetch. An item that does not exist must not be described as if it did.
     assert.equal(tagIn(html, 'og:title'), 'Saligue by INDECIANA');
-    assert.equal(tagIn(html, 'og:image:alt'), null);
+    assert.match(tagIn(html, 'og:image'), /^https?:\/\/.+icon-512/);
+    assert.equal(tagIn(html, 'og:image:alt'), 'Saligue by INDECIANA');
   });
 });
 
@@ -1026,6 +1028,11 @@ describe('notifications', () => {
   test('a notification can be deleted, or all of them, and only this account’s are touched', async () => {
     const a = await register('Notify Me');
     const b = await register('Notify Other');
+    // Every new account starts with a welcome notification; empty both lists first so the counts below are the
+    // ones this test puts there (and clearing all is proved on the way).
+    assert.equal((await call('/me/notifications', { method: 'DELETE', token: a.token })).status, 200);
+    assert.equal((await call('/me/notifications', { method: 'DELETE', token: b.token })).status, 200);
+    assert.deepEqual((await call('/me/notifications', { token: a.token })).json, []);
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(join(data, 'saligue.db'));
     const put = (id, userId, title) => db.prepare('insert into notifications (id, user_id, type, title, body, link, read, created_at) values (?, ?, ?, ?, ?, ?, 0, ?)')
