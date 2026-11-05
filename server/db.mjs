@@ -156,6 +156,25 @@ db.exec(`
     primary key (product_id, user_id)
   );
 
+  -- Notice and takedown (page /takedown): someone says an item uses their photo, brand or work. A notice that
+  -- names one of our items and carries the good-faith statement hides it at once, until INDECIANA reviews it.
+  create table if not exists takedowns (
+    id text primary key,
+    kind text not null default 'other',  -- item | lesson | other
+    target_id text,                      -- the item or lesson it is about, when we could find it
+    url text,                            -- what the sender pointed at (a link or an id)
+    rights text not null,                -- copyright | trademark | privacy | other
+    claimant_name text not null,
+    claimant_email text not null,
+    details text not null,
+    status text not null default 'open', -- open | actioned | rejected
+    hidden integer not null default 0,   -- whether this notice took the item out of sight
+    note text,                            -- INDECIANA's decision note
+    decided_by text, decided_at text,
+    created_at text not null
+  );
+  create index if not exists takedowns_status on takedowns(status, created_at desc);
+
   create table if not exists learned_examples (
     embedding text not null,            -- JSON: AI fingerprint of a reviewed photo
     label text not null,                -- fashion | not_fashion
@@ -742,7 +761,8 @@ db.exec(`
 
 // Columns added after the first release.
 for (const [table, column, type] of [
-  ['users', 'terms_accepted_at', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  // Which version of the Terms an account accepted, so an acceptance can be proved after a change.
+  ['users', 'terms_accepted_at', 'text'], ['users', 'terms_version', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],

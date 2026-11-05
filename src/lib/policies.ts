@@ -3,7 +3,7 @@
 import type { LegalSection } from '@/components/legal-page';
 
 export type Policy = { title: string; updated: string; intro: string; sections: LegalSection[] };
-export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'privacy' | 'cookies';
+export type PolicyKey = 'monetization' | 'ads' | 'verification' | 'terms' | 'privacy' | 'cookies' | 'takedown';
 
 export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   monetization: {
@@ -85,6 +85,34 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
       { heading: 'How we protect your documents', paragraphs: ['Your document photos are stored privately on Saligue’s own server, never on public links, and only Saligue admins with the right to check accounts can open them.', 'They are deleted as soon as the check is finished, approved or not. Saligue keeps only the result, the type of document, the country and the last 4 characters of the number.'] },
       { heading: 'What the badge means — and what it does not', paragraphs: ['It means the name and documents matched when they were checked. It does not mean Saligue recommends the shop or guarantees its items; reviews, the Terms of Service and the Ads Policy still apply.'] },
       { heading: 'Losing the badge', paragraphs: ['Saligue removes the badge if the documents turn out to be false, if the account is sold or given to someone else, or after serious breaks of the Terms of Service. Using false documents leads to closing of the account.'] },
+    ],
+  },
+  takedown: {
+    title: 'Notice and Takedown Policy',
+    updated: '4 November 2026',
+    intro: 'If an item on Saligue uses a photo, a brand or a design that is yours, tell us and we will act. You do not need a Saligue account to send a notice.',
+    sections: [
+      { heading: 'How to send a notice', paragraphs: [
+        'Use the form at /takedown. Give your name and an email address we can answer to, the link to the item (or its number), and say what is yours and why: a photo you took, a design you made, your brand or logo, or a photo of you.',
+        'One item per notice. If several items use your work, send one notice for each, so that each decision is about one listing.',
+        'You can send a notice as a person or for a business. If you send it for someone else, say who you act for.',
+      ] },
+      { heading: 'What happens next', paragraphs: [
+        'If your notice names one of our items and you confirm that it is accurate and made in good faith, that item is hidden from shoppers at once, while INDECIANA checks it. You get an email with a reference at that moment, and the shop is told the item is hidden and why.',
+        'INDECIANA reads it within a few working days. We may ask you for proof that the work is yours, and we pass the shop’s answer to you. Then one of three things happens: the item stays hidden, it is removed, or it comes back — and we write to you either way.',
+        'Without those two confirmations the notice is still kept and read, but nothing is hidden until INDECIANA has looked at it. Notices from one connection are limited each day, so a notice cannot be used to push a shop off Saligue.',
+        'If the item is the shop’s own work — a design they made, a photo they took — it stays. Using notices to remove honest listings breaks the Terms of Service, and a notice that is knowingly false can make its sender responsible for the loss it causes.',
+      ] },
+      { heading: 'If your item was hidden by a notice', paragraphs: [
+        'You are told in the app. Answer in Help & Support with anything that shows the item is yours to sell: the original photo, a receipt, a design file, a registration. INDECIANA reads both answers before deciding.',
+        'An item hidden by mistake is put back on Saligue, and the notice stays on file with the decision.',
+      ] },
+      { heading: 'Photos of people', paragraphs: [
+        'A photo of you that someone else listed as their item is treated the same way: send a notice with “my photo or my face” and it is hidden while we check. Do not send a photo of someone else without their agreement.',
+      ] },
+      { heading: 'Counterfeit items', paragraphs: [
+        'Selling counterfeit items is not allowed whatever this policy says (see the Terms of Service). Brand owners can also use the report button on an item, which hides it after several reports from different shoppers.',
+      ] },
     ],
   },
   ads: {
@@ -184,7 +212,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
             paragraphs: [
               'You keep the rights to the photos, comments and sounds you post. You allow Saligue to show them in the app and website so that Saligue can work.',
               'Shoppers can Resaligue (repost) items to their followers, and download an item’s photo or video for their own use; downloads carry the Saligue logo and the shop’s name. Re-uploading someone else’s photos as your own items is not allowed.',
-              'Do not post content that is unlawful, hateful, harassing, sexual, or that belongs to someone else. We may remove such content.',
+              'Do not post content that is unlawful, hateful, harassing, sexual, or that belongs to someone else. We may remove such content. If an item uses a photo, brand or design of yours, send a notice at /takedown: the item is hidden at once while INDECIANA checks it, and the shop is told why and may answer.',
             ],
           },
           {

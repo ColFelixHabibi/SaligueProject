@@ -8,6 +8,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { buyCoins, getCoins, type Coins as CoinsInfo } from '@/lib/live';
+import { isNativeApp } from '@/lib/native';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 
@@ -16,9 +17,11 @@ export default function MyCoins() {
   const { toast } = useToast();
   const [info, setInfo] = useState<CoinsInfo | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [native, setNative] = useState(false);
   const [manual, setManual] = useState<{ reference: string; amount: number; momoNumber?: string | null; momoName?: string } | null>(null);
   const load = useCallback(() => getCoins().then(setInfo).catch(() => {}), []);
   useEffect(() => void load(), [load]);
+  useEffect(() => setNative(isNativeApp()), []);
   const buy = async (coins: number) => {
     setBusy(coins);
     try {
@@ -44,15 +47,33 @@ export default function MyCoins() {
         </div>
       </div>
       <Card>
-        <CardHeader><CardTitle className="text-base">Get coins</CardTitle><CardDescription>100 coins = $1. {info?.onlinePayment ? 'Pay online.' : 'Pay by Mobile Money with the reference shown.'}</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Get coins</CardTitle>
+          <CardDescription>
+            {native
+              ? 'Coins are bought on the website, not in the app.'
+              : `100 coins = $1. ${info?.onlinePayment ? 'Pay online.' : 'Pay by Mobile Money with the reference shown.'}`}
+          </CardDescription>
+        </CardHeader>
         <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(info?.packs ?? []).map((p) => (
-            <button key={p.coins} type="button" onClick={() => buy(p.coins)} disabled={busy != null} className="flex flex-col items-center gap-1 rounded-2xl border p-3 transition hover:border-primary disabled:opacity-60">
-              <span className="flex items-center gap-1 text-lg font-extrabold"><Coins className="h-5 w-5 text-amber-500" /> {p.coins.toLocaleString()}</span>
-              <span className="text-sm font-semibold text-primary">{busy === p.coins ? <Loader2 className="h-4 w-4 animate-spin" /> : formatPrice(p.price)}</span>
-            </button>
-          ))}
-          {!!info?.pending.length && <p className="col-span-full text-xs text-muted-foreground">Waiting for payment: {info.pending.map((o) => `${o.coins} coins (${o.reference})`).join(', ')}</p>}
+          {native ? (
+            <p className="col-span-full text-sm leading-relaxed text-muted-foreground">
+              Apple and Google require their own payment for coins spent inside an app, so Saligue does not sell
+              coins here. Buy them at <b className="select-all text-foreground">saligue.com</b> on the web, and they
+              are in this same account when you come back. Coins you are given, and gifts you receive, still
+              arrive here.
+            </p>
+          ) : (
+            <>
+              {(info?.packs ?? []).map((p) => (
+                <button key={p.coins} type="button" onClick={() => buy(p.coins)} disabled={busy != null} className="flex flex-col items-center gap-1 rounded-2xl border p-3 transition hover:border-primary disabled:opacity-60">
+                  <span className="flex items-center gap-1 text-lg font-extrabold"><Coins className="h-5 w-5 text-amber-500" /> {p.coins.toLocaleString()}</span>
+                  <span className="text-sm font-semibold text-primary">{busy === p.coins ? <Loader2 className="h-4 w-4 animate-spin" /> : formatPrice(p.price)}</span>
+                </button>
+              ))}
+              {!!info?.pending.length && <p className="col-span-full text-xs text-muted-foreground">Waiting for payment: {info.pending.map((o) => `${o.coins} coins (${o.reference})`).join(', ')}</p>}
+            </>
+          )}
         </CardContent>
       </Card>
       <Card>

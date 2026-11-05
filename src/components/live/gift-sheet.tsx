@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { buyCoins, getCoins, sendGift, type Coins as CoinsInfo } from '@/lib/live';
+import { isNativeApp } from '@/lib/native';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +21,10 @@ export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: st
   const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState<{ reference: string; amount: number; momoNumber?: string | null; momoName?: string } | null>(null);
+  // The phone app does not sell coins (Apple and Google require their own billing for money spent inside an
+  // app), so in the app the "Get coins" panel explains that instead of showing packs.
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNativeApp()), []);
   useEffect(() => {
     if (open) {
       setManual(null);
@@ -81,17 +86,27 @@ export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: st
           </div>
         ) : buying ? (
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-muted-foreground">100 coins = $1. Gifts go to the shop as tips.</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(info?.packs ?? []).map((p) => (
-                <button key={p.coins} type="button" onClick={() => buy(p.coins)} disabled={!!busy}
-                  className="flex flex-col items-center gap-1 rounded-2xl border p-3 transition hover:border-primary disabled:opacity-60">
-                  <span className="flex items-center gap-1 text-lg font-extrabold"><Coins className="h-5 w-5 text-amber-500" /> {p.coins.toLocaleString()}</span>
-                  <span className="text-sm font-semibold text-primary">{busy === `pack-${p.coins}` ? <Loader2 className="h-4 w-4 animate-spin" /> : formatPrice(p.price)}</span>
-                </button>
-              ))}
-            </div>
-            {!!info?.pending.length && <p className="text-xs text-muted-foreground">Waiting for payment: {info.pending.map((o) => `${o.coins} coins (${o.reference})`).join(', ')}</p>}
+            {native ? (
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Apple and Google require their own payment for coins spent inside an app, so Saligue does not sell
+                coins here. Buy them at <b className="select-all text-foreground">saligue.com</b> on the web, and
+                they are in this same account when you come back. Coins you are given still arrive here.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">100 coins = $1. Gifts go to the shop as tips.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(info?.packs ?? []).map((p) => (
+                    <button key={p.coins} type="button" onClick={() => buy(p.coins)} disabled={!!busy}
+                      className="flex flex-col items-center gap-1 rounded-2xl border p-3 transition hover:border-primary disabled:opacity-60">
+                      <span className="flex items-center gap-1 text-lg font-extrabold"><Coins className="h-5 w-5 text-amber-500" /> {p.coins.toLocaleString()}</span>
+                      <span className="text-sm font-semibold text-primary">{busy === `pack-${p.coins}` ? <Loader2 className="h-4 w-4 animate-spin" /> : formatPrice(p.price)}</span>
+                    </button>
+                  ))}
+                </div>
+                {!!info?.pending.length && <p className="text-xs text-muted-foreground">Waiting for payment: {info.pending.map((o) => `${o.coins} coins (${o.reference})`).join(', ')}</p>}
+              </>
+            )}
             <Button variant="ghost" className="w-full" onClick={() => setBuying(false)}>Back to gifts</Button>
           </div>
         ) : (

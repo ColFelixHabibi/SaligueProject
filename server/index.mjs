@@ -357,6 +357,10 @@ route('GET', '/api/auth/me', ({ user }) => {
   return { user: publicUser(user) };
 });
 
+// The Terms an account accepts today. Kept on the account (terms_version) so an acceptance can be proved later,
+// and bumped when the Terms change in a way that matters (src/lib/policies.ts, `terms.updated`).
+const TERMS_VERSION = '4 November 2026';
+
 route('POST', '/api/auth/register', ({ req, user, body }) => {
   const name = String(body.name ?? '').trim().slice(0, 80);
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -371,12 +375,12 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
   // A guest keeps everything they did: the guest account becomes the real one.
   let id = user?.is_guest ? user.id : null;
   if (id) {
-    db.prepare('update users set email = ?, password_hash = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ? where id = ?')
-      .run(email, hashPassword(password), name, role, now(), id);
+    db.prepare('update users set email = ?, password_hash = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ? where id = ?')
+      .run(email, hashPassword(password), name, role, now(), TERMS_VERSION, id);
   } else {
     id = randomUUID();
-    db.prepare('insert into users (id, email, password_hash, display_name, role, terms_accepted_at, created_at) values (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, email, hashPassword(password), name, role, now(), now());
+    db.prepare('insert into users (id, email, password_hash, display_name, role, terms_accepted_at, terms_version, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, email, hashPassword(password), name, role, now(), TERMS_VERSION, now());
   }
   // Invited by someone (their link /register?ref=…): they get coins when this shop makes its first real sale.
   const ref = String(body.ref ?? '');
@@ -492,12 +496,12 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   // New account. A guest keeps everything they did: the guest account becomes the real one.
   // The Google button is shown with "By continuing you accept the Terms and Privacy Policy".
   if (user?.is_guest) {
-    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ? where id = ?').run(email, name, role ?? 'buyer', now(), user.id);
+    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ? where id = ?').run(email, name, role ?? 'buyer', now(), TERMS_VERSION, user.id);
     welcome(user.id, name, role ?? 'buyer');
     return { token: tokenOf(req), user: publicUser(db.prepare('select * from users where id = ?').get(user.id)), isNew: true };
   }
   const id = randomUUID();
-  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, created_at) values (?, ?, ?, ?, ?, ?)').run(id, email, name, role ?? 'buyer', now(), now());
+  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role ?? 'buyer', now(), TERMS_VERSION, now());
   welcome(id, name, role ?? 'buyer');
   return { token: createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
@@ -973,10 +977,27 @@ route('POST', '/api/ai/fashion-check', async ({ user, body }) => {
   }
 });
 
-// Reports: shoppers flag items that aren't fashion (or are fake or offensive). After 3 different
-// people report an item it is hidden until INDECIANA reviews it (node server/admin.mjs reports).
+// Reports: shoppers flag items that aren't fashion (or are fake or offensive). They are counted by weight, not
+// by number, so a rival cannot bury an item with a few accounts opened the same day: an account counts half
+// until it has been here a day, one once it is settled, and more for a buyer with a delivered order, a
+// verified account or INDECIANA. At 3, from at least 2 different people, the item is hidden until INDECIANA
+// reviews it (node server/admin.mjs reports).
 const REPORT_REASONS = { not_fashion: 'not fashion', fake: 'fake or misleading', offensive: 'offensive', other: 'other problem' };
 const HIDE_AFTER_REPORTS = 3;
+function reportWeight(userId) {
+  const u = db.prepare('select created_at, is_guest, verified, verified_until, official from users where id = ?').get(userId);
+  if (!u) return 0;
+  if (u.official) return 2;
+  if (u.verified && (!u.verified_until || u.verified_until > now())) return 1.5;
+  if (db.prepare("select 1 from orders where buyer_id = ? and status = 'delivered' limit 1").get(userId)) return 1.5;
+  if (u.is_guest || Date.now() - Date.parse(u.created_at) < 86_400_000) return 0.5;
+  return 1;
+}
+/** How many different people reported something, and how much their reports weigh together. */
+function reportsOn(table, where, ...params) {
+  const rows = db.prepare(`select user_id from ${table} where ${where}`).all(...params);
+  return { people: rows.length, weight: rows.reduce((n, r) => n + reportWeight(r.user_id), 0) };
+}
 route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const product = db.prepare('select id, name, seller_id, hidden from products where id = ?').get(params[0]);
@@ -984,8 +1005,8 @@ route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
   if (product.seller_id === user.id) fail(400, 'own_item', 'You cannot report your own item.');
   const reason = REPORT_REASONS[body.reason] ? body.reason : 'other';
   db.prepare('insert or ignore into reports (product_id, user_id, reason, created_at) values (?, ?, ?, ?)').run(product.id, user.id, reason, now());
-  const count = db.prepare('select count(*) as n from reports where product_id = ?').get(product.id).n;
-  if (count >= HIDE_AFTER_REPORTS && !product.hidden) {
+  const { people, weight } = reportsOn('reports', 'product_id = ?', product.id);
+  if (weight >= HIDE_AFTER_REPORTS && people >= 2 && !product.hidden) {
     db.prepare('update products set hidden = 1 where id = ?').run(product.id);
     broadcast('products');
     notify(product.seller_id, {
@@ -995,15 +1016,15 @@ route('POST', '/api/products/([\\w-]+)/report', ({ user, params, body }) => {
       link: '/dashboard/products',
     });
     for (const { id } of db.prepare('select id from users where official = 1').all()) {
-      notify(id, { type: 'product', title: `Review needed: "${product.name}"`, body: `${count} reports. Check it with: node server/admin.mjs reports`, link: `/product?id=${product.id}`, email: false });
+      notify(id, { type: 'product', title: `Review needed: "${product.name}"`, body: `${people} reports (weight ${weight}). Check it with: node server/admin.mjs reports`, link: `/product?id=${product.id}`, email: false });
     }
   }
   return { ok: true };
 });
 
 // Review of reported items, by INDECIANA's official account. Each decision also teaches the AI (learn.mjs).
-// Reporting a comment or reply (items and lessons). After 3 different people report it, it is hidden until a
-// moderator restores or removes it.
+// Reporting a comment or reply (items and lessons). Counted by weight like item reports (reportWeight): it is
+// hidden until a moderator restores or removes it.
 const COMMENT_TABLE = { item: 'comments', lesson: 'lesson_comments' };
 route('POST', '/api/comment-reports', ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Log in to report.');
@@ -1013,8 +1034,8 @@ route('POST', '/api/comment-reports', ({ user, body }) => {
   if (c.user_id === user.id) fail(400, 'own', 'This is your own comment.');
   const reason = ['rude', 'spam', 'not_fashion', 'other'].includes(body.reason) ? body.reason : 'other';
   db.prepare('insert or ignore into comment_reports (kind, comment_id, user_id, reason, created_at) values (?, ?, ?, ?, ?)').run(kind, c.id, user.id, reason, now());
-  const count = db.prepare('select count(*) as n from comment_reports where kind = ? and comment_id = ?').get(kind, c.id).n;
-  if (count >= HIDE_AFTER_REPORTS && !c.hidden) {
+  const { people, weight } = reportsOn('comment_reports', 'kind = ? and comment_id = ?', kind, c.id);
+  if (weight >= HIDE_AFTER_REPORTS && people >= 2 && !c.hidden) {
     db.prepare(`update ${COMMENT_TABLE[kind]} set hidden = 1 where id = ?`).run(c.id);
     if (kind === 'item') broadcast('comments', { productId: c.product_id });
     else broadcast('lesson_comments', { lessonId: c.lesson_id });
@@ -1028,7 +1049,7 @@ route('GET', '/api/admin/comment-reports', ({ user }) => {
       const c = db.prepare(`select * from ${COMMENT_TABLE[r.kind]} where id = ?`).get(r.comment_id);
       if (!c) return null;
       const author = db.prepare('select display_name, email, is_guest, username from users where id = ?').get(c.user_id);
-      return { kind: r.kind, id: c.id, text: c.text, author: personNameOf(author), username: author?.username ?? null, hidden: !!c.hidden, reports: r.n, reasons: (r.reasons ?? '').split(','), link: r.kind === 'item' ? `/product?id=${c.product_id}` : `/learn?lesson=${c.lesson_id}`, createdAt: c.created_at };
+      return { kind: r.kind, id: c.id, text: c.text, author: personNameOf(author), username: author?.username ?? null, hidden: !!c.hidden, reports: r.n, weight: reportsOn('comment_reports', 'kind = ? and comment_id = ?', r.kind, r.comment_id).weight, reasons: (r.reasons ?? '').split(','), link: r.kind === 'item' ? `/product?id=${c.product_id}` : `/learn?lesson=${c.lesson_id}`, createdAt: c.created_at };
     })
     .filter(Boolean);
 });
@@ -1054,7 +1075,7 @@ route('GET', '/api/admin/reports', ({ user }) => {
   if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review reports.');
   return db.prepare(`select p.*, count(r.user_id) as report_count, group_concat(distinct r.reason) as reasons, max(r.created_at) as last_report
     from reports r join products p on p.id = r.product_id group by p.id order by p.hidden desc, report_count desc, last_report desc`).all()
-    .map((r) => ({ ...productOut(r), reportCount: r.report_count, reasons: (r.reasons ?? '').split(','), lastReport: r.last_report }));
+    .map((r) => ({ ...productOut(r), reportCount: r.report_count, reportWeight: reportsOn('reports', 'product_id = ?', r.id).weight, reasons: (r.reasons ?? '').split(','), lastReport: r.last_report }));
 });
 
 route('POST', '/api/admin/reports/([\\w-]+)', ({ user, params, body }) => {
@@ -3482,8 +3503,8 @@ route('POST', '/api/lessons/([\\w-]+)/report', ({ user, params, body }) => {
   if (l.user_id === user.id) fail(400, 'own', 'You cannot report your own lesson.');
   const reason = REPORT_REASONS[body.reason] ? body.reason : 'other';
   db.prepare('insert or ignore into lesson_reports (lesson_id, user_id, reason, created_at) values (?, ?, ?, ?)').run(l.id, user.id, reason, now());
-  const count = db.prepare('select count(*) as n from lesson_reports where lesson_id = ?').get(l.id).n;
-  if (count >= HIDE_AFTER_REPORTS && !l.hidden) {
+  const { people, weight } = reportsOn('lesson_reports', 'lesson_id = ?', l.id);
+  if (weight >= HIDE_AFTER_REPORTS && people >= 2 && !l.hidden) {
     db.prepare('update lessons set hidden = 1 where id = ?').run(l.id);
     broadcast('lessons');
     notify(l.user_id, { type: 'account', title: `Your lesson "${l.title}" is hidden after reports`, body: 'Community is for fashion lessons only. Saligue will review it.', link: '/learn', email: false });
@@ -3794,7 +3815,7 @@ route('PUT', '/api/admin/features', ({ user, body }) => {
 });
 
 // Policies: the text of each policy page can be edited (headings and paragraphs); empty = Saligue's default text.
-const POLICIES = ['monetization', 'ads', 'verification', 'terms', 'privacy', 'cookies'];
+const POLICIES = ['monetization', 'ads', 'verification', 'terms', 'privacy', 'cookies', 'takedown'];
 route('GET', '/api/policies/([\\w-]+)', ({ params }) => {
   if (!POLICIES.includes(params[0])) fail(404, 'not_found', 'Not found.');
   return parse(db.prepare('select value from app_config where key = ?').get(`policy:${params[0]}`)?.value);
@@ -4816,6 +4837,122 @@ route('POST', '/api/support', ({ user, body }) => {
   if (!body.subject || !message) fail(400, 'incomplete', 'Please select a subject and write a message.');
   db.prepare('insert into support_requests (id, user_id, name, email, contact, subject, message, source, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(randomUUID(), user.id, String(body.name ?? ''), String(body.email ?? ''), String(body.contact ?? ''), String(body.subject), message.slice(0, 5000), String(body.source ?? ''), now());
+  return { ok: true };
+});
+
+// Notice and takedown (page /takedown). Anyone may send one, signed in or not: the person whose photo, brand or
+// work was used often has no Saligue account. A notice that names one of our items, carries the good-faith and
+// accuracy statements and gives an address we can answer to hides that item at once, until INDECIANA reviews it
+// (Me → Admin → Notices, or `node server/admin.mjs takedowns`). The shop is told and can answer. The auto-hide
+// is capped per network per day, so takedown cannot be used to bury a rival's shop.
+const TAKEDOWN_RIGHTS = { copyright: 'copyright', trademark: 'brand or logo', privacy: 'my photo or my face', other: 'something else' };
+const takedownSent = new Map();   // network -> when notices were sent
+const takedownHidden = new Map(); // network -> when a notice hid an item
+route('POST', '/api/takedowns', ({ body }) => {
+  const name = String(body.name ?? '').trim().slice(0, 80);
+  const email = String(body.email ?? '').trim().toLowerCase();
+  const details = String(body.details ?? '').trim().slice(0, 5000);
+  const rights = TAKEDOWN_RIGHTS[body.rights] ? body.rights : 'other';
+  const target = String(body.target ?? '').trim().slice(0, 500);
+  if (!name) fail(400, 'missing_name', 'Please give your name.');
+  if (!EMAIL.test(email)) fail(400, 'invalid_email', 'Please give an email address we can answer to.');
+  if (!target) fail(400, 'missing_target', 'Please give the link to the item, or its number.');
+  if (details.length < 20) fail(400, 'missing_details', 'Please say what is yours and where it is used, in a sentence or two.');
+  const ip = requestContext.getStore()?.ip ?? 'unknown';
+  const day = Date.now() - 86_400_000;
+  const sent = (takedownSent.get(ip) ?? []).filter((t) => t > day);
+  if (sent.length >= 10) fail(429, 'too_many', 'You have sent several notices today. Write to Saligue support instead.');
+  takedownSent.set(ip, [...sent, Date.now()]);
+
+  // Where it is: a link like /product?id=… , a /product/… link, or the item number on its own.
+  const id = target.match(/[?&]id=([\w-]{6,})/)?.[1] ?? target.match(/\/(?:product|learn)\/([\w-]{6,})/)?.[1] ?? (/^[\w-]{6,}$/.test(target) ? target : null);
+  const product = id ? db.prepare('select id, name, seller_id, hidden from products where id = ?').get(id) : null;
+  const lesson = !product && id ? db.prepare('select id, title, user_id, hidden from lessons where id = ?').get(id) : null;
+  // The two statements the sender ticked: the notice is accurate, and it is made in good faith.
+  const sworn = body.goodFaith === true && body.accuracy === true;
+  const hiddenToday = (takedownHidden.get(ip) ?? []).filter((t) => t > day);
+  const hide = sworn && !!product && !product.hidden && hiddenToday.length < 3;
+
+  const noticeId = randomUUID();
+  transaction(() => {
+    db.prepare(`insert into takedowns (id, kind, target_id, url, rights, claimant_name, claimant_email, details, status, hidden, created_at)
+      values (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`)
+      .run(noticeId, product ? 'item' : lesson ? 'lesson' : 'other', product?.id ?? lesson?.id ?? null, target, rights, name, email, details, hide ? 1 : 0, now());
+    if (hide) db.prepare('update products set hidden = 1 where id = ?').run(product.id);
+  });
+  if (hide) {
+    takedownHidden.set(ip, [...hiddenToday, Date.now()]);
+    broadcast('products');
+    notify(product.seller_id, {
+      type: 'product',
+      title: `"${product.name}" is hidden after a notice`,
+      body: `Someone says this item uses their ${TAKEDOWN_RIGHTS[rights]}. INDECIANA will look at it and answer them. If the item is yours to sell, reply in Help & Support with anything that shows it.`,
+      link: '/dashboard/products',
+    });
+  }
+  for (const { id: officialId } of db.prepare('select id from users where official = 1').all()) {
+    notify(officialId, { type: 'account', title: `Takedown notice from ${name}`, body: `${TAKEDOWN_RIGHTS[rights]}: ${target.slice(0, 120)}${hide ? ' (item hidden)' : ''}. Open Me → Admin → Notices.`, link: '/admin', email: true });
+  }
+  sendEmail(email, {
+    subject: `Saligue received your notice (${noticeId.slice(0, 8).toUpperCase()})`,
+    lines: [
+      `Dear ${name},`,
+      hide
+        ? 'The item you named is now hidden from shoppers while INDECIANA checks your notice. We answer within a few working days.'
+        : 'INDECIANA will read your notice within a few working days and answer at this address.',
+      'If we need proof that the work is yours, or the shop’s answer, we will reply to this email.',
+    ],
+  });
+  return { ok: true, reference: noticeId.slice(0, 8).toUpperCase(), hidden: !!hide, item: product?.name ?? null };
+});
+
+route('GET', '/api/admin/takedowns', ({ user }) => {
+  if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review notices.');
+  return db.prepare("select * from takedowns order by (status = 'open') desc, created_at desc limit 200").all().map((t) => ({
+    id: t.id, kind: t.kind, targetId: t.target_id, url: t.url, rights: t.rights, rightsLabel: TAKEDOWN_RIGHTS[t.rights] ?? t.rights,
+    name: t.claimant_name, email: t.claimant_email, details: t.details, status: t.status, hidden: !!t.hidden,
+    note: t.note, createdAt: t.created_at, decidedAt: t.decided_at,
+  }));
+});
+
+route('POST', '/api/admin/takedowns/([\\w-]+)', ({ user, params, body }) => {
+  if (!user?.official && !can(user, 'moderation')) fail(403, 'forbidden', 'Only INDECIANA and moderators can review notices.');
+  const notice = db.prepare('select * from takedowns where id = ?').get(params[0]);
+  if (!notice) fail(404, 'not_found', 'This notice does not exist.');
+  const decision = ['keep_hidden', 'restore', 'remove'].includes(body.decision) ? body.decision : null;
+  if (!decision) fail(400, 'invalid_decision', 'Choose keep_hidden, restore or remove.');
+  const note = String(body.note ?? '').trim().slice(0, 1000);
+  const product = notice.target_id ? db.prepare('select id, name, seller_id from products where id = ?').get(notice.target_id) : null;
+  transaction(() => {
+    if (decision === 'restore' && product) db.prepare('update products set hidden = 0 where id = ?').run(product.id);
+    if (decision === 'remove' && product) db.prepare('delete from products where id = ?').run(product.id);
+    db.prepare('update takedowns set status = ?, note = ?, decided_by = ?, decided_at = ? where id = ?')
+      .run(decision === 'restore' ? 'rejected' : 'actioned', note, user.id, now(), notice.id);
+    // The shop's answer, when the item stays out of sight or goes for good.
+    if (product && decision !== 'restore') {
+      notify(product.seller_id, {
+        type: 'product',
+        title: decision === 'remove' ? `"${product.name}" was removed after a notice` : `"${product.name}" stays hidden`,
+        body: note || 'INDECIANA looked at the notice and the item stays hidden. You can use another photo or design and list again.',
+        link: '/dashboard/products',
+      });
+    }
+    if (product) broadcast('products');
+  });
+  logAdmin(user, `takedown ${decision}`, `${notice.id}: ${notice.rights} by ${notice.claimant_email}`);
+  sendEmail(notice.claimant_email, {
+    subject: `Saligue answered your notice (${notice.id.slice(0, 8).toUpperCase()})`,
+    lines: [
+      `Dear ${notice.claimant_name},`,
+      decision === 'restore'
+        ? 'Thank you for your notice. INDECIANA looked at it and the item stays on Saligue.'
+        : decision === 'remove'
+          ? 'Thank you for your notice. INDECIANA looked at it and the item has been removed from Saligue.'
+          : 'Thank you for your notice. INDECIANA looked at it and the item stays hidden from shoppers.',
+      note ? `Note from Saligue: ${note}` : '',
+      decision === 'restore' ? 'If you disagree, reply to this email with proof that the work is yours and we will look again.' : '',
+    ].filter(Boolean),
+  });
   return { ok: true };
 });
 

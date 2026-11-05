@@ -138,7 +138,7 @@ export function RulesAdmin() {
   );
 }
 
-const POLICY_NAMES: Record<PolicyKey, string> = { monetization: 'Monetization Policy', ads: 'Ads Policy', verification: 'Verification Policy', terms: 'Terms of Service', privacy: 'Privacy Policy', cookies: 'Cookie Policy' };
+const POLICY_NAMES: Record<PolicyKey, string> = { monetization: 'Monetization Policy', ads: 'Ads Policy', verification: 'Verification Policy', terms: 'Terms of Service', privacy: 'Privacy Policy', cookies: 'Cookie Policy', takedown: 'Notice and Takedown Policy' };
 type Draft = { intro: string; sections: { heading: string; text: string }[] };
 const toDraft = (p: Partial<Policy>, base: Policy): Draft => ({ intro: p.intro ?? base.intro, sections: (p.sections ?? base.sections).map((s) => ({ heading: s.heading, text: s.paragraphs.join('\n\n') })) });
 

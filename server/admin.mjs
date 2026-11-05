@@ -61,6 +61,33 @@ if (command === 'official' || command === 'unofficial') {
 } else if (command === 'reports') {
   console.table(db.prepare(`select p.id, p.name, p.seller, p.hidden, count(r.user_id) as reports, group_concat(distinct r.reason) as reasons
     from reports r join products p on p.id = r.product_id group by p.id order by p.hidden desc, reports desc`).all());
+} else if (command === 'takedowns') {
+  // Notices sent from /takedown. Open ones first; `hidden` 1 means the notice took the item out of sight.
+  console.table(db.prepare(`select t.id, t.created_at as sent, t.status, t.rights, t.claimant_name as sender, t.claimant_email as email,
+      coalesce(p.name, t.url) as about, t.hidden
+    from takedowns t left join products p on p.id = t.target_id
+    order by (t.status = 'open') desc, t.created_at desc limit 50`).all());
+  console.log('Decide with: node server/admin.mjs takedown <notice id> restore | keep | remove');
+} else if (command === 'takedown') {
+  // Here the second argument is a notice id, the third is restore (the notice was wrong), keep (it stays hidden)
+  // or remove (delete the item).
+  const decision = process.argv[4];
+  const notice = db.prepare('select * from takedowns where id = ?').get(String(email ?? ''));
+  if (!notice) {
+    console.error('No notice with this id. See them with: node server/admin.mjs takedowns');
+    process.exit(1);
+  }
+  if (!['restore', 'keep', 'remove'].includes(decision ?? '')) {
+    console.error('Usage: node server/admin.mjs takedown <notice id> restore | keep | remove');
+    process.exit(1);
+  }
+  const product = notice.target_id ? db.prepare('select id, name from products where id = ?').get(notice.target_id) : null;
+  if (decision === 'restore' && product) db.prepare('update products set hidden = 0 where id = ?').run(product.id);
+  if (decision === 'remove' && product) db.prepare('delete from products where id = ?').run(product.id);
+  db.prepare('update takedowns set status = ?, decided_at = ? where id = ?')
+    .run(decision === 'restore' ? 'rejected' : 'actioned', new Date().toISOString(), notice.id);
+  console.log(`${product ? `"${product.name}"` : notice.url} → ${decision === 'restore' ? 'visible again' : decision === 'remove' ? 'removed' : 'stays hidden'}.`);
+  console.log(`Answer the sender at ${notice.claimant_email} (the notice is kept in the takedowns table).`);
 } else if (command === 'remove') {
   // Here the second argument is a product id.
   const product = db.prepare('select id, name, embedding from products where id = ?').get(String(email ?? ''));
@@ -132,5 +159,5 @@ if (command === 'official' || command === 'unofficial') {
   sendEmail(String(email ?? ''), { subject: 'Saligue test email', lines: ['If you can read this, Saligue can send emails.'] });
   setTimeout(() => process.exit(0), 8000);
 } else {
-  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | show <product id> | remove <product id> | payments <key> <hash> [currency] [rate] | payments off | testmail <email>');
+  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | takedowns | takedown <notice id> restore|keep|remove | show <product id> | remove <product id> | payments <key> <hash> [currency] [rate] | payments off | testmail <email>');
 }

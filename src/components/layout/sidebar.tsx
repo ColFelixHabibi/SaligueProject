@@ -131,7 +131,8 @@ export default function Sidebar() {
           <Link href="/policies" className="hover:text-foreground hover:underline">Policies</Link> ·{' '}
           <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link> ·{' '}
           <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link> ·{' '}
-          <Link href="/cookies" className="hover:text-foreground hover:underline">Cookies</Link>
+          <Link href="/cookies" className="hover:text-foreground hover:underline">Cookies</Link> ·{' '}
+          <Link href="/takedown" className="hover:text-foreground hover:underline">Takedown</Link>
         </p>
       </div>
 

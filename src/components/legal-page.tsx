@@ -34,7 +34,8 @@ export function LegalPage({ policy }: { policy: PolicyKey }) {
       <p className="mt-10 border-t pt-6 text-sm text-muted-foreground">
         Questions? Write to us from <Link href="/my-account/support" className="text-primary hover:underline">Help &amp; Support</Link>.
         See also the <Link href="/terms" className="text-primary hover:underline">Terms of Service</Link> and the{' '}
-        <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
+        <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>. If an item uses a
+        photo, brand or design of yours, <Link href="/takedown" className="text-primary hover:underline">send us a notice</Link>.
       </p>
     </article>
   );
