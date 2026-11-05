@@ -7,7 +7,9 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 // How many workers one build may run at once. Saligue is compiled on the same small machine that serves it,
 // and a build that uses every core asks for more RAM than that machine has — the kernel then kills it
 // mid-compile ("Killed", exit 137). Set SALIGUE_BUILD_CPUS=1 on a tight box; leave it unset and the build
-// uses every core, exactly as before.
+// uses every core, exactly as before. A box that builds its own site should also have swap (4 GB on the
+// 8 GB Hetzner machine), so a build that runs out of memory is slowed down instead of being killed — and
+// so the kernel never has to choose between the build and the site it is serving.
 const buildCpus = Math.max(1, Math.min(16, Math.round(Number(process.env.SALIGUE_BUILD_CPUS) || 0)));
 
 const nextConfig: NextConfig = {

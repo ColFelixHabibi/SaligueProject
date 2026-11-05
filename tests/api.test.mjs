@@ -81,8 +81,12 @@ before(async () => {
   }
   throw new Error('The test server did not start.');
 });
+// The server is stopped even when a run is cut short (Ctrl-C, a killed terminal): otherwise it is left running
+// on its own port, holding a few hundred megabytes.
+const stop = () => server?.kill();
+process.on('exit', stop);
 after(() => {
-  server?.kill();
+  stop();
   deepseek.close();
   rmSync(data, { recursive: true, force: true });
 });
