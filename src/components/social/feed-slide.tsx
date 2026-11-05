@@ -232,11 +232,20 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
 
       {commentsOpen && (
         <div className="flex min-h-0 flex-1 flex-col bg-background p-4 text-foreground">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="font-semibold">{product.name}</p>
-            <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70" onClick={() => setCommentsOpen(false)} aria-label="Close" title="Close">
-              <X className="h-5 w-5" />
-            </button>
+          {/* Name, price and Add to cart stay on screen: opening the comments used to take the buy button away. */}
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-semibold">{product.name}</p>
+              <p className="text-lg font-extrabold leading-tight text-primary">{formatPrice(Number(product.price))}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button size="icon" className="h-9 w-9 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>
+                <ShoppingCart className="h-4 w-4" />
+              </Button>
+              <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70" onClick={() => setCommentsOpen(false)} aria-label="Close" title="Close">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
           <CommentsPanel productId={product.id} sellerId={product.sellerId} className="min-h-0 flex-1" />
         </div>

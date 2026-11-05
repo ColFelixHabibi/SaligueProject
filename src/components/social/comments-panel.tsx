@@ -96,7 +96,9 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
               {/* Deep replies (no more indent) say whom they answer. */}
               <p className="break-words">{depth > 3 && parent && <span className="mr-1 font-semibold text-primary">@{parent.username ?? parent.name}</span>}<RichText text={comment.text} /></p>
               <span className="mt-0.5 flex items-center gap-3">
-                <button type="button" onClick={() => setReplyTo(comment)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">Reply</button>
+                <button type="button" onClick={() => setReplyTo(comment)} aria-label={`Reply to ${comment.name}`} title="Reply" className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  <CornerDownRight className="h-3.5 w-3.5" /> Reply
+                </button>
                 <ReportComment kind="item" id={comment.id} authorId={comment.uid} />
               </span>
             </div>
