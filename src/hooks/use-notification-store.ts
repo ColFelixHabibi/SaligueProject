@@ -22,6 +22,10 @@ interface NotificationState {
   notifications: Notification[];
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
+  /** Removes one notification (only this account's copy). */
+  remove: (id: string) => void;
+  /** Empties the list. */
+  clearAll: () => void;
 }
 
 export const useNotificationStore = create<NotificationState>()((set, get) => ({
@@ -34,6 +38,17 @@ export const useNotificationStore = create<NotificationState>()((set, get) => ({
   markAllAsRead: () => {
     set({ notifications: get().notifications.map((n) => ({ ...n, read: true })) });
     api('/me/notifications/read', { body: {} }).catch(() => {});
+  },
+  // Gone from the list straight away; if the server refuses, the list comes back as it was.
+  remove: (id) => {
+    const before = get().notifications;
+    set({ notifications: before.filter((n) => n.id !== id) });
+    api(`/me/notifications/${id}`, { method: 'DELETE' }).catch(() => set({ notifications: before }));
+  },
+  clearAll: () => {
+    const before = get().notifications;
+    set({ notifications: [] });
+    api('/me/notifications', { method: 'DELETE' }).catch(() => set({ notifications: before }));
   },
 }));
 

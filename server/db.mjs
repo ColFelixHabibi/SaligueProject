@@ -808,6 +808,9 @@ for (const [table, column, type] of [
   // Chats: 'shop' (a shopper and a shop) or 'direct' (two people in each other's Clients or Network);
   // a photo, video or voice note on a message (JSON, files in data/chat/), and messages taken back (unsent).
   ['conversations', 'kind', "text not null default 'shop'"], ['messages', 'attachment', 'text'], ['messages', 'deleted_at', 'text'],
+  // Clearing a chat empties it for the person who did it, not for the other side: their messages before this time
+  // are hidden from the clearer's view, and the chat leaves their list until something new arrives.
+  ['conversations', 'buyer_cleared_at', 'text'], ['conversations', 'seller_cleared_at', 'text'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);

@@ -45,6 +45,15 @@ export async function startConversation(about: { productId?: string; orderId?: s
   return id;
 }
 
+/**
+ * Clears a chat for this account: its messages leave the list and the thread, and it stays out of the inbox
+ * until the other person writes again. Their side is untouched.
+ */
+export async function clearConversation(id: string) {
+  await api(`/conversations/${id}`, { method: 'DELETE' });
+  useInbox.setState((s) => ({ conversations: s.conversations.filter((c) => c.id !== id) }));
+}
+
 /** One conversation's messages, live, marked as read while it is open. */
 export function useConversation(id: string | null) {
   const [state, setState] = useState<{ conversation: Conversation; messages: Message[]; otherReadAt: string | null } | null>(null);

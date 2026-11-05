@@ -25,10 +25,28 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 // again whenever they change), so the top bar and bottom bar always clear the phone's own bars.
 const KEEP_SAFE_AREA = `(function(){try{var s=document.createElement('style');s.id='saligue-safe-area';document.head.appendChild(s);var r=document.documentElement;function copy(){var t=r.style.getPropertyValue('--safe-area-inset-top'),b=r.style.getPropertyValue('--safe-area-inset-bottom');if(t||b)s.textContent=':root{--cap-sat:'+(t||'0px')+';--cap-sab:'+(b||'0px')+'}'}new MutationObserver(copy).observe(r,{attributes:true,attributeFilter:['style']});copy()}catch(e){}})();`;
 
+const DESCRIPTION = 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.';
+
 export const metadata: Metadata = {
   title: 'Saligue by INDECIANA',
-  description: 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.',
+  description: DESCRIPTION,
   manifest: `${basePath}/manifest.webmanifest`,
+  // A link shared into WhatsApp, Facebook, X or Telegram shows a card. Item, look, #tag, live, shop and lesson links
+  // get their own card with their own picture from the server (server/index.mjs sharePreview); this is the one
+  // everything else falls back to, so a shared page never arrives as a bare link.
+  openGraph: {
+    type: 'website',
+    siteName: 'Saligue',
+    title: 'Saligue by INDECIANA',
+    description: DESCRIPTION,
+    images: [{ url: `${basePath}/icons/icon-512.png`, alt: 'Saligue by INDECIANA' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Saligue by INDECIANA',
+    description: DESCRIPTION,
+    images: [`${basePath}/icons/icon-512.png`],
+  },
   icons: {
     icon: `${basePath}/icons/icon-192.png`,
     apple: `${basePath}/icons/apple-touch-icon.png`,

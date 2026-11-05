@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowLeft, BadgeCheck, CheckCheck, Loader2, MessageCircle, Package, Search, Send, Store } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, CheckCheck, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { ask } from '@/components/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,7 +17,7 @@ import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
-import { useConversation, useInbox } from '@/lib/messages';
+import { clearConversation, useConversation, useInbox } from '@/lib/messages';
 import { formatPrice, shortOrderId } from '@/lib/orders';
 import type { Conversation, Message } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -37,38 +38,47 @@ function dayLabel(iso: string) {
   return format(d, 'EEEE d MMMM yyyy');
 }
 
-function ConversationRow({ c, active, onOpen }: { c: Conversation; active: boolean; onOpen: () => void }) {
+function ConversationRow({ c, active, onOpen, onClear }: { c: Conversation; active: boolean; onOpen: () => void; onClear: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-muted', active && 'bg-primary/10 hover:bg-primary/10')}
-    >
-      <Avatar className="h-11 w-11 shrink-0">
-        <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
-        <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
-          {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
-        </AvatarFallback>
-      </Avatar>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className={cn('flex min-w-0 items-center gap-1 truncate', c.unread ? 'font-bold' : 'font-semibold')}>
-            <span className="truncate">{c.other.name}</span>
-            {c.other.official && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" />}
+    // The bin sits beside the row, not inside it: a button inside a button is not valid and swallows the tap.
+    <div className={cn('group flex items-center rounded-xl transition-colors hover:bg-muted', active && 'bg-primary/10 hover:bg-primary/10')}>
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-3 text-left">
+        <Avatar className="h-11 w-11 shrink-0">
+          <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
+          <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
+            {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-2">
+            <span className={cn('flex min-w-0 items-center gap-1 truncate', c.unread ? 'font-bold' : 'font-semibold')}>
+              <span className="truncate">{c.other.name}</span>
+              {c.other.official && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" />}
+            </span>
+            {c.lastMessage && <span className={cn('shrink-0 text-xs', c.unread ? 'font-semibold text-primary' : 'text-muted-foreground')}>{when(c.lastMessage.createdAt)}</span>}
           </span>
-          {c.lastMessage && <span className={cn('shrink-0 text-xs', c.unread ? 'font-semibold text-primary' : 'text-muted-foreground')}>{when(c.lastMessage.createdAt)}</span>}
-        </span>
-        <span className="flex items-center justify-between gap-2">
-          <span className={cn('truncate text-sm', c.unread ? 'text-foreground' : 'text-muted-foreground')}>
-            {c.lastMessage ? `${c.lastMessage.fromMe ? 'You: ' : ''}${c.lastMessage.text}` : 'No messages yet'}
+          <span className="flex items-center justify-between gap-2">
+            <span className={cn('truncate text-sm', c.unread ? 'text-foreground' : 'text-muted-foreground')}>
+              {c.lastMessage ? `${c.lastMessage.fromMe ? 'You: ' : ''}${c.lastMessage.text}` : 'No messages yet'}
+            </span>
+            {c.unread > 0 && (
+              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{c.unread}</span>
+            )}
           </span>
-          {c.unread > 0 && (
-            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{c.unread}</span>
-          )}
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{c.role === 'buyer' ? 'Shop' : 'Customer'}</span>
         </span>
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{c.role === 'buyer' ? 'Shop' : 'Customer'}</span>
-      </span>
-    </button>
+      </button>
+      {/* Clears this chat for this account only. Always shown on a phone, on hover on a computer. */}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Clear chat with ${c.other.name}`}
+        title="Clear chat"
+        className="mr-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
@@ -87,7 +97,7 @@ function ItemCard({ productId }: { productId: string }) {
   );
 }
 
-function Thread({ id, onBack }: { id: string; onBack: () => void }) {
+function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onClear: () => void }) {
   const { authUid } = useAuth();
   const { toast } = useToast();
   const { data, error, send } = useConversation(id);
@@ -137,10 +147,19 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
             {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1 truncate font-semibold">{c.other.name}{c.other.official && <BadgeCheck className="h-4 w-4 text-primary" />}</p>
           <p className="text-xs text-muted-foreground">{c.role === 'buyer' ? 'Shop · usually replies in Saligue and by email' : c.other.isGuest ? 'Customer (guest, sees replies in the app)' : 'Customer'}</p>
         </div>
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label="Clear this chat"
+          title="Clear chat"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-muted/30 px-3 py-4">
@@ -208,6 +227,7 @@ function Thread({ id, onBack }: { id: string; onBack: () => void }) {
  */
 export function Inbox({ base = '/messages', embedded = false }: { base?: string; embedded?: boolean }) {
   const { role } = useAuth();
+  const { toast } = useToast();
   const router = useRouter();
   const params = useSearchParams();
   const openId = params.get('c');
@@ -218,6 +238,24 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
     [conversations, query]
   );
   const open = (id: string | null) => router.replace(id ? `${base}?c=${id}` : base, { scroll: false });
+
+  // Clearing asks first: it is one tap away by accident and there is no undo in the app.
+  const clear = async (c: Conversation) => {
+    const answer = await ask({
+      title: `Clear the chat with ${c.other.name}?`,
+      description: 'It leaves your list and its messages stop showing here. The other person keeps their copy and is not told, and an order or a payment is never affected.',
+      confirm: 'Delete',
+      destructive: true,
+    });
+    if (!answer) return;
+    try {
+      await clearConversation(c.id);
+      if (openId === c.id) open(null);
+      toast({ title: 'Chat cleared' });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Could not clear this chat', description: friendlyError(e) });
+    }
+  };
 
   const none = isInitialized && conversations.length === 0 && !openId;
   return (
@@ -230,8 +268,19 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
           <div className={cn('space-y-3 border-b p-4', none && embedded && 'hidden md:block')}>
             <h1 className={cn('text-2xl font-extrabold tracking-tight', embedded && 'hidden md:block')}>Messages</h1>
             <div className={cn('relative', none && 'hidden')}>
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations" className="rounded-full pl-9" />
+              <Search className="pointer-events-none absolute inset-y-0 left-3 my-auto h-4 w-4 text-muted-foreground" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations" className={cn('rounded-full pl-9', query && 'pr-10')} />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear the search"
+                  title="Clear"
+                  className="absolute inset-y-0 right-2 my-auto flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -260,13 +309,13 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
                 )}
               </div>
             ) : (
-              shown.map((c) => <ConversationRow key={c.id} c={c} active={c.id === openId} onOpen={() => open(c.id)} />)
+              shown.map((c) => <ConversationRow key={c.id} c={c} active={c.id === openId} onOpen={() => open(c.id)} onClear={() => void clear(c)} />)
             )}
           </div>
         </aside>
         <section className={cn('min-w-0 flex-1 flex-col', openId ? 'flex' : none ? 'hidden' : 'hidden md:flex')}>
           {openId ? (
-            <Thread id={openId} onBack={() => open(null)} />
+            <Thread id={openId} onBack={() => open(null)} onClear={() => { const c = conversations.find((x) => x.id === openId); if (c) void clear(c); }} />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
               <MessageCircle className="h-12 w-12 text-primary" />

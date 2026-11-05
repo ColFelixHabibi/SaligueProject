@@ -6,7 +6,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -334,6 +334,58 @@ describe('catalogue pages', () => {
     assert.equal(one.json.id, all[7].id);
     assert.equal(one.json.embedding, undefined);
     assert.equal((await call('/products/does-not-exist')).status, 404);
+  });
+});
+
+// A link shared into WhatsApp, Facebook, X or Telegram arrives as a card with a picture and a line, not a bare
+// address. The server writes those tags into the page it sends (server/index.mjs sharePreview), so this reads the
+// HTML itself. It needs the built site in out/, which is what the server serves; without it there is nothing to add
+// tags to, so the whole block is skipped rather than failing on a checkout that has never been built.
+const page = async (path) => {
+  const r = await fetch(`${base}${path}`, { headers: { Accept: 'text/html' } });
+  return { status: r.status, html: await r.text() };
+};
+const tagIn = (html, property) => new RegExp(`<meta property="${property}" content="([^"]*)"`).exec(html)?.[1] ?? null;
+const built = existsSync(join(root, 'out', 'index.html'));
+
+describe('links shared into other apps show a card', { skip: built ? false : 'no out/ — run npm run build first' }, () => {
+  test("an item's card carries its name, its price and its photo", async () => {
+    const product = (await call('/products')).json.find((p) => p.image || p.cutout);
+    const { status, html } = await page(`/product?id=${product.id}`);
+    assert.equal(status, 200);
+    const title = tagIn(html, 'og:title');
+    assert.ok(title?.includes(product.name), `${title} should name the item`);
+    assert.ok(/\$\d/.test(title), `${title} should show the price`);
+    const image = tagIn(html, 'og:image');
+    assert.match(image, /^https?:\/\//, `og:image must be a full address other apps can fetch, got ${image}`);
+    assert.equal(tagIn(html, 'og:image:alt'), title);
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+  });
+  test('a look shows its name, whose it is, and its first picture', async () => {
+    const product = (await call('/products')).json.find((p) => p.image || p.cutout);
+    const a = await register('Boarder');
+    const look = await call('/looks', { token: a.token, body: { name: 'Wedding guest' } });
+    await call(`/looks/${look.json.id}/items`, { token: a.token, body: { kind: 'product', id: product.id } });
+    const { html } = await page(`/looks?id=${look.json.id}`);
+    const title = tagIn(html, 'og:title');
+    assert.match(title, /Wedding guest · a look by /);
+    assert.match(tagIn(html, 'og:image'), /^https?:\/\//);
+  });
+  test('a #hashtag shows how many items carry it', async () => {
+    const product = (await call('/products')).json.find((p) => p.image || p.cutout);
+    const shop = await sampleShop(product.id);
+    const tag = `saliguetest${Math.random().toString(36).slice(2, 7)}`;
+    const patched = await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { description: `Summer jacket #${tag}` } });
+    assert.equal(patched.status, 200, JSON.stringify(patched.json));
+    const { html } = await page(`/tag?t=${tag}`);
+    assert.equal(tagIn(html, 'og:title'), `#${tag} · 1 item on Saligue`);
+    assert.match(tagIn(html, 'og:image'), /^https?:\/\//);
+  });
+  test('a page with nothing behind it gets no made-up card', async () => {
+    const { html } = await page('/product?id=does-not-exist');
+    // The site-wide card from src/app/layout.tsx is allowed to answer; inventing an item is not.
+    assert.equal(tagIn(html, 'og:title'), 'Saligue by INDECIANA');
+    assert.equal(tagIn(html, 'og:image:alt'), null);
   });
 });
 
@@ -942,6 +994,60 @@ describe('clients, network and chat', () => {
     const thread = (await call(`/conversations/${c}`, { token: b.token })).json.messages;
     assert.equal(thread.find((m) => m.id === photo.json.id).deleted, true);
     assert.equal((await fetch(`${base}${photo.json.attachment.url}`)).status, 404);
+  });
+
+  // Clearing is per account: your copy goes, the other person keeps theirs, and a new message brings the chat back.
+  test('clearing a chat empties only your side, and a new message brings it back', async () => {
+    const a = await register('Clear One');
+    const b = await register('Clear Two');
+    await call(`/follow/${a.id}`, { token: b.token, body: {} });
+    const c = (await call('/conversations', { token: b.token, body: { userId: a.id, text: 'Hello' } })).json.id;
+    await call(`/conversations/${c}/messages`, { token: a.token, body: { text: 'Hello back' } });
+    assert.ok((await call('/conversations', { token: a.token })).json.some((x) => x.id === c));
+    // The first person clears: his list and his thread empty.
+    assert.equal((await call(`/conversations/${c}`, { method: 'DELETE', token: a.token })).status, 200);
+    assert.equal((await call('/conversations', { token: a.token })).json.some((x) => x.id === c), false);
+    assert.equal((await call(`/conversations/${c}`, { token: a.token })).json.messages.length, 0);
+    // The other side still has everything: clearing never deletes the other person's copy.
+    assert.equal((await call(`/conversations/${c}`, { token: b.token })).json.messages.length, 2);
+    assert.ok((await call('/conversations', { token: b.token })).json.some((x) => x.id === c));
+    // Someone outside the chat can't clear it.
+    const outsider = await register('Clear Outsider');
+    assert.equal((await call(`/conversations/${c}`, { method: 'DELETE', token: outsider.token })).status, 404);
+    // A new message brings the chat back, with only what arrived after the clear.
+    await new Promise((r) => setTimeout(r, 5));
+    await call(`/conversations/${c}/messages`, { token: b.token, body: { text: 'Still there?' } });
+    const back = (await call(`/conversations/${c}`, { token: a.token })).json;
+    assert.deepEqual(back.messages.map((m) => m.text), ['Still there?']);
+  });
+});
+
+describe('notifications', () => {
+  test('a notification can be deleted, or all of them, and only this account’s are touched', async () => {
+    const a = await register('Notify Me');
+    const b = await register('Notify Other');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const put = (id, userId, title) => db.prepare('insert into notifications (id, user_id, type, title, body, link, read, created_at) values (?, ?, ?, ?, ?, ?, 0, ?)')
+      .run(id, userId, 'account', title, '', null, new Date().toISOString());
+    put('note-a1', a.id, 'One');
+    put('note-a2', a.id, 'Two');
+    put('note-b1', b.id, 'Other');
+    db.close();
+    // Signed out: an empty list, not an error (the bell has to work on every page).
+    assert.deepEqual((await call('/me/notifications')).json, []);
+    assert.equal((await call('/me/notifications', { token: a.token })).json.length, 2);
+    // Deleting someone else's notification answers the same but leaves it alone.
+    assert.equal((await call('/me/notifications/note-a1', { method: 'DELETE', token: b.token })).status, 200);
+    assert.equal((await call('/me/notifications', { token: a.token })).json.length, 2);
+    assert.deepEqual((await call('/me/notifications', { token: b.token })).json.map((n) => n.id), ['note-b1']);
+    // Your own: gone, and the rest untouched.
+    assert.equal((await call('/me/notifications/note-a1', { method: 'DELETE', token: a.token })).status, 200);
+    assert.deepEqual((await call('/me/notifications', { token: a.token })).json.map((n) => n.id), ['note-a2']);
+    // Clear all: this account only.
+    assert.equal((await call('/me/notifications', { method: 'DELETE', token: a.token })).status, 200);
+    assert.equal((await call('/me/notifications', { token: a.token })).json.length, 0);
+    assert.equal((await call('/me/notifications', { token: b.token })).json.length, 1);
   });
 });
 

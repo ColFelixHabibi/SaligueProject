@@ -707,10 +707,15 @@ route('GET', '/api/products', ({ user, url }) => {
   // and cached, so the catalogue stays quick to load as it grows.
   return rows
     .filter((r) => !r.sample || real < SAMPLES_HIDE_AT || r.seller_id === user?.id)
-    .map((r) => (r.sample ? { ...productOut({ ...r, description: r.description?.replace(/\s*Demo item for trying Saligue\.?/, '') }), sample: true } : productOut(r)))
+    .map((r) => (r.sample ? { ...productOut({ ...r, description: withoutSampleNote(r.description) }), sample: true } : productOut(r)))
     .map(({ embedding, ...p }) => p)
     .slice(...pageOf(url));
 });
+// Sample items carry a sentence that only makes sense inside the app. It is never shown to anyone: not in the list,
+// and not in a link shared into another app either.
+function withoutSampleNote(text) {
+  return String(text ?? '').replace(/\s*Demo item for trying Saligue\.?/, '');
+}
 function pageOf(url) {
   const limit = Number(url.searchParams.get('limit'));
   if (!(limit > 0)) return [0];
@@ -1673,12 +1678,16 @@ const personNameOf = (u) => (u?.is_guest ? 'Guest shopper' : u?.display_name || 
 
 const nameOf = (u) => (u?.role === 'seller' ? shopNameOf(u) : personNameOf(u));
 
+// A chat cleared by this account shows only what arrived after the clear (nothing, until someone writes again).
+const clearedAtOf = (c, me) => (c.buyer_id === me.id ? c.buyer_cleared_at : c.seller_cleared_at) ?? '';
+
 function conversationOut(c, me) {
   const iAmBuyer = c.buyer_id === me.id;
   const other = db.prepare('select id, display_name, email, shop, role, username, is_guest, official, verified, avatar from users where id = ?').get(iAmBuyer ? c.seller_id : c.buyer_id);
   const readAt = (iAmBuyer ? c.buyer_read_at : c.seller_read_at) ?? '';
-  const last = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 1').get(c.id);
-  const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ? and deleted_at is null').get(c.id, me.id, readAt).n;
+  const clearedAt = clearedAtOf(c, me);
+  const last = db.prepare('select * from messages where conversation_id = ? and created_at > ? order by created_at desc limit 1').get(c.id, clearedAt);
+  const unread = db.prepare('select count(*) as n from messages where conversation_id = ? and sender_id != ? and created_at > ? and deleted_at is null').get(c.id, me.id, readAt > clearedAt ? readAt : clearedAt).n;
   const direct = c.kind === 'direct';
   return {
     id: c.id,
@@ -1777,7 +1786,10 @@ function addMessage(user, c, { text, productId = null, orderId = null, attachmen
 route('GET', '/api/conversations', ({ user }) => {
   if (!user) return [];
   return db.prepare('select * from conversations where buyer_id = ? or seller_id = ? order by last_message_at desc limit 200')
-    .all(user.id, user.id).map((c) => conversationOut(c, user));
+    .all(user.id, user.id)
+    // A chat this account cleared stays out of the list until something new is written in it.
+    .filter((c) => c.last_message_at > clearedAtOf(c, user))
+    .map((c) => conversationOut(c, user));
 });
 
 // Starts (or continues) a conversation from an item, an order, or a shop, and sends the first message.
@@ -1842,7 +1854,8 @@ route('POST', '/api/conversations', ({ user, body }) => {
 route('GET', '/api/conversations/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   const c = ownConversation(user, params[0]);
-  const messages = db.prepare('select * from messages where conversation_id = ? order by created_at desc limit 300').all(c.id).reverse().map(messageOut);
+  const messages = db.prepare('select * from messages where conversation_id = ? and created_at > ? order by created_at desc limit 300')
+    .all(c.id, clearedAtOf(c, user)).reverse().map(messageOut);
   // The other side's read time, for "Seen" under the last message.
   const otherReadAt = (c.buyer_id === user.id ? c.seller_read_at : c.buyer_read_at) ?? null;
   return { conversation: conversationOut(c, user), messages, otherReadAt };
@@ -1875,6 +1888,18 @@ route('POST', '/api/conversations/([\\w-]+)/read', ({ user, params }) => {
   const c = ownConversation(user, params[0]);
   db.prepare(`update conversations set ${c.buyer_id === user.id ? 'buyer_read_at' : 'seller_read_at'} = ? where id = ?`).run(now(), c.id);
   sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id, read: true });
+  return { ok: true };
+});
+
+// Clears a chat for the account asking: their view of it is emptied and it leaves their list until a new message
+// arrives. The other person keeps their side, photos and voice notes included, and is not told.
+route('DELETE', '/api/conversations/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  const side = c.buyer_id === user.id ? 'buyer' : 'seller';
+  const time = now();
+  db.prepare(`update conversations set ${side}_cleared_at = ?, ${side}_read_at = ? where id = ?`).run(time, time, c.id);
+  sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
   return { ok: true };
 });
 
@@ -5021,6 +5046,22 @@ route('POST', '/api/me/notifications/read', ({ user, body }) => {
   return { ok: true };
 });
 
+// Removing a notification: one, or all of them. It only deletes the list entry — the email the same event sent
+// stays in the mailbox — so nothing about the order, chat or payout it announced changes.
+route('DELETE', '/api/me/notifications/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  db.prepare('delete from notifications where id = ? and user_id = ?').run(params[0], user.id);
+  broadcast('notifications');
+  return { ok: true };
+});
+
+route('DELETE', '/api/me/notifications', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  db.prepare('delete from notifications where user_id = ?').run(user.id);
+  broadcast('notifications');
+  return { ok: true };
+});
+
 // Support requests
 route('POST', '/api/support', ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
@@ -5314,12 +5355,29 @@ const TYPES = {
   '.onnx': 'application/octet-stream', '.task': 'application/octet-stream',
 };
 
-// Link previews (WhatsApp, Facebook, X, Telegram read these tags): a shared live shows its cover and title,
-// an item its photo and price, a shop or teacher their photo, a lesson its poster. Other pages stay as built.
+// Link previews (WhatsApp, Facebook, X, Telegram read these tags): a shared live shows its cover and title, an item
+// its photo and price, a shop or teacher their photo, a lesson its poster, a look its first picture, a #hashtag the
+// first item carrying it. Other pages stay as built (see the site-wide card in src/app/layout.tsx).
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+// #hashtags, read exactly as the pages read them (src/components/rich-text.tsx), so a shared tag shows the same
+// items the tag page shows.
+const HASHTAG = /(^|[^\p{L}\p{N}_@#&])([#@])([\p{L}\p{N}_]{2,40}(?:\.[\p{L}\p{N}_]+)*)/gu;
+function hashtagsIn(text) {
+  const found = [];
+  for (const m of String(text ?? '').matchAll(HASHTAG)) if (m[2] === '#') found.push(m[3].toLowerCase());
+  return found;
+}
 function sharePreview(pathname, params) {
   const path = pathname.replace(/\/+$/, '');
-  const abs = (media) => (media ? (/^https?:/.test(media) ? media : `${siteUrl()}${media}`) : null);
+  const site = siteUrl().replace(/\/+$/, '');
+  const abs = (media) => {
+    const link = String(media ?? '');
+    if (/^https?:\/\//i.test(link)) return link;
+    // A relative path on this site; anything else (an old data: picture kept in the database, for instance) is not
+    // something WhatsApp or Facebook can fetch, so it is left out rather than advertised as a broken image.
+    if (!link.startsWith('/') || link.startsWith('//')) return null;
+    return `${site}${link}`;
+  };
   try {
     if (path === '/live/watch' && params.get('id')) {
       const l = db.prepare('select l.title, l.description, l.thumbnail, l.status, u.avatar, u.shop, u.display_name, u.email, u.is_guest, u.role from lives l join users u on u.id = l.seller_id where l.id = ?').get(params.get('id'));
@@ -5327,7 +5385,7 @@ function sharePreview(pathname, params) {
     }
     if ((path === '/product' || path === '/indeciana') && (params.get('id') || params.get('item'))) {
       const p = db.prepare("select name, description, price, image, cutout from products where id = ? and status = 'active' and hidden = 0").get(params.get('id') ?? params.get('item'));
-      if (p) return { title: `${p.name} · ${money(p.price)}`, description: p.description || 'See it on you in the Saligue Fitting Room.', image: abs(p.image ?? p.cutout) };
+      if (p) return { title: `${p.name} · ${money(p.price)}`, description: withoutSampleNote(p.description) || 'See it on you in the Saligue Fitting Room.', image: abs(p.image ?? p.cutout) };
     }
     if (path === '/profile' && params.get('id')) {
       const u = db.prepare('select display_name, email, is_guest, role, shop, avatar, bio from users where id = ? and suspended = 0').get(params.get('id'));
@@ -5336,6 +5394,35 @@ function sharePreview(pathname, params) {
     if (path === '/learn' && params.get('lesson')) {
       const l = db.prepare('select title, description, poster from lessons where id = ? and hidden = 0').get(params.get('lesson'));
       if (l) return { title: `${l.title} · a fashion lesson`, description: l.description || 'Learn on Saligue', image: abs(l.poster) };
+    }
+    // A shared look (a board of pieces someone put together): its name, whose it is, and its first picture.
+    if (path === '/looks' && params.get('id')) {
+      const l = db.prepare('select * from looks where id = ?').get(params.get('id'));
+      if (l) {
+        const look = lookOut(l);
+        const pieces = `${look.count} piece${look.count === 1 ? '' : 's'}`;
+        return {
+          title: `${look.name} · a look by ${look.ownerName}`,
+          description: look.count ? `${pieces} on Saligue. See them on you.` : `A look by ${look.ownerName} on Saligue.`,
+          image: abs(look.covers[0]),
+        };
+      }
+    }
+    // A shared #hashtag: how many items carry it, and the first of them as the picture.
+    if (path === '/tag' && params.get('t')) {
+      const tag = String(params.get('t')).toLowerCase().replace(/^#/, '');
+      if (tag) {
+        // instr() rather than like: a tag may contain _ and %, which like() would read as wildcards.
+        const rows = db.prepare("select name, coalesce(description, '') as description, coalesce(cutout, image) as img from products where status = 'active' and hidden = 0 and (instr(lower(name), ?) > 0 or instr(lower(coalesce(description, '')), ?) > 0) limit 200").all(tag, tag);
+        const items = rows.filter((p) => hashtagsIn(`${p.name} ${p.description}`).includes(tag));
+        if (items.length) {
+          return {
+            title: `#${tag} · ${items.length} item${items.length === 1 ? '' : 's'} on Saligue`,
+            description: `Clothes and accessories with #${tag}. See them on you before you buy.`,
+            image: abs(items[0].img),
+          };
+        }
+      }
     }
   } catch (error) {
     console.error('Link preview failed:', error.message);
@@ -5368,10 +5455,15 @@ function serveStatic(req, res, pathname) {
     if (preview) {
       const tags = [
         ['og:title', preview.title], ['og:description', preview.description], ['og:type', 'website'], ['og:site_name', 'Saligue'],
-        ['og:url', `${siteUrl()}${req.url}`], ...(preview.image ? [['og:image', preview.image]] : []),
+        ['og:url', `${siteUrl()}${req.url}`],
+        ...(preview.image ? [['og:image', preview.image], ['og:image:alt', preview.title]] : []),
       ].map(([k, v]) => `<meta property="${k}" content="${escapeHtml(v)}">`).join('')
-        + `<meta name="twitter:card" content="${preview.image ? 'summary_large_image' : 'summary'}"><meta name="twitter:title" content="${escapeHtml(preview.title)}">${preview.image ? `<meta name="twitter:image" content="${escapeHtml(preview.image)}">` : ''}`;
-      const html = readFileSync(file, 'utf8').replace(/<head>/, `<head>${tags}`);
+        + `<meta name="twitter:card" content="${preview.image ? 'summary_large_image' : 'summary'}"><meta name="twitter:title" content="${escapeHtml(preview.title)}"><meta name="twitter:description" content="${escapeHtml(preview.description)}">${preview.image ? `<meta name="twitter:image" content="${escapeHtml(preview.image)}"><meta name="twitter:image:alt" content="${escapeHtml(preview.title)}">` : ''}`;
+      // The built page carries the site-wide card from src/app/layout.tsx. Leaving it in place would send two of
+      // every tag, and other apps disagree about which one wins, so the specific card replaces it outright.
+      const html = readFileSync(file, 'utf8')
+        .replace(/<meta (?:property="og:[^"]*"|name="twitter:[^"]*")[^>]*>/g, '')
+        .replace(/<head>/, `<head>${tags}`);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
       return res.end(html);
     }
