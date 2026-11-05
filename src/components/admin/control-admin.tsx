@@ -138,7 +138,9 @@ export function RulesAdmin() {
   );
 }
 
-const POLICY_NAMES: Record<PolicyKey, string> = { monetization: 'Monetization Policy', ads: 'Ads Policy', verification: 'Verification Policy', terms: 'Terms of Service', privacy: 'Privacy Policy', cookies: 'Cookie Policy', takedown: 'Notice and Takedown Policy' };
+const POLICY_NAMES: Record<PolicyKey, string> = { monetization: 'Monetization Policy', ads: 'Ads Policy', verification: 'Verification Policy', terms: 'Terms of Service', privacy: 'Privacy Policy', cookies: 'Cookie Policy', takedown: 'Notice and Takedown Policy', dataprotection: 'Data Protection' };
+// Where each policy's page lives: most are the plain key, the rest have their own address.
+const POLICY_PATHS: Record<PolicyKey, string> = { monetization: '/monetization-policy', ads: '/ads-policy', verification: '/verification-policy', terms: '/terms', privacy: '/privacy', cookies: '/cookies', takedown: '/takedown-policy', dataprotection: '/data-protection' };
 type Draft = { intro: string; sections: { heading: string; text: string }[] };
 const toDraft = (p: Partial<Policy>, base: Policy): Draft => ({ intro: p.intro ?? base.intro, sections: (p.sections ?? base.sections).map((s) => ({ heading: s.heading, text: s.paragraphs.join('\n\n') })) });
 
@@ -172,7 +174,7 @@ export function PoliciesAdmin() {
         </div>
         {!draft ? <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" /> : (
           <>
-            <p className="text-xs text-muted-foreground">{edited ? 'This policy has been edited by an admin.' : 'This is Saligue’s default text.'} <a className="text-primary underline" href={['monetization', 'ads', 'verification'].includes(key) ? `/${key}-policy` : `/${key}`} target="_blank" rel="noreferrer">Open the page</a></p>
+            <p className="text-xs text-muted-foreground">{edited ? 'This policy has been edited by an admin.' : 'This is Saligue’s default text.'} <a className="text-primary underline" href={POLICY_PATHS[key]} target="_blank" rel="noreferrer">Open the page</a></p>
             <div className="space-y-1.5"><Label>Introduction</Label><Textarea rows={3} value={draft.intro} onChange={(e) => setDraft({ ...draft, intro: e.target.value })} /></div>
             {draft.sections.map((s, i) => (
               <div key={i} className="space-y-2 rounded-xl border p-3">
