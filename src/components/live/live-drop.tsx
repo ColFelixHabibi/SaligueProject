@@ -99,7 +99,14 @@ export function DropsPanel({ drops, busy, onClose, bare }: { drops: LiveDrop[]; 
             )}
           </div>
           {d.claimers.length > 0 && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">Keep it for: <b>{d.claimers.map((c) => c.name).join(', ')}</b></p>
+            // Who the item is kept for: a check beside those who already ordered it, a timer beside those still paying.
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              {d.claimers.map((c, i) => (
+                <span key={i} className="inline-flex items-center gap-0.5 font-semibold text-foreground" title={c.paid ? 'Ordered' : 'Has ten minutes to pay'}>
+                  {c.paid ? <Check className="h-3 w-3 text-primary" /> : <Timer className="h-3 w-3 text-amber-600" />} {c.name}
+                </span>
+              ))}
+            </p>
           )}
         </div>
       ))}

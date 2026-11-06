@@ -255,7 +255,7 @@ function Setup() {
         <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={starting || !title.trim()}>
           {starting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Radio className="mr-2 h-5 w-5" />} Go live now
         </Button>
-        <p className="text-center text-xs text-muted-foreground">Your browser asks to use the camera and microphone — tap Allow. Your followers, past customers and everyone who asked to be reminded get a notification that you are live.</p>
+        <p className="text-center text-xs text-muted-foreground">Your browser asks to use the camera and microphone — tap Allow. Your clients (people who follow you), past customers and everyone who asked to be reminded get a notification that you are live.</p>
       </form>
       <PlanLive />
       <ComingUp seller={authUid ?? undefined} />

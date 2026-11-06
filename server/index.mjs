@@ -1458,15 +1458,16 @@ route('POST', '/api/orders', ({ user, body }) => {
       return { id, sellerId, group };
     });
   });
-  // A live drop the buyer just paid for gives its place back at once: a claim holds a place in the queue, not
-  // the stock (the order above already took the stock), so the host should see who is still waiting.
+  // A live drop the buyer just ordered keeps its place, marked paid: the host offered so many places, and a place
+  // that was bought is gone (it used to go back into the queue, so a one-place drop never showed "All claimed").
+  // Stock is still the order's business: the order above already took it.
   const paidDrops = [];
   transaction(() => {
     for (const line of lines) {
       const held = db.prepare(`select c.id, c.drop_id, d.live_id from live_claims c join live_drops d on d.id = c.drop_id
         where c.user_id = ? and c.status = 'held' and d.product_id = ?`).all(user.id, String(line.productId));
       for (const claim of held) {
-        db.prepare("update live_claims set status = 'released' where id = ?").run(claim.id);
+        db.prepare("update live_claims set status = 'paid' where id = ?").run(claim.id);
         paidDrops.push(claim);
       }
     }
@@ -2364,6 +2365,8 @@ function dropOut(drop, viewer) {
   const product = db.prepare('select * from products where id = ?').get(drop.product_id);
   const claims = db.prepare('select id, user_id, name, status, expires_at from live_claims where drop_id = ? order by created_at').all(drop.id);
   const held = claims.filter((c) => c.status === 'held');
+  // Places taken: still waiting to pay, or already bought. Only a released place goes back into the drop.
+  const taken = claims.filter((c) => c.status === 'held' || c.status === 'paid');
   const mine = viewer ? claims.find((c) => c.user_id === viewer.id && c.status === 'held') ?? null : null;
   // A live deal lowers the price; whatever is shown here is what checkout charges.
   const onSale = !!product && product.status === 'active' && !product.hidden && (product.stock == null || product.stock > 0);
@@ -2375,11 +2378,11 @@ function dropOut(drop, viewer) {
     price: product ? priceOf(product) : 0,
     was: product?.price ?? 0,
     slots: drop.slots,
-    claimed: held.length,
+    claimed: taken.length,
     // No places left, or the item cannot be sold any more: the claim button says so instead of failing later.
-    open: drop.status === 'open' && onSale && held.length < drop.slots,
+    open: drop.status === 'open' && onSale && taken.length < drop.slots,
     mine: mine ? { claimId: mine.id, expiresAt: mine.expires_at } : null,
-    claimers: held.map((c) => ({ name: c.name })).slice(0, 20),
+    claimers: taken.map((c) => ({ name: c.name, paid: c.status === 'paid' })).slice(0, 20),
     at: drop.created_at,
   };
 }
@@ -2423,7 +2426,7 @@ route('POST', '/api/lives/([\\w-]+)/drops/([\\w-]+)/claim', ({ user, params }) =
   const claim = transaction(() => {
     releaseLateClaims(drop.id);
     if (db.prepare("select 1 from live_claims where drop_id = ? and user_id = ? and status = 'held'").get(drop.id, user.id)) fail(409, 'already_claimed', 'You already have a place: pay for it from your bag.');
-    if (db.prepare("select count(*) as n from live_claims where drop_id = ? and status = 'held'").get(drop.id).n >= drop.slots) fail(409, 'all_claimed', 'Someone was faster. Places come free again after ten minutes — stay close.');
+    if (db.prepare("select count(*) as n from live_claims where drop_id = ? and status in ('held', 'paid')").get(drop.id).n >= drop.slots) fail(409, 'all_claimed', 'Someone was faster. Places come free again after ten minutes — stay close.');
     const row = { id: randomUUID(), drop_id: drop.id, user_id: user.id, name, status: 'held', created_at: now(), expires_at: new Date(Date.now() + CLAIM_MINUTES * 60_000).toISOString() };
     db.prepare('insert into live_claims (id, drop_id, user_id, name, status, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)')
       .run(row.id, row.drop_id, row.user_id, row.name, row.status, row.created_at, row.expires_at);

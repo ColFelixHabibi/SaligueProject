@@ -301,7 +301,7 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
 
 // Older log lines kept the raw settings ({"followers":10000,…}): shown as short words instead.
 const LOG_LABEL: Record<string, string> = {
-  followers: 'Followers', views90: 'Views 90 days', accountDays: 'Account days', creatorShare: 'Creator share', cpm: 'Ad price /1000', minBudget: 'Min. ad budget',
+  followers: 'Clients needed', views90: 'Views 90 days', accountDays: 'Account days', creatorShare: 'Creator share', cpm: 'Ad price /1000', minBudget: 'Min. ad budget',
   tipShare: 'Tip share', tipAmounts: 'Tips', verificationPrice: 'Verification', saleFee: 'Sale fee', freeDays: 'Free days', shareRate: 'Share reward', shareDays: 'Share days', shareCap: 'Share cap',
 };
 const SHARES = new Set(['creatorShare', 'tipShare', 'saleFee', 'shareRate']);

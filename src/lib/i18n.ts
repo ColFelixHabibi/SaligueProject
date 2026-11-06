@@ -198,6 +198,7 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Who can comment': ['Ushobora gutanga igitekerezo', 'Qui peut commenter'],
   'Everyone': ['Bose', 'Tout le monde'],
   'People who follow me': ['Abankurikira', 'Mes abonnés'],
+  'My clients (people who follow me)': ['Abakiriya banjye (abankurikira)', 'Mes clients (mes abonnés)'],
   'Nobody (comments off)': ['Ntawe (ibitekerezo bifunze)', 'Personne (commentaires fermés)'],
   'Hidden words': ['Amagambo ahishwa', 'Mots masqués'],
   'Words separated by commas': ['Amagambo atandukanyijwe n’akitso', 'Mots séparés par des virgules'],

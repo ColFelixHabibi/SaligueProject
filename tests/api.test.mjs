@@ -572,9 +572,14 @@ describe('profiles, lives and the admin log', () => {
     const second = await call(`${dropAt}/${drop.json.id}/claim`, { token: b.token, body: {} });
     assert.equal(second.status, 200, JSON.stringify(second.json));
 
-    // Paying for it from the bag gives the place back at once: the host sees who is still waiting.
+    // Paying for it from the bag keeps the place, marked paid: a bought place is gone, so a one-place drop is all claimed.
     assert.equal((await call('/orders', { token: b.token, body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery: { fullName: 'Live Shopper', phone: '0780000011', city: 'Kigali', street: 'KN 11 Ave' } } })).status, 200);
-    assert.equal((await call(`/lives/${live.id}`, { token: shop.token })).json.drops[0].claimed, 0);
+    const sold = (await call(`/lives/${live.id}`, { token: shop.token })).json.drops[0];
+    assert.equal(sold.claimed, 1);
+    assert.equal(sold.open, false, 'the only place was bought');
+    assert.deepEqual(sold.claimers, [{ name: 'Slow Shopper', paid: true }]);
+    assert.equal((await call(`/lives/${live.id}`, { token: b.token })).json.drops[0].mine, null, 'a paid place is no longer waiting on me');
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { token: a.token, body: {} })).json.error.code, 'all_claimed');
 
     // The host moves on: the drop closes, so the place can no longer be claimed.
     assert.equal((await call(`${dropAt}/${drop.json.id}`, { method: 'DELETE', token: shop.token })).status, 200);

@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 
 const MODES = [
   { value: 'everyone', label: 'Everyone' },
-  { value: 'followers', label: 'People who follow me' },
+  { value: 'followers', label: 'My clients (people who follow me)' },
   { value: 'off', label: 'Nobody (comments off)' },
 ] as const;
 

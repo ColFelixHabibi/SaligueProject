@@ -301,7 +301,7 @@ db.exec(`
   );
   create index if not exists live_drops_live on live_drops(live_id, created_at desc);
 
-  -- One place in a drop. 'held' until the shopper pays or their ten minutes run out, then freed for someone else.
+  -- One place in a drop. 'held' for ten minutes; 'paid' once ordered (the place stays taken); 'released' when given back or late, freeing it.
   create table if not exists live_claims (
     id text primary key,
     drop_id text not null references live_drops(id) on delete cascade,

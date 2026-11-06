@@ -65,7 +65,8 @@ export type LiveDrop = {
   open: boolean;
   // My place, while it lasts.
   mine: { claimId: string; expiresAt: string } | null;
-  claimers: { name: string }[];
+  // Places taken, in order; paid once the shopper ordered it (that place stays taken).
+  claimers: { name: string; paid?: boolean }[];
   at: string;
 };
 export type Burst = { id: number; emoji: string; x: number };

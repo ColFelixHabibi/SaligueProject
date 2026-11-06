@@ -37,12 +37,12 @@ export function AppUpdate() {
       <Download className="h-5 w-5 shrink-0 text-primary" />
       <span className="min-w-0 flex-1 text-sm"><b>Saligue {latest.versionName}</b> is ready</span>
       <a href={latest.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-sm font-bold text-primary-foreground">Update</a>
-      <button type="button" onClick={close} aria-label="Later" className="shrink-0 rounded-full p-1 opacity-70"><X className="h-4 w-4" /></button>
+      <button type="button" onClick={close} aria-label="Later" title="Later" className="shrink-0 rounded-full p-1 opacity-70"><X className="h-4 w-4" /></button>
     </div>
   );
 }
 
-/** "Version 2.20 · about 18 MB": the newest app on the server (download page). The size comes from the file itself. */
+/** "Version 2.22 · about 35 MB": the newest app on the server (download page). The size comes from the file itself. */
 export function AppVersion() {
   const [info, setInfo] = useState<{ versionName: string; bytes?: number } | null>(null);
   useEffect(() => void api<{ versionName: string; bytes?: number } | null>('/app/version')
