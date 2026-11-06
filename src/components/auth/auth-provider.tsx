@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken, mediaUrl, setToken } from '@/lib/api';
+import { ApiError, getToken, mediaUrl, setToken } from '@/lib/api';
 import { currentAccount, onAccountChange, startGuestSession, type AccountChange, type AccountUser } from '@/lib/auth-actions';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { subscribeToWishlist } from '@/hooks/use-wishlist';
@@ -14,6 +14,7 @@ import { subscribeToProducts } from '@/hooks/use-product-store';
 import { subscribeToMessages } from '@/lib/messages';
 import { useToast } from '@/hooks/use-toast';
 import { refreshPush } from '@/lib/push';
+import { RefreshCw, WifiOff } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 
 export type AppUser = {
@@ -35,6 +36,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({ user: null, authUid: null, role: 'buyer', isAuthLoading: true });
 
+/** Shown instead of a loader that never ends: Saligue could not be reached at start. */
+function CannotReach({ onRetry }: { onRetry: () => void }) {
+  const signedIn = !!getToken();
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
+      <WifiOff className="h-12 w-12 text-primary" />
+      <p className="text-lg font-bold">Saligue can’t be reached</p>
+      <p className="max-w-sm text-sm text-muted-foreground">Check your connection, or switch between Wi-Fi and mobile data.{signedIn && ' You are still signed in.'}</p>
+      <button type="button" onClick={onRetry} className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 font-semibold text-primary-foreground">
+        <RefreshCw className="h-4 w-4" /> Try again
+      </button>
+    </div>
+  );
+}
+
 function FullPageLoader() {
   return (
     <div className="flex min-h-screen w-full flex-col">
@@ -53,6 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const routerRef = useRef(router);
   routerRef.current = router;
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  // Start-up could not reach the server (offline, or a request that stalled): a Retry screen, not an endless loader.
+  const [unreachable, setUnreachable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const { role } = useUserRoleStore();
   const { toast } = useToast();
 
@@ -87,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthUid(account.id);
       setUser(account.isGuest ? null : { uid: account.id, email: account.email, displayName: account.displayName, username: account.username ?? null, photoURL: mediaUrl(account.avatar ?? undefined) ?? null });
       setIsAuthLoading(false);
+      setUnreachable(false);
       if (!account.isGuest) void refreshPush();
       if (change === 'registered' || change === 'signed-in') {
         // Straight to their own dashboard, unless they were in the middle of something (paying, starting a shop).
@@ -99,11 +119,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    // The server could not be reached (status 0: offline or timed out), as opposed to answering "no".
+    const offline = (error: unknown) => error instanceof ApiError && error.status === 0;
+
     const startAsGuest = async () => {
       try {
         apply(await startGuestSession());
       } catch (error) {
         console.error('Could not start a guest session:', error);
+        if (offline(error) && active) {
+          setUnreachable(true);
+          return;
+        }
         useUserRoleStore.setState({ isInitialized: true });
         setIsAuthLoading(false);
       }
@@ -115,7 +142,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           apply(await currentAccount());
           return;
-        } catch {
+        } catch (error) {
+          // Only a server that answered "not signed in" ends the session. A bad connection keeps it:
+          // it used to sign people out whenever the network failed at the wrong moment.
+          if (offline(error)) {
+            if (active) setUnreachable(true);
+            return;
+          }
           setToken(null);
         }
       }
@@ -132,8 +165,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       stopListening();
       stopUserData();
     };
-  }, [toast]);
+  }, [toast, attempt]);
 
+  if (unreachable) return <CannotReach onRetry={() => { setUnreachable(false); setAttempt((n) => n + 1); }} />;
   if (isAuthLoading) return <FullPageLoader />;
   return <AuthContext.Provider value={{ user, authUid, role, isAuthLoading }}>{children}</AuthContext.Provider>;
 }

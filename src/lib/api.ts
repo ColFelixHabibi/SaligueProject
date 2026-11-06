@@ -41,7 +41,9 @@ export function setToken(token: string | null) {
   if (changed) reconnectServerEvents();
 }
 
-export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+// timeoutMs: give up after this long. For calls the whole app waits on (signing in at start): on some networks a
+// request stalls instead of failing (HTTP/3 packets dropped part-way), and without a limit the page waits forever.
+export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
   const token = getToken();
   let response: Response;
   try {
@@ -54,8 +56,10 @@ export async function api<T = unknown>(path: string, options: { method?: string;
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       // Same site: the session cookie goes along too (the server sets it HttpOnly).
       credentials: API_ORIGIN ? 'omit' : 'same-origin',
+      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
     });
-  } catch {
+  } catch (error) {
+    if ((error as Error)?.name === 'TimeoutError') throw new ApiError(0, 'timeout', 'Saligue is taking too long to answer. Check your network and try again.');
     throw new ApiError(0, 'unavailable', 'No connection to Saligue. Check your network and try again.');
   }
   const data = await response.json().catch(() => null);

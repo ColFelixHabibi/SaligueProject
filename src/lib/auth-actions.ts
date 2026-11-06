@@ -36,13 +36,13 @@ const emit = (user: AccountUser | null, change: AccountChange) => accountListene
 
 /** Every visitor gets a guest account, so likes, saves, cart and orders work without signing up. */
 export async function startGuestSession() {
-  const session = await api<Session>('/auth/guest', { method: 'POST' });
+  const session = await api<Session>('/auth/guest', { method: 'POST', timeoutMs: 15_000 });
   setToken(session.token);
   return session.user;
 }
 
 export async function currentAccount() {
-  return (await api<{ user: AccountUser }>('/auth/me')).user;
+  return (await api<{ user: AccountUser }>('/auth/me', { timeoutMs: 15_000 })).user;
 }
 
 /** Creates an account. A guest keeps everything they liked, saved and ordered. */
