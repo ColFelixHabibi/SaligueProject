@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowLeft, BadgeCheck, CheckCheck, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, CheckCheck, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, User, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,10 @@ function ConversationRow({ c, active, onOpen, onClear }: { c: Conversation; acti
             <span className={cn('flex min-w-0 items-center gap-1 truncate', c.unread ? 'font-bold' : 'font-semibold')}>
               <span className="truncate">{c.other.name}</span>
               {c.other.official && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" />}
+              {/* Shop or customer, as an icon: the avatar may be a photo, so this tells them apart. */}
+              {c.role === 'buyer'
+                ? <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Shop" />
+                : <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Customer" />}
             </span>
             {c.lastMessage && <span className={cn('shrink-0 text-xs', c.unread ? 'font-semibold text-primary' : 'text-muted-foreground')}>{when(c.lastMessage.createdAt)}</span>}
           </span>
@@ -65,7 +69,6 @@ function ConversationRow({ c, active, onOpen, onClear }: { c: Conversation; acti
               <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{c.unread}</span>
             )}
           </span>
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{c.role === 'buyer' ? 'Shop' : 'Customer'}</span>
         </span>
       </button>
       {/* Clears this chat for this account only. Always shown on a phone, on hover on a computer. */}
@@ -97,7 +100,8 @@ function ItemCard({ productId }: { productId: string }) {
   );
 }
 
-function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onClear: () => void }) {
+// onClear gets the thread's own conversation: one opened from a link may not be in the loaded list.
+function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onClear: (c: Conversation) => void }) {
   const { authUid } = useAuth();
   const { toast } = useToast();
   const { data, error, send } = useConversation(id);
@@ -153,7 +157,7 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
         </div>
         <button
           type="button"
-          onClick={onClear}
+          onClick={() => onClear(c)}
           aria-label="Clear this chat"
           title="Clear chat"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
@@ -315,7 +319,7 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
         </aside>
         <section className={cn('min-w-0 flex-1 flex-col', openId ? 'flex' : none ? 'hidden' : 'hidden md:flex')}>
           {openId ? (
-            <Thread id={openId} onBack={() => open(null)} onClear={() => { const c = conversations.find((x) => x.id === openId); if (c) void clear(c); }} />
+            <Thread id={openId} onBack={() => open(null)} onClear={(c) => void clear(c)} />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-muted-foreground">
               <MessageCircle className="h-12 w-12 text-primary" />

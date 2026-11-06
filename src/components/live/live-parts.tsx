@@ -134,7 +134,7 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10 pt-[calc(0.75rem+var(--sat))]">
       <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/35 p-1 pr-3 text-white backdrop-blur">
-        <Link href={`/profile?id=${live.sellerId}`} aria-label={`${live.sellerName}: profile`}>
+        <Link href={`/profile?id=${live.sellerId}`} aria-label={`${live.sellerName}: profile`} title={`${live.sellerName}: profile`}>
           <Avatar className="h-9 w-9 ring-2 ring-primary">
             <AvatarImage src={live.sellerAvatar ?? undefined} className="object-cover" />
             <AvatarFallback className="bg-primary text-primary-foreground">{live.sellerName.charAt(0)}</AvatarFallback>
@@ -151,7 +151,7 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
           {live.status === 'live' ? 'LIVE' : 'ENDED'} · {elapsed}
         </span>
         {onViewers ? (
-          <button type="button" onClick={onViewers} className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white" aria-label={`${viewers} watching: see who`}><Eye className="h-3.5 w-3.5" /> {viewers}</button>
+          <button type="button" onClick={onViewers} className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white" aria-label={`${viewers} watching: see who`} title={`${viewers} watching: see who`}><Eye className="h-3.5 w-3.5" /> {viewers}</button>
         ) : (
           <span className="flex items-center gap-1 rounded-md bg-black/45 px-2 py-1 text-xs font-semibold text-white"><Eye className="h-3.5 w-3.5" /> {viewers}</span>
         )}
@@ -394,10 +394,10 @@ export function ProductStrip({ products, pinnedId, onBuy, onTryOn, deals }: { pr
             {deals?.[p.id] && <DealTag was={deals[p.id].was} until={deals[p.id].until} className="text-[10px]" />}
           </Link>
           <div className="mt-1.5 grid grid-cols-2 gap-1">
-            <button type="button" onClick={() => onBuy(p.id)} disabled={p.stock === 0} aria-label={`Buy ${p.name}`} className="flex items-center justify-center rounded-full bg-primary py-1.5 text-primary-foreground disabled:opacity-50"><ShoppingBag className="h-4 w-4" /></button>
+            <button type="button" onClick={() => onBuy(p.id)} disabled={p.stock === 0} aria-label={`Buy ${p.name}`} title={`Buy ${p.name}`} className="flex items-center justify-center rounded-full bg-primary py-1.5 text-primary-foreground disabled:opacity-50"><ShoppingBag className="h-4 w-4" /></button>
             {onTryOn
-              ? <button type="button" onClick={() => onTryOn(p)} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></button>
-              : <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>}
+              ? <button type="button" onClick={() => onTryOn(p)} aria-label={`Try on ${p.name}`} title={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></button>
+              : <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} title={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>}
           </div>
         </div>
       ))}

@@ -282,13 +282,13 @@ function Watch() {
         <GiftBanner gift={gift} />
         <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
-          <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
+          <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons" title="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
         ) : (
         <>
         <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
           {/* Small phones: just the + icon, so the host's name stays readable. */}
           <FollowButton sellerId={live.sellerId} onDark className="h-7 w-7 px-0 text-xs min-[420px]:w-auto min-[420px]:px-3" labelClassName="hidden min-[420px]:ml-1 min-[420px]:inline" />
-          <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close"><X className="h-4 w-4" /></button>
+          <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close" title="Close"><X className="h-4 w-4" /></button>
         </LiveTopBar>
         <HeartGoal likes={live.likeCount} goal={live.heartGoal} />
         {live.poll && <PollBubble poll={live.poll} myVote={myVote} onVote={live.poll.open ? vote : undefined} lower={!!live.heartGoal} />}
@@ -300,7 +300,7 @@ function Watch() {
             {/* Actions on the right, like TikTok and Instagram lives. */}
             <div className="relative flex shrink-0 flex-col items-center gap-2 pb-1">
               {featured.length > 0 && (
-                <button type="button" onClick={() => setBagOpen((v) => !v)} aria-pressed={bagOpen} className={cn(rail, 'relative', bagOpen && 'bg-primary')} aria-label={`Items in this live (${featured.length})`}>
+                <button type="button" onClick={() => setBagOpen((v) => !v)} aria-pressed={bagOpen} className={cn(rail, 'relative', bagOpen && 'bg-primary')} aria-label={`Items in this live (${featured.length})`} title={`Items in this live (${featured.length})`}>
                   <ShoppingBag className="h-5 w-5" />
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold text-foreground">{featured.length}</span>
                 </button>
@@ -308,8 +308,8 @@ function Watch() {
               {!isGuest && (
                 <button type="button" onClick={requestJoin} disabled={myGuestStatus === 'requested'} title="Ask to join on camera" className={cn(rail, 'disabled:opacity-60')} aria-label="Ask to join on camera"><UserPlus className="h-5 w-5" /></button>
               )}
-              <button type="button" onClick={share} className={rail} aria-label="Share"><Share2 className="h-5 w-5" /></button>
-              <button type="button" onClick={() => setMore(true)} className={rail} aria-label="More"><MoreHorizontal className="h-5 w-5" /></button>
+              <button type="button" onClick={share} className={rail} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setMore(true)} className={rail} aria-label="More" title="More"><MoreHorizontal className="h-5 w-5" /></button>
               {reactions && (
                 <div className="absolute bottom-14 right-12 flex gap-1.5 rounded-full bg-black/45 p-1.5 backdrop-blur">
                   {REACTIONS.map((e) => (
@@ -317,9 +317,9 @@ function Watch() {
                   ))}
                 </div>
               )}
-              <button type="button" onClick={() => setGiftsOpen(true)} className={cn(rail, 'bg-gradient-to-br from-amber-400/80 to-pink-500/80')} aria-label="Send a gift"><Gift className="h-5 w-5" /></button>
-              <button type="button" onClick={() => setReactions((v) => !v)} aria-pressed={reactions} className={cn(rail, reactions && 'bg-white/30')} aria-label="Reactions"><Smile className="h-5 w-5" /></button>
-              <button type="button" onClick={() => heart('❤️')} className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg active:scale-90" aria-label="Send a heart">
+              <button type="button" onClick={() => setGiftsOpen(true)} className={cn(rail, 'bg-gradient-to-br from-amber-400/80 to-pink-500/80')} aria-label="Send a gift" title="Send a gift"><Gift className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setReactions((v) => !v)} aria-pressed={reactions} className={cn(rail, reactions && 'bg-white/30')} aria-label="Reactions" title="Reactions"><Smile className="h-5 w-5" /></button>
+              <button type="button" onClick={() => heart('❤️')} className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg active:scale-90" aria-label="Send a heart" title="Send a heart">
                 <Heart className="h-6 w-6 fill-current" />
               </button>
             </div>
@@ -352,7 +352,7 @@ function Watch() {
             <div className="flex items-center gap-2 rounded-xl bg-black/50 px-3 py-1.5 text-xs text-white backdrop-blur">
               <Reply className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Replying to <b>{replyTo.name}</b>: {replyTo.text}</span>
-              <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply" title="Cancel reply"><X className="h-4 w-4" /></button>
             </div>
           )}
           <form onSubmit={send} className="flex items-end gap-1.5 min-[360px]:gap-2">
@@ -361,7 +361,7 @@ function Watch() {
               <HelpCircle className="h-5 w-5" />
             </button>
             <LiveInput value={text} onChange={setText} disabled={muted} placeholder={muted ? 'Comments are off for you' : live.chatMode === 'off' && !isGuest ? 'The host turned comments off' : live.chatMode === 'followers' && !isGuest ? 'Clients can comment · follow to join' : question ? 'Ask the host a question…' : live.slowSeconds ? `Slow mode · one comment every ${live.slowSeconds} s` : 'Say something…'} />
-            <button type="submit" disabled={sending || !text.trim()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50" aria-label="Send">
+            <button type="submit" disabled={sending || !text.trim()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50" aria-label="Send" title="Send">
               {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>
           </form>

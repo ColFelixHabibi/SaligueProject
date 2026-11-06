@@ -5,6 +5,7 @@ import { useBlockedIds } from '@/lib/blocks';
 import { useEffect, useState } from 'react';
 import { CornerDownRight, Loader2, Send, Trash2, X } from 'lucide-react';
 import { CommentThread } from '@/components/comment-thread';
+import { ask } from '@/components/confirm-dialog';
 import { ReportComment } from '@/components/report-comment';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,8 @@ function timeAgo(value?: string | null) {
   return `${Math.floor(diff / 86400)}d`;
 }
 
-export function CommentsPanel({ productId, sellerId, className }: { productId: string; sellerId?: string; className?: string }) {
+/** `fill`: the panel is given a height (the feed's lower half), so the list grows into it instead of stopping at 16rem. */
+export function CommentsPanel({ productId, sellerId, className, fill }: { productId: string; sellerId?: string; className?: string; fill?: boolean }) {
   const { toast } = useToast();
   const { authUid } = useAuth();
   const on = useFeatures();
@@ -75,15 +77,18 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
     }
   };
 
+  // The shop removes a comment for everyone and it cannot come back, so it asks first.
   const remove = async (id: string) => {
+    const sure = await ask({ title: 'Delete this comment?', description: 'It is removed for everyone, with every reply under it. This cannot be undone.', confirm: 'Delete', destructive: true });
+    if (!sure) return;
     await api(`/comments/${id}`, { method: 'DELETE' }).catch((error) => toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) }));
   };
 
   if (!commentsOn) return null;
 
   return (
-    <div className={cn('space-y-3', className)}>
-      <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
+    <div className={cn('flex flex-col gap-3', className)}>
+      <div className={cn('space-y-3 overflow-y-auto pr-1', fill ? 'min-h-0 flex-1' : 'max-h-64')}>
         {comments === null ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /> : comments.length === 0 ? (
           <p className="py-2 text-center text-sm text-muted-foreground">No comments yet. Be the first!</p>
         ) : (
@@ -95,16 +100,17 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
               <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
               {/* Deep replies (no more indent) say whom they answer. */}
               <p className="break-words">{depth > 3 && parent && <span className="mr-1 font-semibold text-primary">@{parent.username ?? parent.name}</span>}<RichText text={comment.text} /></p>
-              <span className="mt-0.5 flex items-center gap-3">
-                <button type="button" onClick={() => setReplyTo(comment)} aria-label={`Reply to ${comment.name}`} title="Reply" className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground">
-                  <CornerDownRight className="h-3.5 w-3.5" /> Reply
+              <span className="mt-0.5 flex items-center gap-1">
+                {/* Icons only, each with a name for screen readers and a tooltip: reply, then the report flag. */}
+                <button type="button" onClick={() => setReplyTo(comment)} aria-label={`Reply to ${comment.name}`} title="Reply" className="-ml-1.5 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <CornerDownRight className="h-4 w-4" />
                 </button>
                 <ReportComment kind="item" id={comment.id} authorId={comment.uid} />
               </span>
             </div>
             {/* Once sent, a comment stays: only the item's shop can remove it. */}
             {!!authUid && sellerId === authUid && (
-              <button type="button" aria-label="Delete comment" className="text-muted-foreground hover:text-destructive" onClick={() => void remove(comment.id)}>
+              <button type="button" aria-label="Delete comment" title="Delete" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void remove(comment.id)}>
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
@@ -115,13 +121,13 @@ export function CommentsPanel({ productId, sellerId, className }: { productId: s
       {replyTo && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <CornerDownRight className="h-3.5 w-3.5" /> Replying to <b className="text-foreground">{replyTo.name}</b>
-          <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label="Cancel"><X className="h-4 w-4" /></button>
+          <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label="Cancel" title="Cancel"><X className="h-4 w-4" /></button>
         </p>
       )}
       <MentionSuggestions value={text} onChange={setText} />
       <form onSubmit={send} className="flex gap-2">
         <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={replyTo ? `Reply to ${replyTo.name}…` : 'Add a comment…'} maxLength={500} className="h-10" />
-        <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={sending || !text.trim()} aria-label="Send comment">
+        <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={sending || !text.trim()} aria-label="Send comment" title="Send comment">
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </form>

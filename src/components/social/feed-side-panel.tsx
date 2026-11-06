@@ -53,7 +53,7 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
         <Link href={productHref(product)} className="block text-lg font-bold leading-tight hover:underline">{product.name}</Link>
         <div className="flex items-center justify-between">
           <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
-          <Link href={`${productHref(product)}#reviews`} className="flex items-center gap-1.5 text-sm hover:underline" aria-label={t('Reviews')}>
+          <Link href={`${productHref(product)}#reviews`} className="flex items-center gap-1.5 text-sm hover:underline" aria-label={t('Reviews')} title={t('Reviews')}>
             <Stars rating={product.rating ?? 0} size="h-4 w-4" />
             {(product.ratingCount ?? 0) > 0 ? <><b>{(product.rating ?? 0).toFixed(1)}</b> <span className="text-muted-foreground">({product.ratingCount})</span></> : <span className="text-xs text-muted-foreground">{t('No reviews yet')}</span>}
           </Link>

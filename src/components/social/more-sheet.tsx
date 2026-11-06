@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Download, EyeOff, HelpCircle, Layers, Loader2, MoreHorizontal, Pin, PinOff, Repeat2 } from 'lucide-react';
+import { BookOpen, Download, EyeOff, Info, Layers, Loader2, MoreHorizontal, Pin, PinOff, Repeat2 } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { addToLook } from '@/components/look-picker';
 import { ReportButton } from '@/components/social/report-button';
@@ -107,7 +107,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
 
           <div className="mt-4 divide-y rounded-2xl border text-sm">
             {!inline && <div className="flex items-start gap-3 p-3">
-              <HelpCircle className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
               <span><b className="block">{t('Why am I seeing this?')}</b><span className="text-muted-foreground">{sponsored ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
             </div>}
             {onHide && (
@@ -116,7 +116,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
               </button>
             )}
             <Link href="/how-feed-works" className="flex items-center gap-3 p-3 hover:bg-muted/60" onClick={() => setOpen(false)}>
-              <HelpCircle className="h-5 w-5 shrink-0" /> {t('How For You works')}
+              <BookOpen className="h-5 w-5 shrink-0" /> {t('How For You works')}
             </Link>
             {!mine && <div className="p-1.5"><ReportButton product={product} className="w-full justify-start gap-3 rounded-xl p-1.5 text-sm text-foreground [&>svg]:h-5 [&>svg]:w-5" /></div>}
           </div>

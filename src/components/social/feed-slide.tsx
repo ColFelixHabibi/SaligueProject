@@ -171,7 +171,7 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
         )}
 
         {product.video && !playing && saver && (
-          <button type="button" onClick={() => videoRef.current?.play().catch(() => {})} className="absolute left-1/2 top-[40%] z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur" aria-label="Play video">
+          <button type="button" onClick={() => videoRef.current?.play().catch(() => {})} className="absolute left-1/2 top-[40%] z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur" aria-label="Play video" title="Play video">
             <Play className="h-8 w-8 fill-white" />
           </button>
         )}
@@ -247,7 +247,7 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
               </button>
             </div>
           </div>
-          <CommentsPanel productId={product.id} sellerId={product.sellerId} className="min-h-0 flex-1" />
+          <CommentsPanel productId={product.id} sellerId={product.sellerId} className="min-h-0 flex-1" fill />
         </div>
       )}
     </section>

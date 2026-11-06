@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Clock, Loader2, ShoppingBag, X } from 'lucide-react';
+import { Check, Loader2, ShoppingBag, Ticket, Timer, X } from 'lucide-react';
 import { useCountdown } from '@/components/live/deal-tag';
 import { Button } from '@/components/ui/button';
 import type { LiveDrop } from '@/lib/live';
@@ -34,7 +34,7 @@ export function LiveDropCard({ drop, signedIn, busy, onClaim, onPay, onRelease, 
       <img src={drop.image ?? undefined} alt="" className="h-14 w-14 shrink-0 rounded-xl bg-muted object-contain p-1" />
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-primary">
-          <Clock className="h-3 w-3" /> {mine ? 'Yours to pay for' : drop.open ? 'Live drop · claim it' : 'Live drop'}
+          <Ticket className="h-3 w-3" /> {mine ? 'Yours to pay for' : drop.open ? 'Live drop · claim it' : 'Live drop'}
         </p>
         <p className="truncate text-sm font-semibold">{drop.name}</p>
         <p className="text-sm font-extrabold">
@@ -43,7 +43,10 @@ export function LiveDropCard({ drop, signedIn, busy, onClaim, onPay, onRelease, 
           {!mine && drop.open && <span className="ml-2 text-xs font-semibold text-amber-600">{places === 1 ? 'Last one' : `${places} left`}</span>}
         </p>
         {mine ? (
-          <p className="text-xs font-semibold text-primary">Pay within {left} or the place goes to someone else</p>
+          <p className="flex items-center gap-1 text-xs font-semibold text-primary" title="Pay before the timer ends or the place goes to someone else">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-primary px-1.5 py-0.5 font-extrabold tabular-nums text-primary-foreground"><Timer className="h-3 w-3" /> {left}</span>
+            <span className="truncate">to pay, then it goes to the next one</span>
+          </p>
         ) : drop.claimed > 0 ? (
           <p className="truncate text-xs text-muted-foreground">
             {drop.claimers.map((c) => c.name).slice(0, 2).join(', ')} {drop.claimed === 1 ? 'claimed one' : 'claimed'}
@@ -107,7 +110,7 @@ export function DropsPanel({ drops, busy, onClose, bare }: { drops: LiveDrop[]; 
   if (bare) return list;
   return (
     <div className="rounded-2xl border bg-card p-5">
-      <h2 className="mb-3 flex items-center gap-2 font-bold"><Clock className="h-4 w-4 text-primary" /> Drops{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}</h2>
+      <h2 className="mb-3 flex items-center gap-2 font-bold"><Ticket className="h-4 w-4 text-primary" /> Drops{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}</h2>
       {list}
     </div>
   );

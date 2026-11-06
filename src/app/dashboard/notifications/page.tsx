@@ -81,13 +81,14 @@ export default function NotificationsPage() {
                     <p className="text-muted-foreground">Manage your account and sales notifications.</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <Button variant="outline" onClick={markAllAsRead} disabled={!notifications.length} title="Mark all as read">
-                        <CheckCheck className="mr-2 h-4 w-4" />
-                        Mark all as read
+                    {/* Round icons on a phone, with their words from tablet width up. */}
+                    <Button variant="outline" onClick={markAllAsRead} disabled={!notifications.length} title="Mark all as read" aria-label="Mark all as read" className="h-10 w-10 rounded-full p-0 sm:w-auto sm:px-4">
+                        <CheckCheck className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Mark all as read</span>
                     </Button>
-                    <Button variant="outline" onClick={() => void clearAllNow()} disabled={!notifications.length} className="text-destructive hover:text-destructive" title="Delete every notification">
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Clear all
+                    <Button variant="outline" onClick={() => void clearAllNow()} disabled={!notifications.length} className="h-10 w-10 rounded-full p-0 text-destructive hover:text-destructive sm:w-auto sm:px-4" title="Delete every notification" aria-label="Clear all notifications">
+                        <Trash2 className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Clear all</span>
                     </Button>
                 </div>
             </div>

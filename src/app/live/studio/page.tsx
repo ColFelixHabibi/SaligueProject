@@ -11,7 +11,7 @@ import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirro
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BarChart3, Camera, Clock, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Ticket, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -395,21 +395,21 @@ function Studio({ id }: { id: string }) {
   // Small phones: the buttons scroll sideways instead of running off the screen.
   const controls = (
     <div className="-mx-3 flex snap-x items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
-      <button type="button" onClick={toggleMic} className={cn(button, micOn ? 'bg-black/45' : 'bg-destructive')} aria-label={micOn ? 'Mute' : 'Unmute'}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
-      <button type="button" onClick={toggleCam} className={cn(button, camOn ? 'bg-black/45' : 'bg-destructive')} aria-label={camOn ? 'Camera off' : 'Camera on'}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
-      <button type="button" onClick={flipCamera} className={cn(button, 'bg-black/45')} aria-label="Switch camera"><SwitchCamera className="h-5 w-5" /></button>
-      <button type="button" onClick={() => setPanel('products')} className={cn(button, 'bg-black/45')} aria-label="Items"><Package className="h-5 w-5" /></button>
-      <button type="button" onClick={() => setPanel('drops')} className={cn(button, 'relative', drops.length ? 'bg-primary' : 'bg-black/45')} aria-label="Drops">
-        <Clock className="h-5 w-5" />
+      <button type="button" onClick={toggleMic} className={cn(button, micOn ? 'bg-black/45' : 'bg-destructive')} aria-label={micOn ? 'Mute' : 'Unmute'} title={micOn ? 'Mute' : 'Unmute'}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
+      <button type="button" onClick={toggleCam} className={cn(button, camOn ? 'bg-black/45' : 'bg-destructive')} aria-label={camOn ? 'Camera off' : 'Camera on'} title={camOn ? 'Camera off' : 'Camera on'}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
+      <button type="button" onClick={flipCamera} className={cn(button, 'bg-black/45')} aria-label="Switch camera" title="Switch camera"><SwitchCamera className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('products')} className={cn(button, 'bg-black/45')} aria-label="Items" title="Items"><Package className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('drops')} className={cn(button, 'relative', drops.length ? 'bg-primary' : 'bg-black/45')} aria-label="Drops" title="Drops">
+        <Ticket className="h-5 w-5" />
         {drops.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-foreground">{drops.length}</span>}
       </button>
-      <button type="button" onClick={() => setPanel('poll')} className={cn(button, live.poll?.open ? 'bg-primary' : 'bg-black/45')} aria-label="Poll"><BarChart3 className="h-5 w-5" /></button>
-      <button type="button" onClick={() => setPanel('guests')} className={cn(button, 'relative bg-black/45')} aria-label="Guests">
+      <button type="button" onClick={() => setPanel('poll')} className={cn(button, live.poll?.open ? 'bg-primary' : 'bg-black/45')} aria-label="Poll" title="Poll"><BarChart3 className="h-5 w-5" /></button>
+      <button type="button" onClick={() => setPanel('guests')} className={cn(button, 'relative bg-black/45')} aria-label="Guests" title="Guests">
         <Users className="h-5 w-5" />
         {requests.length > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold">{requests.length}</span>}
       </button>
-      <button type="button" onClick={share} className={cn(button, 'bg-black/45')} aria-label="Share"><Share2 className="h-5 w-5" /></button>
-      <button type="button" onClick={openSettings} className={cn(button, 'bg-black/45')} aria-label="Settings"><Settings2 className="h-5 w-5" /></button>
+      <button type="button" onClick={share} className={cn(button, 'bg-black/45')} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
+      <button type="button" onClick={openSettings} className={cn(button, 'bg-black/45')} aria-label="Settings" title="Settings"><Settings2 className="h-5 w-5" /></button>
     </div>
   );
 
@@ -708,7 +708,7 @@ function ProductsPanel({ id, featured, mine, pinnedId, drops, onDrop, dropping, 
               <button type="button" title={dropped ? 'Already held up: see Live drops' : 'Drop it: viewers claim a place'} aria-label={dropped ? 'Already held up' : 'Drop it'}
                 disabled={dropped || dropping === p.id} onClick={() => onDrop(p.id)}
                 className={cn('rounded-full p-1.5 disabled:opacity-60', dropped ? 'bg-primary text-primary-foreground' : 'text-primary hover:bg-primary/10')}>
-                {dropping === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock className="h-4 w-4" />}
+                {dropping === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ticket className="h-4 w-4" />}
               </button>
               {isPinned ? (
                 <Button size="sm" variant="secondary" onClick={() => save({ pinnedProductId: null })}><PinOff className="mr-1 h-3.5 w-3.5" /> Hide</Button>
