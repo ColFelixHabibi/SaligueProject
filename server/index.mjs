@@ -26,7 +26,7 @@ import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFi
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { controller, dpia, paidThisMonth, payoutRefused, payoutRules, payoutState, processingRecord, saveController, savePayoutRules } from './compliance.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
-import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, saveAiKey } from './ai-keys.mjs';
+import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, resealAiKeys, saveAiKey } from './ai-keys.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
@@ -5830,4 +5830,12 @@ server.listen(PORT, process.env.HOST || undefined, () => {
   // Captions for lessons that don't have them yet (a minute after start, so starting stays quick).
   setTimeout(() => featureOn('captions') && captionMissing(), 60_000).unref();
   setTimeout(checkBadges, 30_000).unref();
+  // Accounts' AI keys: sealed under the key kept outside the database (ai-keys.mjs). Says so when that key is missing.
+  try {
+    const sealing = resealAiKeys();
+    if (!sealing.outside) console.warn(`AI keys: no /etc/saligue/seal.key (or SALIGUE_SEAL_KEY), so ${sealing.keys} saved key(s) are sealed with a key kept in the database itself. Create one: openssl rand -hex 32 > /etc/saligue/seal.key && chmod 600 /etc/saligue/seal.key`);
+    else if (sealing.moved || sealing.lost) console.log(`AI keys: ${sealing.moved} sealed again outside the database${sealing.lost ? `, ${sealing.lost} could not be opened (their owners add them again)` : ''}.`);
+  } catch (error) {
+    console.error('AI keys: the sealing key is not usable:', error.message);
+  }
 });

@@ -47,6 +47,8 @@ const deepseekUrl = `http://127.0.0.1:${deepseek.address().port}`;
 const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
   // The AI key tests ask the stand-in above, never DeepSeek; no platform key, so an account's own key is the only one.
   DEEPSEEK_API_URL: deepseekUrl, DEEPSEEK_API_KEY: '',
+  // The sealing key for those AI keys, outside the database (never the server's real /etc/saligue/seal.key).
+  SALIGUE_SEAL_KEY: 'a'.repeat(64), SALIGUE_SEAL_FILE: join(data, 'no-seal-file'),
   // Live works against a LiveKit that is not there; no server recorder answers, so hosts' phones record.
   LIVEKIT_URL: 'ws://127.0.0.1:9', LIVEKIT_API_KEY: 'test', LIVEKIT_API_SECRET: 'test-secret', LIVEKIT_API_URL: 'http://127.0.0.1:9', EGRESS_HEALTH_PORT: '9' };
 let server;
@@ -773,9 +775,15 @@ describe('AI keys', () => {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(join(data, 'saligue.db'));
     const saved = db.prepare('select secret from user_ai_keys where user_id = ?').get(a.id);
-    db.close();
-    assert.ok(saved?.secret.startsWith('enc1:'), 'kept sealed');
+    assert.ok(saved?.secret.startsWith('enc2:'), 'sealed under the key kept outside the database');
     assert.equal(saved.secret.includes(GOOD_KEY), false);
+    assert.equal(db.prepare("select count(*) as n from app_config where key = 'ai_keys'").get().n, 0, 'no sealing key in the database');
+    // A key saved before sealing (plain text) still works, and is sealed the first time it is used.
+    db.prepare('update user_ai_keys set secret = ? where user_id = ?').run(GOOD_KEY, a.id);
+    const old = await call('/ai/keys/deepseek/check', { method: 'POST', token: a.token });
+    assert.equal(old.json.checked, true, JSON.stringify(old.json));
+    assert.ok(db.prepare('select secret from user_ai_keys where user_id = ?').get(a.id).secret.startsWith('enc2:'), 'sealed again on use');
+    db.close();
     // Another account has none of it, and is never told it exists.
     const b = await register('Key Stranger');
     assert.equal((await call('/ai/keys', { token: b.token })).json.deepseek.saved, false);

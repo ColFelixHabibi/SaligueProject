@@ -1,12 +1,15 @@
 // An account's own AI key (DeepSeek): two accounts never share one key.
 // The key is kept on the server with the account that added it (table user_ai_keys), is never sent back to the app
 // (only "••••1234"), and is checked with DeepSeek the moment it is saved, so a wrong or deleted key is refused at once.
-// It is stored encrypted (a key made once and kept in app_config, like the chat-file secret), so a copy of the
-// database is not a copy of everyone's keys.
+// It is stored encrypted under a sealing key kept OUTSIDE the database (SALIGUE_SEAL_KEY, or the file
+// /etc/saligue/seal.key), so a copy of the database is not a copy of everyone's keys. Without that key the server
+// falls back to the older sealing key kept in app_config (which a database copy does include) and says so at start.
+//   SALIGUE_SEAL_KEY   64 hex characters (openssl rand -hex 32); or SALIGUE_SEAL_FILE, a file holding them
 //   DEEPSEEK_API_KEY   the platform's own key, used by accounts that did not add one
 //   DEEPSEEK_API_URL   only for a proxy or a test server (default https://api.deepseek.com)
 //   DEEPSEEK_MODEL     the model AI writing uses (default deepseek-chat)
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { db, json, now, parse } from './db.mjs';
 
 const API = (process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
@@ -22,36 +25,60 @@ export const KEY_PROVIDERS = {
 };
 
 /**
- * At rest a key is sealed with AES-256-GCM under a key made once and kept in app_config (never in the code).
- * Keys saved before this are still plain text ("sk-…") and are read as they are, then sealed on the next save.
+ * At rest a key is sealed with AES-256-GCM.
+ *   enc2:  under the sealing key from outside the database (SALIGUE_SEAL_KEY / /etc/saligue/seal.key): the safe form.
+ *   enc1:  under the older key kept in app_config, in the same database as the keys (read, then sealed again as enc2).
+ *   sk-…   plain text from before sealing (read, then sealed again).
  */
 const BOX = 'ai_keys';
-const SEALED = 'enc1:';
+const OLD = 'enc1:';
+const NEW = 'enc2:';
+const HEX = /^[a-f0-9]{64}$/;
 
-function boxKey() {
+/** The sealing key from outside the database, or null when this server has none (then enc1 is still used). */
+function outsideKey() {
+  const fromEnv = process.env.SALIGUE_SEAL_KEY?.trim().toLowerCase();
+  if (fromEnv) {
+    if (!HEX.test(fromEnv)) throw new Error('SALIGUE_SEAL_KEY must be 64 hex characters (openssl rand -hex 32).');
+    return Buffer.from(fromEnv, 'hex');
+  }
+  const file = process.env.SALIGUE_SEAL_FILE || '/etc/saligue/seal.key';
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, 'utf8').trim().toLowerCase();
+  if (!HEX.test(text)) throw new Error(`${file} must hold 64 hex characters (openssl rand -hex 32).`);
+  return Buffer.from(text, 'hex');
+}
+
+/** The older key in app_config. make: create it when missing (only when there is no outside key to use instead). */
+function databaseKey(make) {
   const saved = parse(db.prepare('select value from app_config where key = ?').get(BOX)?.value)?.secret;
-  if (typeof saved === 'string' && /^[a-f0-9]{64}$/.test(saved)) return Buffer.from(saved, 'hex');
+  if (typeof saved === 'string' && HEX.test(saved)) return Buffer.from(saved, 'hex');
+  if (!make) return null;
   const fresh = randomBytes(32).toString('hex');
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict (key) do update set value = excluded.value').run(BOX, json({ secret: fresh }));
   return Buffer.from(fresh, 'hex');
 }
 
-let made = null; // made on first use, so starting the server never touches the database for nothing
-const sealingKey = () => (made ??= boxKey());
+let outside; // read once (undefined = not read yet), so starting the server never touches anything for nothing
+const outsideSealingKey = () => (outside === undefined ? (outside = outsideKey()) : outside);
 
-function seal(secret) {
+function encrypt(key, prefix, secret) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', sealingKey(), iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
   const body = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
-  return `${SEALED}${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${body.toString('base64url')}`;
+  return `${prefix}${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${body.toString('base64url')}`;
 }
 
-/** The key as saved. Null only when the sealing key was lost (then the account simply adds its key again). */
-function unseal(saved) {
-  if (typeof saved !== 'string' || !saved.startsWith(SEALED)) return saved ?? null; // plain text from before sealing
+function seal(secret) {
+  const key = outsideSealingKey();
+  return key ? encrypt(key, NEW, secret) : encrypt(databaseKey(true), OLD, secret);
+}
+
+function decrypt(key, sealed) {
+  if (!key) return null;
   try {
-    const [iv, tag, body] = saved.slice(SEALED.length).split(':');
-    const decipher = createDecipheriv('aes-256-gcm', sealingKey(), Buffer.from(iv, 'base64url'));
+    const [iv, tag, body] = sealed.split(':');
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
     decipher.setAuthTag(Buffer.from(tag, 'base64url'));
     return Buffer.concat([decipher.update(Buffer.from(body, 'base64url')), decipher.final()]).toString('utf8');
   } catch {
@@ -59,12 +86,53 @@ function unseal(saved) {
   }
 }
 
+/** The key as saved. Null only when its sealing key was lost (then the account simply adds its key again). */
+function unseal(saved) {
+  if (typeof saved !== 'string') return null;
+  if (saved.startsWith(NEW)) return decrypt(outsideSealingKey(), saved.slice(NEW.length));
+  if (saved.startsWith(OLD)) return decrypt(databaseKey(false), saved.slice(OLD.length));
+  return saved; // plain text from before sealing
+}
+
+/** Whether a saved value should be sealed again: anything not yet under the outside key, once there is one. */
+const stale = (saved) => !!outsideSealingKey() && typeof saved === 'string' && !saved.startsWith(NEW);
+
+/**
+ * Run at start: every key still in the older form is sealed again under the outside key, and then the older
+ * sealing key is deleted from the database, so a database copy holds nothing that opens the keys.
+ * Keys that cannot be opened any more (their sealing key was lost) are left alone; their owners add them again.
+ * Returns what it did, for the start-up log.
+ */
+export function resealAiKeys() {
+  if (!outsideSealingKey()) {
+    const any = db.prepare('select count(*) as n from user_ai_keys').get().n;
+    return { outside: false, keys: any };
+  }
+  let moved = 0;
+  let lost = 0;
+  const rows = db.prepare(`select user_id, provider, secret from user_ai_keys where secret not like '${NEW}%'`).all();
+  for (const row of rows) {
+    const secret = unseal(row.secret);
+    if (!secret) { lost++; continue; }
+    db.prepare('update user_ai_keys set secret = ? where user_id = ? and provider = ?').run(seal(secret), row.user_id, row.provider);
+    moved++;
+  }
+  // The older sealing key goes once nothing it opens is left.
+  const left = db.prepare(`select count(*) as n from user_ai_keys where secret like '${OLD}%'`).get().n;
+  if (!left) db.prepare('delete from app_config where key = ?').run(BOX);
+  return { outside: true, moved, lost, oldKeyRemoved: !left };
+}
+
 const hintOf = (secret) => `••••${String(secret ?? '').slice(-4)}`;
 
 /** The account's own key, or null when it has none. */
 export function userAiKey(userId, provider = 'deepseek') {
   if (!userId) return null;
-  return unseal(db.prepare('select secret from user_ai_keys where user_id = ? and provider = ?').get(userId, provider)?.secret);
+  const saved = db.prepare('select secret from user_ai_keys where user_id = ? and provider = ?').get(userId, provider)?.secret;
+  const secret = unseal(saved);
+  // Still in an older form: sealed again under the outside key now, so it does not wait for the next start.
+  if (secret && stale(saved)) db.prepare('update user_ai_keys set secret = ? where user_id = ? and provider = ?').run(seal(secret), userId, provider);
+  return secret;
 }
 
 /**
