@@ -602,6 +602,23 @@ describe('profiles, lives and the admin log', () => {
     assert.equal(after.json.error.code, 'ended');
   });
 
+  test('the app download can be resumed after a dropped connection', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    mkdirSync(join(data, 'downloads'), { recursive: true });
+    const bytes = Buffer.from(Array.from({ length: 5000 }, (_, i) => i % 251));
+    writeFileSync(join(data, 'downloads', 'saligue.apk'), bytes);
+    const whole = await fetch(`${base}/download/saligue.apk`);
+    assert.equal(whole.status, 200);
+    assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+    assert.equal(Buffer.from(await whole.arrayBuffer()).equals(bytes), true);
+    // The rest, from where the connection dropped.
+    const rest = await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=4000-' } });
+    assert.equal(rest.status, 206);
+    assert.equal(rest.headers.get('content-range'), 'bytes 4000-4999/5000');
+    assert.equal(Buffer.from(await rest.arrayBuffer()).equals(bytes.subarray(4000)), true);
+    assert.equal((await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=9000-' } })).status, 416);
+  });
+
   test('a chat photo opens only through its signed link, signed with a key kept outside the database', async () => {
     const product = (await call('/products')).json.find((p) => !p.official);
     await sampleShop(product.id);

@@ -5604,8 +5604,23 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/download/saligue.apk') {
     const apk = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.apk');
     if (!existsSync(apk)) return send(res, 404, 'The Android app has not been built yet.');
-    res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': statSync(apk).size, 'Content-Disposition': 'attachment; filename="Saligue.apk"', 'Cache-Control': 'no-cache' });
-    return createReadStream(apk).pipe(res);
+    // Resumable: on a slow or patchy mobile connection the phone's download manager asks for the rest
+    // (Range: bytes=N-) instead of starting the 35 MB over each time the connection drops.
+    const size = statSync(apk).size;
+    const headers = { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="Saligue.apk"', 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes', 'Last-Modified': statSync(apk).mtime.toUTCString() };
+    const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start >= size || start > end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'Content-Length': end - start + 1, 'Content-Range': `bytes ${start}-${end}/${size}` });
+      return req.method === 'HEAD' ? res.end() : createReadStream(apk, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': size });
+    return req.method === 'HEAD' ? res.end() : createReadStream(apk).pipe(res);
   }
   if (!isApi) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
