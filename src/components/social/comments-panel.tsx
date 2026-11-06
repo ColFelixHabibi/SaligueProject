@@ -17,6 +17,7 @@ import { friendlyError } from '@/lib/errors';
 import { useFeatures } from '@/lib/features';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import { RichText } from '@/components/rich-text';
 import { MentionSuggestions } from '@/components/mention-suggestions';
 
@@ -32,6 +33,7 @@ function timeAgo(value?: string | null) {
 /** `fill`: the panel is given a height (the feed's lower half), so the list grows into it instead of stopping at 16rem. */
 export function CommentsPanel({ productId, sellerId, className, fill }: { productId: string; sellerId?: string; className?: string; fill?: boolean }) {
   const { toast } = useToast();
+  const t = useT();
   const { authUid } = useAuth();
   const on = useFeatures();
   // Admin → Features can switch comments off. The server refuses them; this keeps the panel itself shut,
@@ -71,7 +73,7 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
       setText('');
       setReplyTo(null);
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Comment not sent', description: friendlyError(error) });
+      toast({ variant: 'destructive', title: t('Comment not sent'), description: friendlyError(error) });
     } finally {
       setSending(false);
     }
@@ -79,9 +81,9 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
 
   // The shop removes a comment for everyone and it cannot come back, so it asks first.
   const remove = async (id: string) => {
-    const sure = await ask({ title: 'Delete this comment?', description: 'It is removed for everyone, with every reply under it. This cannot be undone.', confirm: 'Delete', destructive: true });
+    const sure = await ask({ title: t('Delete this comment?'), description: t('It is removed for everyone, with every reply under it. This cannot be undone.'), confirm: t('Delete'), destructive: true });
     if (!sure) return;
-    await api(`/comments/${id}`, { method: 'DELETE' }).catch((error) => toast({ variant: 'destructive', title: 'Could not delete comment', description: friendlyError(error) }));
+    await api(`/comments/${id}`, { method: 'DELETE' }).catch((error) => toast({ variant: 'destructive', title: t('Could not delete comment'), description: friendlyError(error) }));
   };
 
   if (!commentsOn) return null;
@@ -90,7 +92,7 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
     <div className={cn('flex flex-col gap-3', className)}>
       <div className={cn('space-y-3 overflow-y-auto pr-1', fill ? 'min-h-0 flex-1' : 'max-h-64')}>
         {comments === null ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /> : comments.length === 0 ? (
-          <p className="py-2 text-center text-sm text-muted-foreground">No comments yet. Be the first!</p>
+          <p className="py-2 text-center text-sm text-muted-foreground">{t('No comments yet. Be the first!')}</p>
         ) : (
           <CommentThread items={comments.filter((c) => !blocked.has(c.uid))} render={(comment, depth, parent) => (
           <div className="flex items-start gap-2">
@@ -102,7 +104,7 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
               <p className="break-words">{depth > 3 && parent && <span className="mr-1 font-semibold text-primary">@{parent.username ?? parent.name}</span>}<RichText text={comment.text} /></p>
               <span className="mt-0.5 flex items-center gap-1">
                 {/* Icons only, each with a name for screen readers and a tooltip: reply, then the report flag. */}
-                <button type="button" onClick={() => setReplyTo(comment)} aria-label={`Reply to ${comment.name}`} title="Reply" className="-ml-1.5 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
+                <button type="button" onClick={() => setReplyTo(comment)} aria-label={`Reply to ${comment.name}`} title={t('Reply')} className="-ml-1.5 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
                   <CornerDownRight className="h-4 w-4" />
                 </button>
                 <ReportComment kind="item" id={comment.id} authorId={comment.uid} />
@@ -110,7 +112,7 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
             </div>
             {/* Once sent, a comment stays: only the item's shop can remove it. */}
             {!!authUid && sellerId === authUid && (
-              <button type="button" aria-label="Delete comment" title="Delete" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void remove(comment.id)}>
+              <button type="button" aria-label="Delete comment" title={t('Delete')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void remove(comment.id)}>
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
@@ -120,13 +122,13 @@ export function CommentsPanel({ productId, sellerId, className, fill }: { produc
       </div>
       {replyTo && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <CornerDownRight className="h-3.5 w-3.5" /> Replying to <b className="text-foreground">{replyTo.name}</b>
-          <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label="Cancel" title="Cancel"><X className="h-4 w-4" /></button>
+          <CornerDownRight className="h-3.5 w-3.5" /> {t('Replying to')} <b className="text-foreground">{replyTo.name}</b>
+          <button type="button" className="ml-auto flex h-6 w-6 items-center justify-center rounded-full hover:bg-muted" onClick={() => setReplyTo(null)} aria-label={t('Cancel')} title={t('Cancel')}><X className="h-4 w-4" /></button>
         </p>
       )}
       <MentionSuggestions value={text} onChange={setText} />
       <form onSubmit={send} className="flex gap-2">
-        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={replyTo ? `Reply to ${replyTo.name}…` : 'Add a comment…'} maxLength={500} className="h-10" />
+        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={replyTo ? `Reply to ${replyTo.name}…` : t('Add a comment…')} maxLength={500} className="h-10" />
         <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={sending || !text.trim()} aria-label="Send comment" title="Send comment">
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>

@@ -310,6 +310,16 @@ function restock(order) {
   for (const item of parse(order.items) ?? []) {
     db.prepare('update products set stock = stock + ? where id = ? and stock is not null').run(item.quantity, item.productId);
   }
+  // A live-drop place this order bought goes back to the queue too: the item is on sale again, so the place is.
+  const freed = db.prepare("select c.id, c.drop_id, d.live_id from live_claims c join live_drops d on d.id = c.drop_id where c.order_id = ? and c.status = 'paid'").all(order.id);
+  for (const claim of freed) db.prepare("update live_claims set status = 'released' where id = ?").run(claim.id);
+  // Told to the live once the change is saved (restock runs inside the cancelling transaction).
+  if (freed.length) queueMicrotask(() => {
+    for (const claim of freed) {
+      const drop = db.prepare('select * from live_drops where id = ?').get(claim.drop_id);
+      if (drop) liveEvent(claim.live_id, { type: 'drop', drop: dropOut(drop, null) });
+    }
+  });
 }
 const ORDER_STATUSES = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
@@ -1466,8 +1476,10 @@ route('POST', '/api/orders', ({ user, body }) => {
     for (const line of lines) {
       const held = db.prepare(`select c.id, c.drop_id, d.live_id from live_claims c join live_drops d on d.id = c.drop_id
         where c.user_id = ? and c.status = 'held' and d.product_id = ?`).all(user.id, String(line.productId));
+      // The order that bought it (one order per shop), so a cancellation can give this place back.
+      const orderId = ids.find((o) => o.group.items.some((i) => i.productId === String(line.productId)))?.id ?? null;
       for (const claim of held) {
-        db.prepare("update live_claims set status = 'paid' where id = ?").run(claim.id);
+        db.prepare("update live_claims set status = 'paid', order_id = ? where id = ?").run(orderId, claim.id);
         paidDrops.push(claim);
       }
     }

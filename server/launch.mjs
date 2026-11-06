@@ -149,5 +149,28 @@ export function launchNumbers() {
     { label: 'Daily ÷ monthly users at 20%+', met: by.stickiness.status === 'good' },
     { label: 'People save items or add them to the bag', met: saves7 + carts7 >= MIN_SAMPLE },
   ];
-  return { trackingSince: one('select min(day) as d from active_days')?.d ?? null, groups, ready };
+  return { trackingSince: one('select min(day) as d from active_days')?.d ?? null, groups, ready, funnel: funnel(since30) };
+}
+
+/**
+ * Where buyers drop off, last 30 days: how many different people reached each step.
+ * People, not events (one person viewing 40 items counts once). Try-on is optional on the way to an order,
+ * so each step's share is of the people who saw an item, plus the share of the step just before.
+ * Views and try-ons come from interactions, which only people who accepted personalisation send.
+ */
+function funnel(since) {
+  const people = (sql) => n(sql, since);
+  const steps = [
+    { key: 'saw', label: 'Saw an item', value: people("select count(distinct user_id) as n from interactions where created_at > ? and kind in ('view', 'dwell', 'complete')") },
+    { key: 'tried', label: 'Tried it on', value: people("select count(distinct user_id) as n from interactions where created_at > ? and kind = 'wear'") },
+    { key: 'bag', label: 'Added to the bag', value: people('select count(distinct user_id) as n from cart_history where added_at > ?') },
+    { key: 'ordered', label: 'Ordered', value: people("select count(distinct buyer_id) as n from orders where created_at > ? and status != 'cancelled'") },
+    { key: 'delivered', label: 'Got it delivered', value: people("select count(distinct buyer_id) as n from orders where created_at > ? and status = 'delivered'") },
+  ];
+  const top = steps[0].value;
+  return steps.map((step, i) => ({
+    ...step,
+    ofTop: top ? step.value / top : null,
+    ofPrevious: i && steps[i - 1].value ? step.value / steps[i - 1].value : null,
+  }));
 }

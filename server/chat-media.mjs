@@ -7,6 +7,7 @@ import { createReadStream, existsSync, mkdirSync, statSync, unlinkSync, writeFil
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { DATA_DIR, db, json, parse } from './db.mjs';
+import { derivedKey } from './secrets.mjs';
 
 const CHAT_DIR = join(DATA_DIR, 'chat');
 mkdirSync(CHAT_DIR, { recursive: true });
@@ -18,7 +19,16 @@ export const CHAT_LIMITS = {
 };
 const LINK_HOURS = 6;
 
+// Links are signed with a key derived from the secret kept outside the database (secrets.mjs), so a copy of the
+// database cannot be used to make working links. The older secret in app_config is used only on a server without
+// that key; once the outside key is there, the old one is deleted (links made with it simply expire within hours).
+let outside;
 function secret() {
+  if (outside === undefined) {
+    outside = derivedKey('chat-files');
+    if (outside) db.prepare("delete from app_config where key = 'chat_files'").run();
+  }
+  if (outside) return outside;
   let s = parse(db.prepare("select value from app_config where key = 'chat_files'").get()?.value)?.secret;
   if (!s) {
     s = randomBytes(32).toString('hex');

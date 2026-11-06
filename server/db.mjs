@@ -811,6 +811,8 @@ for (const [table, column, type] of [
   // Clearing a chat empties it for the person who did it, not for the other side: their messages before this time
   // are hidden from the clearer's view, and the chat leaves their list until something new arrives.
   ['conversations', 'buyer_cleared_at', 'text'], ['conversations', 'seller_cleared_at', 'text'],
+  // The order that bought a live-drop place, so cancelling that order gives the place back to the queue.
+  ['live_claims', 'order_id', 'text'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);

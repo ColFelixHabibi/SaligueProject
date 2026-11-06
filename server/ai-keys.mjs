@@ -9,8 +9,8 @@
 //   DEEPSEEK_API_URL   only for a proxy or a test server (default https://api.deepseek.com)
 //   DEEPSEEK_MODEL     the model AI writing uses (default deepseek-chat)
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { db, json, now, parse } from './db.mjs';
+import { outsideKey } from './secrets.mjs';
 
 const API = (process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
 
@@ -35,20 +35,6 @@ const OLD = 'enc1:';
 const NEW = 'enc2:';
 const HEX = /^[a-f0-9]{64}$/;
 
-/** The sealing key from outside the database, or null when this server has none (then enc1 is still used). */
-function outsideKey() {
-  const fromEnv = process.env.SALIGUE_SEAL_KEY?.trim().toLowerCase();
-  if (fromEnv) {
-    if (!HEX.test(fromEnv)) throw new Error('SALIGUE_SEAL_KEY must be 64 hex characters (openssl rand -hex 32).');
-    return Buffer.from(fromEnv, 'hex');
-  }
-  const file = process.env.SALIGUE_SEAL_FILE || '/etc/saligue/seal.key';
-  if (!existsSync(file)) return null;
-  const text = readFileSync(file, 'utf8').trim().toLowerCase();
-  if (!HEX.test(text)) throw new Error(`${file} must hold 64 hex characters (openssl rand -hex 32).`);
-  return Buffer.from(text, 'hex');
-}
-
 /** The older key in app_config. make: create it when missing (only when there is no outside key to use instead). */
 function databaseKey(make) {
   const saved = parse(db.prepare('select value from app_config where key = ?').get(BOX)?.value)?.secret;
@@ -59,8 +45,7 @@ function databaseKey(make) {
   return Buffer.from(fresh, 'hex');
 }
 
-let outside; // read once (undefined = not read yet), so starting the server never touches anything for nothing
-const outsideSealingKey = () => (outside === undefined ? (outside = outsideKey()) : outside);
+const outsideSealingKey = outsideKey;
 
 function encrypt(key, prefix, secret) {
   const iv = randomBytes(12);

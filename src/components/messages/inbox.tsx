@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
+import { useT } from '@/lib/i18n';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
 import { clearConversation, useConversation, useInbox } from '@/lib/messages';
@@ -232,6 +233,7 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
 export function Inbox({ base = '/messages', embedded = false }: { base?: string; embedded?: boolean }) {
   const { role } = useAuth();
   const { toast } = useToast();
+  const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const openId = params.get('c');
@@ -246,18 +248,18 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
   // Clearing asks first: it is one tap away by accident and there is no undo in the app.
   const clear = async (c: Conversation) => {
     const answer = await ask({
-      title: `Clear the chat with ${c.other.name}?`,
-      description: 'It leaves your list and its messages stop showing here. The other person keeps their copy and is not told, and an order or a payment is never affected.',
-      confirm: 'Delete',
+      title: `${t('Clear chat')}: ${c.other.name}?`,
+      description: t('It leaves your list and its messages stop showing here. The other person keeps their copy and is not told, and an order or a payment is never affected.'),
+      confirm: t('Delete'),
       destructive: true,
     });
     if (!answer) return;
     try {
       await clearConversation(c.id);
       if (openId === c.id) open(null);
-      toast({ title: 'Chat cleared' });
+      toast({ title: t('Chat cleared') });
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Could not clear this chat', description: friendlyError(e) });
+      toast({ variant: 'destructive', title: t('Could not clear this chat'), description: friendlyError(e) });
     }
   };
 

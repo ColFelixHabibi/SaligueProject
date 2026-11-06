@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { useNotificationStore, Notification } from '@/hooks/use-notification-store';
 import { useDashboardSearchStore } from '@/hooks/use-dashboard-search-store';
 import { useToast } from '@/hooks/use-toast';
+import { useT } from '@/lib/i18n';
 
 
 const getIconForType = (type: string) => {
@@ -39,6 +40,7 @@ const getIconForType = (type: string) => {
 export default function NotificationsPage() {
     const { notifications, markAsRead, markAllAsRead, remove, clearAll } = useNotificationStore();
     const { toast } = useToast();
+    const t = useT();
     const router = useRouter();
     const { searchQuery } = useDashboardSearchStore();
 
@@ -63,14 +65,14 @@ export default function NotificationsPage() {
     // Clearing asks first: it is one tap away by accident and there is no undo.
     const clearAllNow = async () => {
         const answer = await ask({
-            title: 'Clear all notifications?',
-            description: 'They are removed from this account only. Your orders, chats and money are not touched.',
-            confirm: 'Delete',
+            title: t('Clear all notifications?'),
+            description: t('They are removed from this account only. Your orders, chats and money are not touched.'),
+            confirm: t('Delete'),
             destructive: true,
         });
         if (!answer) return;
         clearAll();
-        toast({ title: 'Notifications cleared' });
+        toast({ title: t('Notifications cleared') });
     };
 
     return (
@@ -82,13 +84,13 @@ export default function NotificationsPage() {
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                     {/* Round icons on a phone, with their words from tablet width up. */}
-                    <Button variant="outline" onClick={markAllAsRead} disabled={!notifications.length} title="Mark all as read" aria-label="Mark all as read" className="h-10 w-10 rounded-full p-0 sm:w-auto sm:px-4">
+                    <Button variant="outline" onClick={markAllAsRead} disabled={!notifications.length} title={t('Mark all as read')} aria-label={t('Mark all as read')} className="h-10 w-10 rounded-full p-0 sm:w-auto sm:px-4">
                         <CheckCheck className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Mark all as read</span>
+                        <span className="hidden sm:inline">{t('Mark all as read')}</span>
                     </Button>
-                    <Button variant="outline" onClick={() => void clearAllNow()} disabled={!notifications.length} className="h-10 w-10 rounded-full p-0 text-destructive hover:text-destructive sm:w-auto sm:px-4" title="Delete every notification" aria-label="Clear all notifications">
+                    <Button variant="outline" onClick={() => void clearAllNow()} disabled={!notifications.length} className="h-10 w-10 rounded-full p-0 text-destructive hover:text-destructive sm:w-auto sm:px-4" title={t('Clear all')} aria-label={t('Clear all notifications?').replace('?', '')}>
                         <Trash2 className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Clear all</span>
+                        <span className="hidden sm:inline">{t('Clear all')}</span>
                     </Button>
                 </div>
             </div>

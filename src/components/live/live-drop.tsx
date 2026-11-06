@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import type { LiveDrop } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 /**
  * Saligue Live drops: the host holds one item up during the live and shoppers claim a place, first come
@@ -23,6 +24,7 @@ export function LiveDropCard({ drop, signedIn, busy, onClaim, onPay, onRelease, 
   onRelease: (dropId: string) => void;
   className?: string;
 }) {
+  const t = useT();
   // My place runs out after ten minutes; the clock is the same one live deals use.
   const left = useCountdown(drop.mine?.expiresAt);
   const mine = !!drop.mine && !!left;
@@ -34,18 +36,21 @@ export function LiveDropCard({ drop, signedIn, busy, onClaim, onPay, onRelease, 
       <img src={drop.image ?? undefined} alt="" className="h-14 w-14 shrink-0 rounded-xl bg-muted object-contain p-1" />
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-primary">
-          <Ticket className="h-3 w-3" /> {mine ? 'Yours to pay for' : drop.open ? 'Live drop · claim it' : 'Live drop'}
+          <Ticket className="h-3 w-3" /> {mine ? t('Yours to pay for') : drop.open ? t('Live drop · claim it') : t('Live drop')}
         </p>
         <p className="truncate text-sm font-semibold">{drop.name}</p>
         <p className="text-sm font-extrabold">
           {formatPrice(drop.price)}
           {saving && <s className="ml-2 text-xs font-semibold text-muted-foreground">{formatPrice(drop.was)}</s>}
-          {!mine && drop.open && <span className="ml-2 text-xs font-semibold text-amber-600">{places === 1 ? 'Last one' : `${places} left`}</span>}
+          {/* Places left as a ticket and a number: the same in every language. */}
+          {!mine && drop.open && (places === 1
+            ? <span className="ml-2 text-xs font-semibold text-amber-600">{t('Last one')}</span>
+            : <span className="ml-2 inline-flex items-center gap-0.5 text-xs font-semibold text-amber-600" title={`${places} places left`}><Ticket className="h-3 w-3" /> {places}</span>)}
         </p>
         {mine ? (
           <p className="flex items-center gap-1 text-xs font-semibold text-primary" title="Pay before the timer ends or the place goes to someone else">
             <span className="inline-flex items-center gap-0.5 rounded-full bg-primary px-1.5 py-0.5 font-extrabold tabular-nums text-primary-foreground"><Timer className="h-3 w-3" /> {left}</span>
-            <span className="truncate">to pay, then it goes to the next one</span>
+            <span className="truncate">{t('to pay, then it goes to the next one')}</span>
           </p>
         ) : drop.claimed > 0 ? (
           <p className="truncate text-xs text-muted-foreground">
@@ -57,18 +62,18 @@ export function LiveDropCard({ drop, signedIn, busy, onClaim, onPay, onRelease, 
         {mine ? (
           <>
             <button type="button" onClick={() => onPay(drop)} className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground">
-              <ShoppingBag className="h-3.5 w-3.5" /> Pay now
+              <ShoppingBag className="h-3.5 w-3.5" /> {t('Pay now')}
             </button>
             <button type="button" onClick={() => onRelease(drop.id)} disabled={busy} className="flex items-center justify-center gap-1 rounded-full bg-muted px-3 py-1.5 text-xs font-bold disabled:opacity-50">
-              <X className="h-3.5 w-3.5" /> Let it go
+              <X className="h-3.5 w-3.5" /> {t('Let it go')}
             </button>
           </>
         ) : drop.open ? (
           <button type="button" onClick={() => onClaim(drop.id)} disabled={busy || !signedIn} title={signedIn ? 'Take a place' : 'Create an account to claim'} className="flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground disabled:opacity-60">
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {signedIn ? 'Claim' : 'Sign in to claim'}
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {signedIn ? t('Claim') : t('Sign in to claim')}
           </button>
         ) : (
-          <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">All claimed</span>
+          <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground">{t('All claimed')}</span>
         )}
       </div>
     </div>

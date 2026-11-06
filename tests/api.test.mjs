@@ -582,6 +582,13 @@ describe('profiles, lives and the admin log', () => {
     assert.deepEqual(sold.claimers, [{ name: 'Slow Shopper', paid: true }]);
     assert.equal((await call(`/lives/${live.id}`, { token: b.token })).json.drops[0].mine, null, 'a paid place is no longer waiting on me');
     assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { token: a.token, body: {} })).json.error.code, 'all_claimed');
+    // The buyer cancels that order: the item is on sale again, and so is the place.
+    const placed = (await call('/orders', { token: b.token })).json[0];
+    assert.equal((await call(`/orders/${placed.id}`, { method: 'PATCH', token: b.token, body: { status: 'cancelled' } })).status, 200);
+    const reopened = (await call(`/lives/${live.id}`, { token: shop.token })).json.drops[0];
+    assert.equal(reopened.claimed, 0, 'the cancelled order gave its place back');
+    assert.equal(reopened.open, true);
+    assert.equal((await call(`${dropAt}/${drop.json.id}/claim`, { token: a.token, body: {} })).status, 200, 'and someone else can claim it');
 
     // The host moves on: the drop closes, so the place can no longer be claimed.
     assert.equal((await call(`${dropAt}/${drop.json.id}`, { method: 'DELETE', token: shop.token })).status, 200);
@@ -593,6 +600,39 @@ describe('profiles, lives and the admin log', () => {
     const after = await call(`${dropAt}/${again.id}/claim`, { token: b.token, body: {} });
     assert.equal(after.status, 410);
     assert.equal(after.json.error.code, 'ended');
+  });
+
+  test('a chat photo opens only through its signed link, signed with a key kept outside the database', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official);
+    await sampleShop(product.id);
+    const buyer = await register('Photo Sender');
+    const started = await call('/conversations', { token: buyer.token, body: { productId: product.id } });
+    assert.equal(started.status, 200, JSON.stringify(started.json));
+    const conversationId = started.json.id ?? started.json.conversation?.id;
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#e21376' } }).png().toBuffer();
+    const sent = await fetch(`${base}/api/conversations/${conversationId}/attachments/image`, { method: 'PUT', headers: { Authorization: `Bearer ${buyer.token}`, 'Content-Type': 'image/png' }, body: png });
+    const message = await sent.json();
+    assert.equal(sent.status, 200, JSON.stringify(message));
+    const link = message.attachment.url;
+    assert.match(link, /^\/api\/chat-files\/[a-f0-9-]{36}\.jpg\?e=\d+&s=/);
+    const opened = await fetch(`${base}${link}`);
+    assert.equal(opened.status, 200);
+    assert.equal(opened.headers.get('content-type'), 'image/jpeg');
+    // One character changed in the signature, or no signature: nothing.
+    const s = new URL(link, base).searchParams.get('s');
+    const forged = link.replace(`s=${s}`, `s=${(s[0] === 'A' ? 'B' : 'A')}${s.slice(1)}`);
+    assert.equal((await fetch(`${base}${forged}`)).status, 404);
+    assert.equal((await fetch(`${base}${link.split('?')[0]}`)).status, 404);
+    // Someone outside the chat cannot add to it.
+    const stranger = await register('Chat Stranger');
+    const intruder = await fetch(`${base}/api/conversations/${conversationId}/attachments/image`, { method: 'PUT', headers: { Authorization: `Bearer ${stranger.token}`, 'Content-Type': 'image/png' }, body: png });
+    assert.notEqual(intruder.status, 200);
+    // The signing secret is not in the database: a copy of it cannot make working links.
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    assert.equal(db.prepare("select count(*) as n from app_config where key = 'chat_files'").get().n, 0);
+    db.close();
   });
 
   test('changing the money rules logs only what changed, in words, with tidy numbers', async () => {
