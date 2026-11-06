@@ -48,7 +48,16 @@ export async function pushState(): Promise<PushState> {
 }
 
 let nativeListening = false;
+// Registering for push on Android without Firebase set up (no google-services.json in the app) is not an error the
+// app can catch: Android closes the whole app, at every start once push was remembered as on. So the app registers
+// only when the server says app push is set up (GET /push → app: true), and otherwise forgets it was on.
 async function nativeRegister() {
+  const support = await server().catch(() => null);
+  if (!support?.app) {
+    // Forgotten only when the server answered "no app push"; offline, it simply waits for the next start.
+    if (support) remember(false);
+    throw new Error('Notifications are not available in the app yet.');
+  }
   const { PushNotifications } = await import('@capacitor/push-notifications');
   if (!nativeListening) {
     nativeListening = true;
