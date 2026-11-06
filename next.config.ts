@@ -1,5 +1,6 @@
 
 import type {NextConfig} from 'next';
+import { siteUrl } from './scripts/site-url.mjs';
 
 // Set when building for GitHub Pages, which serves the site from /<repo-name>.
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
@@ -15,6 +16,8 @@ const buildCpus = Math.max(1, Math.min(16, Math.round(Number(process.env.SALIGUE
 const nextConfig: NextConfig = {
   // Static export: served by Saligue's own server (server/), or hosted elsewhere such as GitHub Pages.
   output: 'export',
+  // The public address for share cards (src/app/layout.tsx), from the same place the server and app builds read it.
+  env: { NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || siteUrl() },
   basePath,
   trailingSlash: true,
   typescript: {

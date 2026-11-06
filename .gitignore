@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Saligue database files (server/db.mjs)
 /data/
+
+# Play Store bundles (scripts/build-app.mjs --aab): built for the Play Console, never committed.
+/dist/

@@ -2,14 +2,18 @@
 //   node scripts/build-app.mjs                 → bundle everything (AI models inside the app, works offline)
 //   node scripts/build-app.mjs --apk           → also build the Android app (signed release APK) into data/downloads/saligue.apk;
 //                                                AI models load from the server, so the app stays small
-// SALIGUE_SERVER sets the server address (default: SITE_URL, else the live link).
+//   node scripts/build-app.mjs --aab           → also build the Play Store bundle (signed .aab) into dist/saligue-<version>.aab
+// The server address comes from scripts/site-url.mjs (SALIGUE_SERVER, SITE_URL, or /etc/saligue.env).
 // The app build temporarily replaces the website's build (out/); with --apk the website is rebuilt at the end.
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { siteUrl } from './site-url.mjs';
 
-const apk = process.argv.includes('--apk');
-const server = (process.env.SALIGUE_SERVER || process.env.SITE_URL || 'https://78-47-151-100.sslip.io').replace(/\/+$/, '');
+const aab = process.argv.includes('--aab');
+// A Play Store bundle is built like the APK: models load from the server, so the app stays small.
+const apk = process.argv.includes('--apk') || aab;
+const server = siteUrl();
 const DATA = resolve(process.env.SALIGUE_DATA || 'data');
 // The app knows its own version, so it can tell when the server has a newer one (update banner).
 const gradle = readFileSync('android/app/build.gradle', 'utf8');
@@ -64,7 +68,18 @@ if (apk) {
   copyFileSync(built, join(target, 'saligue.apk'));
   // Installed apps compare this with their own version and offer the update.
   writeFileSync(join(target, 'saligue.json'), JSON.stringify({ versionCode, versionName, builtAt: new Date().toISOString() }));
+  // The Play Store takes a bundle, not an APK. Same code, same version, same signing key: enrol it in Play App
+  // Signing with this existing key (not a key Google makes), or phones that installed the APK cannot update from Play.
+  // It goes to dist/, never to data/downloads: the bundle is for the Play Console, not for phones.
+  if (aab) {
+    run('./gradlew --no-daemon bundleRelease', 'android');
+    const bundle = 'android/app/build/outputs/bundle/release/app-release.aab';
+    if (!existsSync(bundle)) throw new Error('No signed bundle came out of bundleRelease.');
+    mkdirSync('dist', { recursive: true });
+    copyFileSync(bundle, join('dist', `saligue-${versionName}-${versionCode}.aab`));
+  }
   // Put the website's own build back (with its AI models), so the live site keeps working.
   execSync('npm run build', { stdio: 'inherit', env: { ...process.env, NEXT_PUBLIC_API_URL: '', NEXT_PUBLIC_MODELS_URL: '', NEXT_PUBLIC_BUNDLED_MODELS: '' } });
-  console.log(`Android app ready: ${server}/download/saligue.apk (website rebuilt; restart the server)`);
+  console.log(`Android app ready: ${server}/download/saligue.apk${aab ? ` and dist/saligue-${versionName}-${versionCode}.aab for the Play Console` : ''}.`);
+  console.log('Website rebuilt and live. Restart the server only if server/ changed since it last started.');
 }
