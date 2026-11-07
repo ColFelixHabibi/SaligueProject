@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ask } from '@/components/confirm-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { api, getToken } from '@/lib/api';
+import { api, apiUrl, getToken } from '@/lib/api';
 import { saveImage } from '@/lib/save-file';
 import { logout } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
@@ -66,7 +66,7 @@ export function DownloadData() {
     setBusy(true);
     try {
       const token = getToken();
-      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/auth/me/export`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const r = await fetch(apiUrl('/auth/me/export'), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       if (!r.ok) throw new Error('export failed');
       const url = URL.createObjectURL(await r.blob());
       await saveImage(url, `saligue-my-data-${new Date().toISOString().slice(0, 10)}.json`);

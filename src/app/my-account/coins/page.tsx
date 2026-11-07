@@ -10,6 +10,7 @@ import { friendlyError } from '@/lib/errors';
 import { buyCoins, getCoins, type Coins as CoinsInfo } from '@/lib/live';
 import { isNativeApp } from '@/lib/native';
 import { formatPrice } from '@/lib/orders';
+import { siteHost } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 
 /** Coins: what you have, buying more (100 coins = $1), and every coin in and out. */
@@ -59,7 +60,7 @@ export default function MyCoins() {
           {native ? (
             <p className="col-span-full text-sm leading-relaxed text-muted-foreground">
               Apple and Google require their own payment for coins spent inside an app, so Saligue does not sell
-              coins here. Buy them at <b className="select-all text-foreground">saligue.com</b> on the web, and they
+              coins here. Buy them at <b className="select-all text-foreground">{siteHost()}</b> on the web, and they
               are in this same account when you come back. Coins you are given, and gifts you receive, still
               arrive here.
             </p>

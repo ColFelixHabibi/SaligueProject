@@ -1,5 +1,7 @@
 'use client';
 
+import { apiUrl } from './api';
+
 // Sends crashes to the Saligue server (server log), so problems on shoppers' phones can be found and fixed.
 const sent = new Set<string>();
 
@@ -9,7 +11,7 @@ export function reportError(error: unknown, where?: string) {
     const message = String(e?.message ?? error).slice(0, 500);
     if (sent.has(message) || sent.size > 20) return;
     sent.add(message);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/client-errors`, {
+    fetch(apiUrl('/client-errors'), {
       method: 'POST',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },

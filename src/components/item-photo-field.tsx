@@ -44,6 +44,8 @@ export function ItemPhotoField({ photo, photoType = 'item', onPhotoTypeChange, o
       setBusy('Checking it is a fashion item…');
       const check = await api<{ fashion: boolean; looksLike: string | null; suggestion: FashionSuggestion | null }>('/ai/fashion-check', {
         body: { image: prepared.image },
+        // The photo travels in the body and the server's vision model may still be loading, so this waits longer.
+        timeoutMs: 60_000,
       }).catch(() => ({ fashion: true, looksLike: null, suggestion: null }));
       if (!check.fashion) {
         toast({

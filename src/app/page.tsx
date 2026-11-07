@@ -17,6 +17,7 @@ import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
 import { useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { useLives } from '@/lib/lives';
+import { StoryBar } from '@/components/social/story-bar';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -289,7 +290,7 @@ export default function ForYouPage() {
           ))}
         </nav>
       </div>
-      <div className={cn('pointer-events-none sticky top-0 z-40 flex h-0 justify-start px-3', mode !== 'foryou' && 'hidden')}>
+      <div className={cn('pointer-events-none sticky top-0 z-40 flex h-0 justify-start gap-3 px-3', mode !== 'foryou' && 'hidden')}>
         {/* Who is live: the seller's photo in a pink ring with a LIVE tag, like stories. */}
         {on('live') && lives.length > 0 && (
           <Link href={lives.length === 1 ? `/live/watch?id=${lives[0].id}` : '/live'} aria-label={`${lives.length} live now`} className="pointer-events-auto relative mt-14 flex flex-col items-center">
@@ -301,6 +302,8 @@ export default function ForYouPage() {
             </span>
           </Link>
         )}
+        {/* Stories, beside the live ring: your own first, then everyone whose status you can watch. */}
+        <StoryBar compact className="mt-14 min-w-0 flex-1" />
       </div>
       {mode === 'learn' ? (
         <LessonFeed breakReminder={false} className="h-full pt-0 [&>div:first-child]:top-12" />

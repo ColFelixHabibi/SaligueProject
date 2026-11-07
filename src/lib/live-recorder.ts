@@ -1,13 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, getToken } from './api';
+import { api, apiUrl, getToken } from './api';
 
 // Records the live for the replay, on the host's phone: the stage as viewers see it (the host, and guests on
 // camera in the same layout) with everyone's sound mixed, drawn onto a canvas so flipping a camera, a guest
 // joining or leaving never breaks the recording. Sent to Saligue in 10-second pieces while live.
 
-const API = `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api`;
 const TYPES = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
 
 /** One person on camera: their current camera and microphone tracks (host first). */
@@ -111,7 +110,7 @@ export function useLiveRecorder(liveId: string | null, active: boolean, sources:
         for (let attempt = 0; attempt < 4; attempt++) {
           try {
             const token = getToken();
-            const r = await fetch(`${API}/lives/${liveId}/recording?seq=${n}`, { method: 'PUT', body: blob, headers: { 'Content-Type': type.split(';')[0], ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+            const r = await fetch(apiUrl(`/lives/${liveId}/recording?seq=${n}`), { method: 'PUT', body: blob, headers: { 'Content-Type': type.split(';')[0], ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
             if (r.ok || r.status === 409) return;
           } catch {
             // Network hiccup: try again.

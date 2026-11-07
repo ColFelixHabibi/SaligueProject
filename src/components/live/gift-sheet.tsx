@@ -9,6 +9,7 @@ import { friendlyError } from '@/lib/errors';
 import { buyCoins, getCoins, sendGift, type Coins as CoinsInfo } from '@/lib/live';
 import { isNativeApp } from '@/lib/native';
 import { formatPrice } from '@/lib/orders';
+import { siteHost } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 
 /**
@@ -89,7 +90,7 @@ export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: st
             {native ? (
               <p className="text-sm leading-relaxed text-muted-foreground">
                 Apple and Google require their own payment for coins spent inside an app, so Saligue does not sell
-                coins here. Buy them at <b className="select-all text-foreground">saligue.com</b> on the web, and
+                coins here. Buy them at <b className="select-all text-foreground">{siteHost()}</b> on the web, and
                 they are in this same account when you come back. Coins you are given still arrive here.
               </p>
             ) : (

@@ -23,7 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useToast } from '@/hooks/use-toast';
-import { api, getToken } from '@/lib/api';
+import { api, apiUrl, getToken } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { Hub } from '@/components/layout/hub';
@@ -38,6 +38,10 @@ type Platform = {
   live: { enabled: boolean };
   stats: { users: number; sellers: number; products: number; orders: number };
 };
+
+// These settings are checked with the outside services before they are saved here: a mail server login, Flutterwave,
+// Hugging Face and the GPU server all take their own time to answer, so they are given longer than a usual call.
+const SLOW = 60_000;
 
 function Status({ on, label }: { on: boolean; label: [string, string] }) {
   return on ? (
@@ -84,7 +88,7 @@ function PlatformSettings() {
     setBusy('key');
     try {
       const token = getToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/admin/signing-key/file`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const response = await fetch(apiUrl('/admin/signing-key/file'), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       if (!response.ok) throw new Error('The key file could not be downloaded.');
       const url = URL.createObjectURL(await response.blob());
       const a = document.createElement('a');
@@ -151,7 +155,7 @@ function PlatformSettings() {
           ]} />
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
             e.preventDefault();
-            void act('mail', () => api('/admin/platform/mail', { method: 'PUT', body: mail }), 'Email connected').then((ok) => ok && setMail((m) => ({ ...m, password: '' })));
+            void act('mail', () => api('/admin/platform/mail', { method: 'PUT', body: mail, timeoutMs: SLOW }), 'Email connected').then((ok) => ok && setMail((m) => ({ ...m, password: '' })));
           }}>
             <div className="space-y-1.5"><Label htmlFor="mail-email">Email address</Label><Input id="mail-email" type="email" required value={mail.email} onChange={(e) => setMail({ ...mail, email: e.target.value })} placeholder="saligue.shop@gmail.com" /></div>
             <div className="space-y-1.5"><Label htmlFor="mail-pass">App password</Label><Input id="mail-pass" type="password" required value={mail.password} onChange={(e) => setMail({ ...mail, password: e.target.value })} placeholder="abcd efgh ijkl mnop" autoComplete="new-password" /></div>
@@ -165,7 +169,7 @@ function PlatformSettings() {
           {data.mail.connected && (
             <form className="flex flex-wrap items-end gap-2 border-t pt-4" onSubmit={(e) => {
               e.preventDefault();
-              void act('test', () => api('/admin/platform/test-email', { body: { to: testTo } }), `Test email sent to ${testTo}`);
+              void act('test', () => api('/admin/platform/test-email', { body: { to: testTo }, timeoutMs: SLOW }), `Test email sent to ${testTo}`);
             }}>
               <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="test-to">Send a test email to</Label><Input id="test-to" type="email" value={testTo} onChange={(e) => setTestTo(e.target.value)} /></div>
               <Button type="submit" variant="outline" disabled={busy === 'test'}>{busy === 'test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Send test</Button>
@@ -192,7 +196,7 @@ function PlatformSettings() {
           {data.payments.key && <p className="text-sm">Saved key: <b>{data.payments.key}</b> · 1 USD = {data.payments.rate} {data.payments.currency}</p>}
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
             e.preventDefault();
-            void act('pay', () => api('/admin/platform/payments', { method: 'PUT', body: { ...pay, rate: Number(pay.rate) } }), 'Online payments are on').then((ok) => ok && setPay((p) => ({ ...p, secretKey: '', secretHash: '' })));
+            void act('pay', () => api('/admin/platform/payments', { method: 'PUT', body: { ...pay, rate: Number(pay.rate) }, timeoutMs: SLOW }), 'Online payments are on').then((ok) => ok && setPay((p) => ({ ...p, secretKey: '', secretHash: '' })));
           }}>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="flw-key">Secret key</Label><Input id="flw-key" type="password" required value={pay.secretKey} onChange={(e) => setPay({ ...pay, secretKey: e.target.value })} placeholder="FLWSECK-…" autoComplete="off" /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="flw-hash">Webhook secret hash</Label><Input id="flw-hash" type="password" required minLength={8} value={pay.secretHash} onChange={(e) => setPay({ ...pay, secretHash: e.target.value })} autoComplete="off" /></div>
@@ -233,7 +237,7 @@ function PlatformSettings() {
           {data.aiServer && <p className="text-sm">Address: <b className="break-all">{data.aiServer.url}</b></p>}
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={(e) => {
             e.preventDefault();
-            void act('ai', () => api('/admin/platform/aiserver', { method: 'PUT', body: aiServer }), 'Own AI server connected').then((ok) => ok && setAiServer({ url: '', key: '' }));
+            void act('ai', () => api('/admin/platform/aiserver', { method: 'PUT', body: aiServer, timeoutMs: SLOW }), 'Own AI server connected').then((ok) => ok && setAiServer({ url: '', key: '' }));
           }}>
             <div className="space-y-1.5"><Label htmlFor="ai-url">Address</Label><Input id="ai-url" required value={aiServer.url} onChange={(e) => setAiServer({ ...aiServer, url: e.target.value })} placeholder="https://1-2-3-4.sslip.io" /></div>
             <div className="space-y-1.5"><Label htmlFor="ai-key">Secret key</Label><Input id="ai-key" type="password" required value={aiServer.key} onChange={(e) => setAiServer({ ...aiServer, key: e.target.value })} autoComplete="off" /></div>
@@ -288,7 +292,7 @@ function PlatformSettings() {
           {data.hf?.key && <p className="text-sm">Saved token: <b>{data.hf.key}</b></p>}
           <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
             e.preventDefault();
-            void act('hf', () => api('/admin/platform/hftoken', { method: 'PUT', body: { token: hfToken } }), 'Token saved: try-on has a bigger daily allowance').then((ok) => ok && setHfToken(''));
+            void act('hf', () => api('/admin/platform/hftoken', { method: 'PUT', body: { token: hfToken }, timeoutMs: SLOW }), 'Token saved: try-on has a bigger daily allowance').then((ok) => ok && setHfToken(''));
           }}>
             <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="hf-token">Hugging Face token</Label><Input id="hf-token" type="password" required value={hfToken} onChange={(e) => setHfToken(e.target.value)} autoComplete="off" placeholder="hf_…" /></div>
             <Button type="submit" disabled={busy === 'hf'}>{busy === 'hf' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save</Button>

@@ -126,6 +126,9 @@ async function cropBack(result: string, padded: Padded): Promise<string> {
 // One redraw at a time is queued behind the last (see realisticTryOn), so a request that never answers would hold
 // every other look behind it: a GPU that is busy or a network that has gone quiet ends here instead of hanging.
 const CALL_TIMEOUT = 180_000;
+// Through the Saligue server the same photo is tried on our own AI first and, when that fails, the paid one, each with
+// its own minutes (server/tryon.mjs): the app waits long enough for both, so a slow look is never cut off.
+const SERVER_CALL_TIMEOUT = 240_000;
 
 async function call(path: string, body: object): Promise<string> {
   const url = await getStudio();
@@ -208,7 +211,7 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
       const body = { person: padded.url, garment: await toJpeg(garmentUrl), category, description };
       for (let tries = 0; tries < 2; tries++) {
         const variant = attempts.get(key) ?? 0;
-        const look = (await getStudio()) ? { image: await call('/api/tryon', { ...body, variant }), finished: false } : await api<{ image: string; finished?: boolean }>('/ai/tryon', { body: { ...body, variant, consent: 'self' } });
+        const look = (await getStudio()) ? { image: await call('/api/tryon', { ...body, variant }), finished: false } : await api<{ image: string; finished?: boolean }>('/ai/tryon', { body: { ...body, variant, consent: 'self' }, timeoutMs: SERVER_CALL_TIMEOUT });
         const image = look.image;
         // The paid try-on (fal.ai FASHN) returns a finished, clean photo: shown as it is. Cutting out "only what
         // changed" was made for the free models, and on a good picture it leaves halos around the garment.

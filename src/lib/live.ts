@@ -32,6 +32,8 @@ export function useLive(id: string | null, me: string | null) {
   // The newest gift, shown big for a few seconds to everyone.
   const [gift, setGift] = useState<{ key: number; from: string; emoji: string; name: string } | null>(null);
   const burstId = useRef(0);
+  // The poll on screen now: my answer means nothing once the host opens a new one.
+  const pollId = useRef<string | null>(null);
 
   const burst = useCallback((emoji: string, count = 1) => {
     const added = Array.from({ length: Math.min(count, 6) }, () => ({ id: ++burstId.current, emoji, x: 10 + Math.random() * 60 }));
@@ -44,6 +46,7 @@ export function useLive(id: string | null, me: string | null) {
     try {
       const d = await api<{ live: Live; comments: LiveComment[]; guests: LiveGuest[]; drops?: LiveDrop[]; myGuestStatus: typeof myGuestStatus; muted: boolean; invited?: boolean; myVote?: number | null; blockedWords?: string[] }>(`/lives/${id}`);
       setMyVote(d.myVote ?? null);
+      pollId.current = d.live.poll?.id ?? null;
       if (d.blockedWords) setBlockedWords(d.blockedWords);
       setLive(withMedia(d.live));
       setComments(d.comments);
@@ -71,11 +74,14 @@ export function useLive(id: string | null, me: string | null) {
         if (d.from !== me) burst(d.emoji, d.count);
       }
       if (d.type === 'updated') {
-        setLive((old) => {
-          // A new poll: my answer to the old one no longer counts.
-          if (old?.poll?.id !== d.live.poll?.id) setMyVote(null);
-          return withMedia(d.live);
-        });
+        const fresh = withMedia(d.live);
+        // A new poll: my answer to the old one no longer counts.
+        const poll = fresh.poll?.id ?? null;
+        if (poll !== pollId.current) {
+          pollId.current = poll;
+          setMyVote(null);
+        }
+        setLive(fresh);
       }
       if (d.type === 'ended') setLive((l) => (l ? { ...l, status: 'ended' } : l));
       if (d.type === 'drop') {

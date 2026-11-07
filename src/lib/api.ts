@@ -1,17 +1,50 @@
 'use client';
 
+import { isNativeApp } from './native';
+
 // Talks to Saligue's own server (server/index.mjs). By default it is the same address that serves the app;
 // NEXT_PUBLIC_API_URL points a separately hosted site (e.g. GitHub Pages) at the server instead.
-const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+const CONFIGURED_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+// Inside the phone app the pages come from the phone itself (https://localhost), where there is no server at all.
+// An app built without NEXT_PUBLIC_API_URL therefore sent every request into the void and opened on "Saligue can't
+// be reached" even with full signal. There the address baked in at build time (next.config.ts → NEXT_PUBLIC_SITE_URL)
+// is the only real one. The website is untouched: its own origin really does serve /api, and a dev server on
+// localhost is not the app.
+let cachedOrigin: string | null = null;
+function apiOrigin() {
+  if (cachedOrigin === null) {
+    const onDevice = isNativeApp() && /^(https?|capacitor):\/\/localhost(:\d+)?$/.test(window.location.origin);
+    cachedOrigin = (CONFIGURED_ORIGIN || (onDevice ? (process.env.NEXT_PUBLIC_SITE_URL ?? '') : '')).replace(/\/+$/, '');
+  }
+  return cachedOrigin;
+}
 const TOKEN_KEY = 'saligue-session';
+
+// Every request gives up after this long. A request can stall instead of failing (HTTP/3 packets dropped part-way,
+// a proxy that goes quiet) and without a limit the catalogue, the feed and the account screens never filled in: the
+// page stayed on its grey placeholders, which reads as a blank white screen. Sign-in at start asks for less.
+const TIMEOUT_MS = 20_000;
+const TOO_LONG = 'Saligue is taking too long to answer. Check your network and try again.';
+
+/** Stops a request that has not answered within `ms`. AbortSignal.timeout is missing in older Android WebViews and
+ *  throwing there would have been reported as a broken connection, so the deadline is kept by hand. */
+export function deadline(ms: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ms);
+  return { signal: controller.signal, timedOut: () => timedOut, clear: () => clearTimeout(timer) };
+}
 
 /** Full address of a picture stored on the Saligue server ("/media/…"), also when the website is hosted elsewhere. */
 export function mediaUrl<T extends string | undefined>(path: T): T {
-  return (path?.startsWith('/media/') ? `${API_ORIGIN}${path}` : path) as T;
+  return (path?.startsWith('/media/') ? `${apiOrigin()}${path}` : path) as T;
 }
 
 /** Full address of a server API path ("/products/…"), also inside the phone app. */
-export const apiUrl = (path: string) => `${API_ORIGIN}/api${path}`;
+export const apiUrl = (path: string) => `${apiOrigin()}/api${path}`;
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -41,32 +74,50 @@ export function setToken(token: string | null) {
   if (changed) reconnectServerEvents();
 }
 
-// timeoutMs: give up after this long. For calls the whole app waits on (signing in at start): on some networks a
-// request stalls instead of failing (HTTP/3 packets dropped part-way), and without a limit the page waits forever.
+// timeoutMs: give up after this long (TIMEOUT_MS unless asked otherwise). For calls the whole app waits on
+// (signing in at start): on some networks a request stalls instead of failing (HTTP/3 packets dropped part-way),
+// and without a limit the page waits forever.
 export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
   const token = getToken();
-  let response: Response;
+  // Turned into JSON before the request: a body that cannot be written is a bug here, never a broken connection.
+  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  const limit = deadline(options.timeoutMs ?? TIMEOUT_MS);
+  const origin = apiOrigin();
   try {
-    response = await fetch(`${API_ORIGIN}/api${path}`, {
-      method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
+    const response = await fetch(`${origin}/api${path}`, {
+      method: options.method ?? (body === undefined ? 'GET' : 'POST'),
       headers: {
-        ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      // Same site: the session cookie goes along too (the server sets it HttpOnly).
-      credentials: API_ORIGIN ? 'omit' : 'same-origin',
-      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+      body,
+      // Same site: the session cookie goes along too (the server sets it HttpOnly). A server on another address
+      // simply gets no cookie, which is why the token above is what every request really travels on.
+      credentials: 'same-origin',
+      signal: limit.signal,
     });
+    // Read inside the deadline: an answer that stops part-way would otherwise wait forever as well.
+    const data = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+    if (limit.timedOut()) throw new ApiError(0, 'timeout', TOO_LONG);
+    if (!response.ok) {
+      throw new ApiError(response.status, data?.error?.code ?? 'server_error', data?.error?.message ?? 'Something went wrong. Please try again.');
+    }
+    return data as T;
   } catch (error) {
-    if ((error as Error)?.name === 'TimeoutError') throw new ApiError(0, 'timeout', 'Saligue is taking too long to answer. Check your network and try again.');
-    throw new ApiError(0, 'unavailable', 'No connection to Saligue. Check your network and try again.');
+    // The server answered "no": its own word is passed on untouched.
+    if (error instanceof ApiError) throw error;
+    // Only a real network failure is called one; anything else is our own fault and says so instead of blaming the
+    // shopper's connection.
+    const name = (error as Error)?.name;
+    if (limit.timedOut() || name === 'TimeoutError') throw new ApiError(0, 'timeout', TOO_LONG);
+    if (name === 'AbortError') throw new ApiError(0, 'stopped', 'That was stopped. Please try again.');
+    if ((error as Error)?.message === 'Failed to fetch' || name === 'TypeError' || name === 'NetworkError') {
+      throw new ApiError(0, 'unavailable', 'No connection to Saligue. Check your network and try again.');
+    }
+    throw error;
+  } finally {
+    limit.clear();
   }
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new ApiError(response.status, data?.error?.code ?? 'server_error', data?.error?.message ?? 'Something went wrong. Please try again.');
-  }
-  return data as T;
 }
 
 // Live updates: the server announces what changed ("products", "comments", "orders", "messages"); listeners refresh.
@@ -92,7 +143,7 @@ function connect() {
   source?.close();
   attached.clear();
   const token = getToken();
-  source = new EventSource(`${API_ORIGIN}/api/events${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+  source = new EventSource(`${apiOrigin()}/api/events${token ? `?token=${encodeURIComponent(token)}` : ''}`);
   for (const event of listeners.keys()) {
     source.addEventListener(event, dispatch(event));
     attached.add(event);

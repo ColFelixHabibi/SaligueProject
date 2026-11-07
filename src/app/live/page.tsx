@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, Heart, Play, Radio } from 'lucide-react';
+import { Eye, Heart, Play, Radio, Store, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -62,7 +62,7 @@ function LiveCard({ live, ended }: { live: Live; ended?: boolean }) {
 /** Who is live right now; sellers start their own live from here. */
 export default function LivesPage() {
   const lives = useLives();
-  const { role } = useAuth();
+  const { user, role, isAuthLoading } = useAuth();
   return (
     <div className="container mx-auto space-y-6 px-3 py-4 min-[360px]:px-4 md:py-8">
       <PageIntro icon={Radio} title="Live" subtitle="Shops showing their items on camera right now.">
@@ -71,19 +71,40 @@ export default function LivesPage() {
       {role === 'seller' && (
         <Button className="h-12 w-full rounded-full md:hidden" asChild><Link href="/live/studio"><Radio className="mr-2 h-5 w-5" /> Go live</Link></Button>
       )}
+      {!isAuthLoading && role !== 'seller' && (
+        // Live is for shops. Without this, a shopper who wants to go live finds no way in and no reason why.
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/40 bg-primary/5 p-4 text-sm">
+          <Store className="h-8 w-8 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Want to go live?</p>
+            <p className="text-muted-foreground">{user ? 'Only shops can go live. Switch to selling to show your items on camera — you can still shop as before.' : 'Live is for shops. Create a free seller account to show your items on camera.'}</p>
+          </div>
+          <Button size="sm" asChild><Link href="/sell">{user ? 'Switch to selling' : 'Create a shop'}</Link></Button>
+        </div>
+      )}
       <ComingUp />
+      {lives?.error && (
+        // The list could not be refreshed: say why instead of showing an empty "no one is live".
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <WifiOff className="h-5 w-5 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">{lives.error}</span>
+          <Button size="sm" variant="outline" onClick={lives.reload}>Try again</Button>
+        </div>
+      )}
       {!lives ? (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="aspect-[9/14] rounded-2xl" />)}</div>
       ) : lives.lives.length === 0 ? (
         // No one live: say so briefly, then fill the page with recent lives and shops to follow.
         <div className="space-y-6">
-          <div className="flex items-center gap-3 rounded-2xl bg-muted p-4 text-sm text-muted-foreground">
-            <Eye className="h-8 w-8 shrink-0 text-primary" />
-            <div>
-              <p className="font-semibold text-foreground">No one is live right now</p>
-              <p>{role === 'seller' ? 'Be the first: show your items on camera.' : 'Follow shops to add them to your Network: you get a notification when they go live.'}</p>
+          {!lives.error && (
+            <div className="flex items-center gap-3 rounded-2xl bg-muted p-4 text-sm text-muted-foreground">
+              <Eye className="h-8 w-8 shrink-0 text-primary" />
+              <div>
+                <p className="font-semibold text-foreground">No one is live right now</p>
+                <p>{role === 'seller' ? 'Be the first: show your items on camera.' : 'Follow shops to add them to your Network: you get a notification when they go live.'}</p>
+              </div>
             </div>
-          </div>
+          )}
           <SuggestedShops />
           {lives.recent.length > 0 && (
             <section className="space-y-2">

@@ -6,14 +6,14 @@ import { useT } from '@/lib/i18n';
 
 import { useBlockedIds } from '@/lib/blocks';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GraduationCap, LayoutGrid, Plus, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LessonSlide } from '@/components/community/lesson-slide';
 import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
-import { LESSON_TOPICS, useLessons } from '@/lib/lessons';
+import { LESSON_TOPICS, useLessons, type Lesson } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { SuggestedShops } from '@/components/suggested-shops';
 
@@ -25,13 +25,17 @@ const LESSON_IDEAS = [
 ];
 
 /** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
-export function LessonFeed({ startAt, following, challenge, className, breakReminder = true }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean }) {
+export function LessonFeed({ startAt, following, challenge, className, breakReminder = true, onLessons }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean; onLessons?: (lessons: Lesson[]) => void }) {
   const [topic, setTopic] = useState<string | null>(null);
   const tr = useT();
   const on = useFeatures();
   const blocked = useBlockedIds();
   const all = useLessons({ topic, following, challenge });
-  const lessons = all && all.filter((l) => !blocked.has(l.authorId));
+  const lessons = useMemo(() => (all ? all.filter((l) => !blocked.has(l.authorId)) : null), [all, blocked]);
+  // A computer shows the panel beside the feed: it lists these same lessons without asking the server twice.
+  useEffect(() => {
+    if (lessons) onLessons?.(lessons);
+  }, [lessons, onLessons]);
   // Opened from a shared link: go to that lesson.
   useEffect(() => {
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();

@@ -3,7 +3,7 @@
 // plus a cover picture. Files are kept in data/media/ next to the photos.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MEDIA_DIR } from './media.mjs';
 import { DATA_DIR } from './db.mjs';
@@ -62,6 +62,32 @@ async function duration(file) {
   }
 }
 
+/** Length of a sound in seconds (null if there is no sound we can read in it). */
+async function soundDuration(file) {
+  try {
+    const out = await run('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', file], 30_000);
+    const seconds = Number(out.trim());
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps a finished file in data/media/ under a name made from its own bytes, and returns its /media/ link. */
+function keepMedia(from, ext) {
+  const name = `${createHash('sha256').update(readFileSync(from)).digest('hex').slice(0, 32)}.${ext}`;
+  const target = join(MEDIA_DIR, name);
+  if (!existsSync(target)) {
+    try {
+      renameSync(from, target);
+    } catch {
+      // Different disks: copy instead of moving.
+      copyFileSync(from, target);
+    }
+  }
+  return `/media/${name}`;
+}
+
 /**
  * Turns an uploaded file into the item's video. Returns { video, poster, duration } as /media/ links.
  * Refuses files that aren't videos or are longer than 1 min 30 s.
@@ -81,25 +107,55 @@ export async function processVideo(upload, maxSeconds = MAX_VIDEO_SECONDS) {
       '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-movflags', '+faststart', tmpOut,
     ], 25 * 60_000);
     await run('ffmpeg', ['-y', '-ss', String(Math.min(1, seconds / 2)), '-i', tmpOut, '-frames:v', '1', '-q:v', '4', tmpPoster], 60_000);
-    const keep = (from, ext) => {
-      const name = `${createHash('sha256').update(readFileSync(from)).digest('hex').slice(0, 32)}.${ext}`;
-      const target = join(MEDIA_DIR, name);
-      if (!existsSync(target)) {
-        try {
-          renameSync(from, target);
-        } catch {
-          // Different disks: copy instead of moving.
-          copyFileSync(from, target);
-        }
-      }
-      return `/media/${name}`;
-    };
-    return { video: keep(tmpOut, 'mp4'), poster: keep(tmpPoster, 'jpg'), duration: Math.round(Math.min(seconds, maxSeconds)) };
+    return { video: keepMedia(tmpOut, 'mp4'), poster: keepMedia(tmpPoster, 'jpg'), duration: Math.round(Math.min(seconds, maxSeconds)) };
   } finally {
     for (const f of [upload, tmpOut, tmpPoster]) {
       try { if (existsSync(f)) unlinkSync(f); } catch { /* ignore */ }
     }
   }
+}
+
+/** Longest voice status: the same 30 seconds an item's sound gets, so it never outlasts a moment. */
+export const MAX_VOICE_SECONDS = 30;
+
+/**
+ * Turns a recorded sound into a voice status: a small mono M4A in data/media/ that plays on every phone and
+ * browser (MediaRecorder writes WebM on Android and MP4 on iPhones; ffmpeg makes one shape of both).
+ * `upload` is a temporary file and is removed here. Returns { media, duration } with a /media/ link.
+ */
+export async function processVoice(upload, maxSeconds = MAX_VOICE_SECONDS) {
+  const tmpOut = `${upload}.m4a`;
+  try {
+    const seconds = await soundDuration(upload);
+    if (seconds === null) throw Object.assign(new Error('This sound could not be read. Record it again.'), { status: 400 });
+    await run('ffmpeg', ['-y', '-i', upload, '-t', String(maxSeconds), '-vn', '-ac', '1', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', '-f', 'mp4', tmpOut], 120_000);
+    return { media: keepMedia(tmpOut, 'm4a'), duration: Math.max(1, Math.round(Math.min(seconds, maxSeconds))) };
+  } finally {
+    for (const f of [upload, tmpOut]) {
+      try { if (existsSync(f)) unlinkSync(f); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Half a minute of any phone's microphone, with room to spare.
+const MAX_VOICE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A voice status arrives from the phone as a data URL (MediaRecorder writes WebM on Android and MP4 on iPhones).
+ * Returns { media, duration } once it is the same small M4A every other sound on Saligue is.
+ */
+export async function storeVoice(dataUrl, maxSeconds = MAX_VOICE_SECONDS) {
+  // The type can carry parameters ("audio/webm;codecs=opus;base64"), so it is read up to the comma, not by shape.
+  const match = /^data:audio\/([^,]*),([\s\S]+)$/.exec(String(dataUrl ?? ''));
+  const refuse = (status, message) => Object.assign(new Error(message), { status });
+  if (!match) throw refuse(400, 'Record your voice status again.');
+  const base64 = /;base64$/i.test(match[1]);
+  const bytes = base64 ? Buffer.from(match[2], 'base64') : Buffer.from(decodeURIComponent(match[2]));
+  if (!bytes.length) throw refuse(400, 'Record your voice status again.');
+  if (bytes.length > MAX_VOICE_BYTES) throw refuse(413, 'That recording is too long. Keep a voice status under 30 seconds.');
+  const upload = join(UPLOAD_DIR, `voice-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  writeFileSync(upload, bytes);
+  return processVoice(upload, maxSeconds);
 }
 
 /** Size of a stored media file (for Range requests). */

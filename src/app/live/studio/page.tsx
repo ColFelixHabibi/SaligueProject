@@ -11,7 +11,7 @@ import { DIGITAL_ZOOM_MAX, listCameras, listMicrophones, loadCameraChoice, mirro
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BarChart3, Camera, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, SwitchCamera, Ticket, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { BarChart3, Camera, LayoutGrid, PanelRight, Zap, Check, Eye, FlipHorizontal2, Heart, Maximize, Shield, ShieldOff, Minimize, Settings2, Loader2, Mic, MicOff, Package, Pin, PinOff, Plus, Radio, Reply, Share2, Smartphone, Store, SwitchCamera, Ticket, Trash2, UserCheck, UserMinus, Users, Video, VideoOff, VolumeX, WifiOff, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -144,6 +144,16 @@ function Setup() {
     }
   };
 
+  // A request that failed is not the same as Live being switched off: say which one it is, and let them retry.
+  if (lives && !lives.enabled && lives.error) {
+    return (
+      <div className="mx-auto flex max-w-md flex-wrap items-center gap-3 p-10 text-sm">
+        <WifiOff className="h-5 w-5 shrink-0 text-destructive" />
+        <span className="min-w-0 flex-1">{lives.error}</span>
+        <Button size="sm" variant="outline" onClick={lives.reload}>Try again</Button>
+      </div>
+    );
+  }
   if (lives && !lives.enabled) {
     return <p className="p-10 text-center text-muted-foreground">Live is not switched on for this Saligue server yet.</p>;
   }
@@ -820,12 +830,10 @@ function ViewersPanel({ id, live, audience, guests, bare }: { id: string; live: 
 function StudioPage() {
   const params = useSearchParams();
   const id = params.get('id');
-  const router = useRouter();
   const { user, role, isAuthLoading } = useAuth();
-  useEffect(() => {
-    if (!isAuthLoading && (!user || role !== 'seller')) router.replace('/sell');
-  }, [isAuthLoading, user, role, router]);
-  if (isAuthLoading || !user || role !== 'seller') return <Skeleton className="mx-auto h-[80vh] max-w-md" />;
+  // Bouncing a shopper to /sell without a word looked like a broken "Go live" button. Say why, and where to switch.
+  if (isAuthLoading) return <Skeleton className="mx-auto h-[80vh] max-w-md" />;
+  if (!user || role !== 'seller') return <NotAShop signedIn={!!user} />;
   return id ? <Studio id={id} /> : <Setup />;
 }
 
@@ -834,6 +842,25 @@ export default function LiveStudio() {
     <Suspense fallback={<Skeleton className="mx-auto h-[80vh] max-w-md" />}>
       <StudioPage />
     </Suspense>
+  );
+}
+
+/** Live is for shops: a buyer (or a visitor) is told why, and where to switch, instead of being sent away silently. */
+function NotAShop({ signedIn }: { signedIn: boolean }) {
+  return (
+    <div className="mx-auto max-w-md space-y-4 p-10 text-center">
+      <Store className="mx-auto h-12 w-12 text-primary" />
+      <h1 className="text-2xl font-extrabold">Going live is for shops</h1>
+      <p className="text-sm text-muted-foreground">
+        {signedIn
+          ? 'Your account is a buyer account. Switch to selling to show your items on camera — you can still shop as before.'
+          : 'Create a free seller account to show your items on camera.'}
+      </p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button asChild><Link href="/sell">{signedIn ? 'Switch to selling' : 'Create a seller account'}</Link></Button>
+        <Button variant="outline" asChild><Link href="/live">Watch a live instead</Link></Button>
+      </div>
+    </div>
   );
 }
 

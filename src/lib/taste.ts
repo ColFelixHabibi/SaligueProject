@@ -4,7 +4,7 @@
 // trying it on, adding it to the bag, messaging the shop, sharing, skipping quickly.
 // Kept on this device and sent to Saligue's server (server/recommend.mjs), which learns from everyone's behaviour.
 // Nothing is recorded when the shopper chose "Essential only" in the cookie banner.
-import { api, getToken } from './api';
+import { api, apiUrl, getToken } from './api';
 
 export type Signal = 'view' | 'dwell' | 'complete' | 'wear' | 'cart' | 'message' | 'skip' | 'share' | 'less';
 
@@ -47,7 +47,7 @@ function flush(leaving = false): Promise<unknown> {
   const events = queue.splice(0, 100);
   if (leaving) {
     const token = getToken();
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/interactions`, {
+    fetch(apiUrl('/interactions'), {
       method: 'POST',
       keepalive: true,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },

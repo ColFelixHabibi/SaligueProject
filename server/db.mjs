@@ -471,6 +471,32 @@ db.exec(`
   );
   create index if not exists follows_seller on follows(seller_id, created_at);
 
+  -- Stories (a "status"): a photo, a voice note, or a line of words that goes by itself after 24 hours
+  -- (index.mjs /api/stories). product_id is the Saligue difference from a plain status: a story can open the item
+  -- it is about.
+  create table if not exists stories (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    kind text not null default 'image' check (kind in ('image', 'text', 'voice')),
+    media text,                                   -- /media/… for a photo or a voice note; null for words
+    caption text not null default '',
+    background text not null default '#111111',   -- the colour words are written on
+    product_id text references products(id) on delete set null,
+    seconds integer,                              -- how long a voice note runs, so the ring knows when to move on
+    created_at text not null,
+    expires_at text not null
+  );
+  create index if not exists stories_expiry on stories(expires_at);
+  create index if not exists stories_user on stories(user_id, created_at desc);
+
+  -- Who has already watched a story: the ring around a photo turns grey and the author can see the count.
+  create table if not exists story_views (
+    story_id text not null references stories(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (story_id, user_id)
+  );
+
   -- Saligue Ads: sellers promote an item for a budget; shown as "Sponsored" and billed per 1,000 views (ads.mjs).
   create table if not exists ad_campaigns (
     id text primary key,
@@ -788,7 +814,10 @@ db.exec(`
 // Columns added after the first release.
 for (const [table, column, type] of [
   // Which version of the Terms an account accepted, so an acceptance can be proved after a change.
-  ['users', 'terms_accepted_at', 'text'], ['users', 'terms_version', 'text'], ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'terms_accepted_at', 'text'], ['users', 'terms_version', 'text'],
+  // The date of birth a new account stated, and the day it was stated (the age gate: 16+, server/index.mjs).
+  ['users', 'birth_date', 'text'], ['users', 'age_checked_at', 'text'],
+  ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
@@ -813,9 +842,48 @@ for (const [table, column, type] of [
   ['conversations', 'buyer_cleared_at', 'text'], ['conversations', 'seller_cleared_at', 'text'],
   // The order that bought a live-drop place, so cancelling that order gives the place back to the queue.
   ['live_claims', 'order_id', 'text'],
+  // How long a voice status runs (the status itself is in the stories table, under "Stories" further down).
+  ['stories', 'seconds', 'integer'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
+}
+
+// A status used to be only a photo or words. A voice note is a third kind, and SQLite can only widen a `check`
+// by re-making the table: the rows are copied across, nothing is lost, and the whole thing runs once (the guard
+// reads the table's own definition, so a database made by this version skips it).
+const storiesDdl = db.prepare("select sql from sqlite_master where type = 'table' and name = 'stories'").get()?.sql ?? '';
+if (storiesDdl && !storiesDdl.includes("'voice'")) {
+  db.exec('pragma foreign_keys = off');
+  try {
+    db.exec(`
+      begin;
+      create table stories_rebuilt (
+        id text primary key,
+        user_id text not null references users(id) on delete cascade,
+        kind text not null default 'image' check (kind in ('image', 'text', 'voice')),
+        media text,
+        caption text not null default '',
+        background text not null default '#111111',
+        product_id text references products(id) on delete set null,
+        seconds integer,
+        created_at text not null,
+        expires_at text not null
+      );
+      insert into stories_rebuilt (id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at)
+        select id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at from stories;
+      drop table stories;
+      alter table stories_rebuilt rename to stories;
+      create index if not exists stories_expiry on stories(expires_at);
+      create index if not exists stories_user on stories(user_id, created_at desc);
+      commit;
+    `);
+  } catch (error) {
+    try { db.exec('rollback'); } catch { /* nothing pending */ }
+    throw error;
+  } finally {
+    db.exec('pragma foreign_keys = on');
+  }
 }
 // @usernames: unique (any case), for @mentions. Accounts without one get one from their name.
 db.exec("create unique index if not exists users_username on users(lower(username)) where username is not null");

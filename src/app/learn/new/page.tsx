@@ -85,7 +85,8 @@ function NewLesson() {
   };
 
   return (
-    <form onSubmit={submit} className="mx-auto max-w-xl space-y-6 px-3 py-4 pb-24 min-[360px]:px-4 md:p-8">
+    // A computer sees the form as one card instead of fields floating in a wide empty page.
+    <form onSubmit={submit} className="mx-auto max-w-xl space-y-6 px-3 py-4 pb-24 min-[360px]:px-4 md:p-8 lg:my-8 lg:max-w-2xl lg:rounded-3xl lg:border lg:bg-card lg:p-8 lg:pb-8 lg:shadow-sm">
       <div className="flex items-center gap-3">
         <GraduationCap className="h-8 w-8 text-primary" />
         <h1 className="text-2xl font-extrabold">Teach a lesson</h1>

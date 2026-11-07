@@ -45,12 +45,12 @@ export async function currentAccount() {
   return (await api<{ user: AccountUser }>('/auth/me', { timeoutMs: 15_000 })).user;
 }
 
-/** Creates an account. A guest keeps everything they liked, saved and ordered. */
-export async function registerWithEmail(name: string, email: string, password: string, role: 'buyer' | 'seller', acceptTerms: boolean) {
+/** Creates an account. A guest keeps everything they liked, saved and ordered. `birthDate` is `YYYY-MM-DD` (16+). */
+export async function registerWithEmail(name: string, email: string, password: string, role: 'buyer' | 'seller', acceptTerms: boolean, birthDate: string) {
   // Invited with a link (?ref=…, remembered by InviteCatcher): tells Saligue who brought this person.
   let ref: string | null = null;
   try { ref = localStorage.getItem('saligue-ref'); } catch { /* storage blocked */ }
-  const session = await api<Session>('/auth/register', { body: { name, email, password, role, acceptTerms, ref } });
+  const session = await api<Session>('/auth/register', { body: { name, email, password, role, acceptTerms, birthDate, ref } });
   setToken(session.token);
   emit(session.user, 'registered');
 }
@@ -80,7 +80,8 @@ export async function logout() {
 }
 
 export async function updateAccount(changes: { displayName?: string; username?: string; commentMode?: 'everyone' | 'followers' | 'off'; hiddenWords?: string[]; role?: 'buyer' | 'seller'; shop?: Shop; avatar?: string | null; bio?: string; password?: string; currentPassword?: string }) {
-  const { user } = await api<{ user: AccountUser }>('/auth/me', { method: 'PATCH', body: changes });
+  // A new profile photo travels inside the body, so this is given longer than a usual call.
+  const { user } = await api<{ user: AccountUser }>('/auth/me', { method: 'PATCH', body: changes, timeoutMs: 60_000 });
   emit(user, 'updated');
   return user;
 }
@@ -90,9 +91,12 @@ export async function googleClientId() {
   return (await api<{ clientId: string | null }>('/auth/google')).clientId;
 }
 
-/** Signs in (or creates the account) with the ID token from Google's sign-in button. */
-export async function loginWithGoogle(credential: string, role?: 'buyer' | 'seller') {
-  const session = await api<Session>('/auth/google', { body: { credential, role } });
+/**
+ * Signs in (or creates the account) with the ID token from Google's sign-in button. A new account has to state its
+ * date of birth in the same dialog (`birthDate`, `YYYY-MM-DD`); an account that already did is never asked again.
+ */
+export async function loginWithGoogle(credential: string, role?: 'buyer' | 'seller', birthDate?: string) {
+  const session = await api<Session>('/auth/google', { body: { credential, role, birthDate } });
   setToken(session.token);
   emit(session.user, session.isNew ? 'registered' : 'signed-in');
 }

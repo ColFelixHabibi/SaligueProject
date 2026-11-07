@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { Download, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { absoluteUrl } from '@/lib/paths';
 
 // Set by scripts/build-app.mjs: the version code of this Android app. Empty on the website.
 const MINE = Number(process.env.NEXT_PUBLIC_APP_VERSION || 0);
@@ -52,4 +54,21 @@ export function AppVersion() {
     .catch(() => {}), []);
   const size = info?.bytes ? ` · about ${Math.round(info.bytes / 1_000_000)} MB` : '';
   return <>{info ? `Version ${info.versionName}${size}` : 'Latest version'}</>;
+}
+
+/**
+ * "Download the app", linked to the APK the Saligue server serves. `fallback` is the address baked in at build
+ * time; once the page is open the link follows the address it was actually opened on, so the download still works
+ * where the built-in name cannot be looked up (a network that refuses *.sslip.io) — the address a person can type
+ * without any DNS is the bare IP. Inside the app absoluteUrl() keeps the built one, because there is no site on
+ * https://localhost to download from.
+ */
+export function DownloadApp({ path, fallback }: { path: string; fallback: string }) {
+  const [href, setHref] = useState(fallback);
+  useEffect(() => setHref(absoluteUrl(path)), [path]);
+  return (
+    <Button size="lg" className="h-14 w-full text-lg" asChild>
+      <a href={href} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>
+    </Button>
+  );
 }

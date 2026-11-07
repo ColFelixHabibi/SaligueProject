@@ -20,14 +20,15 @@ export default function ChallengesPage() {
   const canCreate = useUserRoleStore((s) => s.admin || s.official);
   const [open, setOpen] = useState(false);
   return (
-    <div className="mx-auto max-w-3xl space-y-5 p-4 pb-24 md:p-8">
+    <div className="mx-auto max-w-5xl space-y-5 p-4 pb-24 md:p-8">
       <div className="flex items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Trophy className="h-7 w-7 text-amber-500" /> Challenges</h1>
         {canCreate && <Button className="rounded-full" onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" /> New</Button>}
       </div>
       {list === null && <Skeleton className="h-40 rounded-2xl" />}
       {list?.length === 0 && <p className="py-10 text-center text-muted-foreground">No challenges right now. Come back soon!</p>}
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Wider screens hold three per row, so the page does not sit in a third of the window. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {list?.map((c) => {
           const Icon = topicOf(c.topic).icon;
           return (

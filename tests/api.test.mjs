@@ -64,10 +64,21 @@ async function call(path, { method, body, token, headers = {} } = {}) {
   try { json = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
   return { status: r.status, json, headers: r.headers };
 }
-const register = async (name, role = 'buyer') => {
-  const r = await call('/auth/register', { body: { name, email: `${name.toLowerCase().replace(/\W/g, '')}${Math.random().toString(36).slice(2, 7)}@example.com`, password: 'Test12345!', role, acceptTerms: true } });
+const register = async (name, role = 'buyer', birthDate = '1996-05-04') => {
+  const r = await call('/auth/register', { body: { name, email: `${name.toLowerCase().replace(/\W/g, '')}${Math.random().toString(36).slice(2, 7)}@example.com`, password: 'Test12345!', role, acceptTerms: true, birthDate } });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   return { token: r.json.token, id: r.json.user.id, user: r.json.user };
+};
+/** A `YYYY-MM-DD` date of birth `years` ago, counted in UTC like the server counts it. */
+const bornYearsAgo = (years) => {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  return d.toISOString().slice(0, 10);
+};
+const dayAfter = (iso) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 };
 
 before(async () => {
@@ -127,6 +138,43 @@ describe('accounts', () => {
     db.close();
     assert.ok(row.terms_accepted_at, 'the date is kept on the account');
     assert.match(row.terms_version, /^\d{1,2} \w+ \d{4}$/, 'the version of the Terms that was accepted is kept too');
+  });
+  // Saligue is 16+. The form asks, the server enforces it (so a scripted signup cannot skip the form), the date is
+  // kept so the decision can be explained later, and it is never handed back to anyone.
+  test('an account needs a real date of birth, and 16 is the age', async () => {
+    const ask = (extra) => call('/auth/register', {
+      body: { name: 'Age Check', email: `age${Math.random().toString(36).slice(2, 7)}@example.com`, password: 'Test12345!', role: 'buyer', acceptTerms: true, ...extra },
+    });
+
+    const none = await ask({});
+    assert.equal(none.status, 400);
+    assert.equal(none.json.error.code, 'birth_date_required');
+
+    const impossible = await ask({ birthDate: '2010-02-30' });
+    assert.equal(impossible.status, 400);
+    assert.equal(impossible.json.error.code, 'invalid_birth_date');
+
+    const future = await ask({ birthDate: '2999-01-01' });
+    assert.equal(future.status, 400);
+    assert.equal(future.json.error.code, 'invalid_birth_date');
+
+    // The day before the 16th birthday is still 15.
+    const young = await ask({ birthDate: dayAfter(bornYearsAgo(16)) });
+    assert.equal(young.status, 403);
+    assert.equal(young.json.error.code, 'too_young');
+
+    // The 16th birthday itself is allowed.
+    const allowed = await ask({ birthDate: bornYearsAgo(16) });
+    assert.equal(allowed.status, 200, JSON.stringify(allowed.json));
+    assert.equal(allowed.json.user.birthDate, undefined, 'the date is never handed back to anyone');
+    assert.equal(allowed.json.user.birth_date, undefined);
+
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    const row = db.prepare('select birth_date, age_checked_at from users where id = ?').get(allowed.json.user.id);
+    db.close();
+    assert.equal(row.birth_date, bornYearsAgo(16));
+    assert.ok(row.age_checked_at, 'the day the age was checked is kept');
   });
 });
 
@@ -930,6 +978,27 @@ describe('security watch', () => {
     assert.ok(told.includes('guessing an admin password'));
     assert.ok(told.includes('fake payment confirmation'));
   });
+  test('a policy report is never counted as the shopper’s own attack text', async () => {
+    const admin = await mainAdmin('Report Admin');
+    // A browser writes this, and `script-sample` and `blocked-uri` carry whatever the attacker tried — not the
+    // shopper's words. Counting it would block the person the report exists to help, for a whole day.
+    for (let i = 0; i < 6; i++) {
+      const r = await call('/csp-report', {
+        headers: { ...from('203.0.113.99'), 'Content-Type': 'application/csp-report' },
+        body: { 'csp-report': { 'violated-directive': 'script-src-elem', 'blocked-uri': 'https://evil.example/x.js', 'script-sample': '<script>alert(1)</script>', 'document-uri': 'https://saligue.test/live/' } },
+      });
+      assert.equal(r.status, 200);
+    }
+    assert.equal((await call('/health', { headers: from('203.0.113.99') })).status, 200);
+    // The same text typed into a form is still caught, so the exemption is the report only.
+    assert.equal((await call('/auth/register', {
+      headers: from('203.0.113.100'),
+      body: { name: '<script>x</script>', email: 'tainted@example.com', password: 'Test12345!', role: 'buyer', acceptTerms: true, birthDate: '1996-05-04' },
+    })).status, 200);
+    const seen = (await call('/admin/security', { token: admin.token })).json;
+    assert.equal(seen.events.some((e) => e.kind === 'injection' && e.ip === '203.0.113.99'), false);
+    assert.ok(seen.events.some((e) => e.kind === 'injection' && e.ip === '203.0.113.100'));
+  });
 });
 
 describe('resaligue, pin and download', () => {
@@ -1208,5 +1277,238 @@ describe('data protection, and who moves users’ money', () => {
     assert.equal(shares.payout.open, true);
     assert.equal(shares.payout.payer, 'Test Mobile Money aggregator');
     assert.equal((await call('/admin/tips', { token: admin.token })).json.payout.open, true);
+  });
+});
+
+describe('stories', () => {
+  const photo = `data:image/jpeg;base64,${Buffer.from('a small jpeg stands in here').toString('base64')}`;
+
+  test('a status needs a photo or words, and it clears itself after a day', async () => {
+    const a = await register('Story Teller');
+
+    const empty = await call('/stories', { token: a.token, body: { kind: 'image' } });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.json.error.code, 'missing_photo');
+
+    const nothing = await call('/stories', { token: a.token, body: { kind: 'text', caption: '   ' } });
+    assert.equal(nothing.status, 400);
+    assert.equal(nothing.json.error.code, 'missing_text');
+
+    const guest = await call('/auth/guest', { body: {} });
+    assert.equal((await call('/stories', { token: guest.json.token, body: { kind: 'text', caption: 'Hi' } })).status, 401, 'a guest has no status to post');
+
+    const made = await call('/stories', { token: a.token, body: { kind: 'text', caption: 'New arrivals today', background: '#065f46' } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal(made.json.story.kind, 'text');
+    assert.equal(made.json.story.background, '#065f46');
+    const hours = (new Date(made.json.story.expiresAt) - new Date(made.json.story.createdAt)) / 3_600_000;
+    assert.equal(Math.round(hours), 24, 'a story goes by itself after 24 hours');
+
+    const mine = await call('/stories', { token: a.token });
+    assert.equal(mine.json.groups[0].user.id, a.id, 'your own ring comes first');
+    assert.ok(mine.json.groups[0].stories.some((s) => s.id === made.json.story.id));
+
+    // A day later it is gone: anything past its expiry is cleared as the list is read.
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update stories set expires_at = ? where id = ?').run(new Date(Date.now() - 1000).toISOString(), made.json.story.id);
+    db.close();
+    const later = await call('/stories', { token: a.token });
+    assert.ok(!later.json.groups.some((g) => g.stories.some((s) => s.id === made.json.story.id)), 'it is no longer there');
+  });
+
+  test('a photo becomes a file, only people who follow you see it, and watching is counted for you', async () => {
+    const shop = await register('Story Shop', 'seller');
+    const client = await register('Story Client');
+    const stranger = await register('Story Stranger');
+
+    const made = await call('/stories', { token: shop.token, body: { kind: 'image', media: photo, caption: 'Fresh in' } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.match(made.json.story.media, /^\/media\/[a-f0-9]{32}\.jpg$/, 'the photo is kept as a file, not a row of base64');
+
+    const before = await call('/stories', { token: stranger.token });
+    assert.ok(!before.json.groups.some((g) => g.user.id === shop.id), 'a stranger does not see it');
+
+    assert.equal((await call(`/follow/${shop.id}`, { token: client.token, body: {} })).json.following, true);
+    const after = await call('/stories', { token: client.token });
+    const group = after.json.groups.find((g) => g.user.id === shop.id);
+    assert.ok(group, 'a follower does');
+    assert.equal(group.stories[0].seen, false);
+    assert.equal(group.unseen, 1);
+
+    assert.equal((await call(`/stories/${made.json.story.id}/seen`, { token: client.token, body: {} })).status, 200);
+    const again = await call('/stories', { token: client.token });
+    assert.equal(again.json.groups.find((g) => g.user.id === shop.id).stories[0].seen, true);
+
+    const owned = await call('/stories', { token: shop.token });
+    assert.equal(owned.json.groups.find((g) => g.user.id === shop.id).stories[0].views, 1, 'the shop sees that one person watched');
+    assert.equal(after.json.groups.find((g) => g.user.id === shop.id).stories[0].views, undefined, 'nobody else sees that number');
+  });
+
+  test('a reply reaches the author, and only the author can take a story down', async () => {
+    const author = await register('Story Author');
+    const fan = await register('Story Fan');
+    assert.equal((await call(`/follow/${author.id}`, { token: fan.token, body: {} })).json.following, true);
+
+    const made = await call('/stories', { token: author.token, body: { kind: 'text', caption: 'Trying something new' } });
+    assert.equal((await call(`/stories/${made.json.story.id}/reply`, { token: fan.token, body: { text: 'Love this' } })).status, 200);
+
+    const inbox = await call('/me/notifications', { token: author.token });
+    const list = Array.isArray(inbox.json) ? inbox.json : [];
+    assert.ok(list.some((n) => n.type === 'story_reply' && n.body === 'Love this'), 'it arrived as a notification');
+
+    assert.equal((await call(`/stories/${made.json.story.id}`, { method: 'DELETE', token: fan.token })).status, 403);
+    assert.equal((await call(`/stories/${made.json.story.id}`, { method: 'DELETE', token: author.token })).status, 200);
+    const gone = await call('/stories', { token: author.token });
+    assert.ok(!gone.json.groups.some((g) => g.stories.some((s) => s.id === made.json.story.id)));
+  });
+
+  test('a status can be about an item, and taps straight onto it', async () => {
+    const shop = await register('Status Shop', 'seller');
+    const [item] = (await call('/products?limit=1')).json;
+
+    const made = await call('/stories', { token: shop.token, body: { kind: 'text', caption: 'Try this one', productId: item.id } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal(made.json.story.product.id, item.id, 'the item travels with the story');
+    assert.equal(made.json.story.product.name, item.name);
+    assert.equal(typeof made.json.story.product.price, 'number');
+
+    // The ring is drawn from the same list, so the item is there for whoever may watch it.
+    const mine = await call('/stories', { token: shop.token });
+    const story = mine.json.groups.find((g) => g.user.id === shop.id).stories.find((s) => s.id === made.json.story.id);
+    assert.equal(story.product.id, item.id);
+
+    // An item that is no longer on Saligue is refused instead of leaving a status that opens nothing.
+    const unknown = await call('/stories', { token: shop.token, body: { kind: 'text', caption: 'Gone', productId: 'no-such-item' } });
+    assert.equal(unknown.status, 404);
+    assert.equal(unknown.json.error.code, 'no_item');
+  });
+
+  test('a voice status becomes one small M4A that every phone can play', async () => {
+    const shop = await register('Voice Shop', 'seller');
+    // A second of sound, written the way a phone's microphone writes one (the same trick the chat test uses).
+    const wav = spawnSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=duration=1', '-f', 'wav', '-'], { maxBuffer: 10_000_000 }).stdout;
+    const recording = `data:audio/wav;base64,${wav.toString('base64')}`;
+
+    const made = await call('/stories', { token: shop.token, body: { kind: 'voice', media: recording, caption: 'Listen to this', background: '#4c1d95' } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal(made.json.story.kind, 'voice');
+    assert.match(made.json.story.media, /^\/media\/[a-f0-9]{32}\.m4a$/, 'the recording is kept as an M4A, not a row of base64');
+    assert.equal(made.json.story.seconds, 1, 'how long it runs travels with it, so the player knows when to move on');
+    assert.equal(made.json.story.caption, 'Listen to this');
+
+    // It plays: an iPhone will not start a sound it cannot ask for in pieces, so Range requests answer.
+    const played = await fetch(`${base}${made.json.story.media}`);
+    assert.equal(played.status, 200);
+    assert.equal(played.headers.get('content-type'), 'audio/mp4');
+    assert.equal(played.headers.get('accept-ranges'), 'bytes');
+    const piece = await fetch(`${base}${made.json.story.media}`, { headers: { Range: 'bytes=0-99' } });
+    assert.equal(piece.status, 206, 'a voice note has to be streamable to play on a phone');
+
+    // The ring draws it like any other status.
+    const mine = await call('/stories', { token: shop.token });
+    const story = mine.json.groups.find((g) => g.user.id === shop.id).stories.find((s) => s.id === made.json.story.id);
+    assert.equal(story.kind, 'voice');
+    assert.equal(story.seconds, 1);
+
+    // Nothing recorded, or something that is not a sound: refused, so no silent status is ever posted.
+    const empty = await call('/stories', { token: shop.token, body: { kind: 'voice' } });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.json.error.code, 'missing_voice');
+    const rubbish = await call('/stories', { token: shop.token, body: { kind: 'voice', media: `data:audio/wav;base64,${Buffer.from('not a sound').toString('base64')}` } });
+    assert.equal(rubbish.status, 400, 'a file that is not a sound is refused');
+    assert.equal(rubbish.json.error.code, 'invalid_voice');
+
+    // And it is the speaker's own: it is in the export with an address that plays, and it goes with the account.
+    const exported = await call('/auth/me/export', { token: shop.token });
+    const kept = exported.json.stories.find((s) => s.media === made.json.story.media);
+    assert.ok(kept, 'the voice status is in the data export');
+    assert.equal(kept.seconds, 1);
+  });
+});
+
+// Space is given back: a photo, video or voice note is removed when nothing shows it any more — and never
+// while something still does (media.mjs). This is what keeps data/media/ from growing with everything ever posted.
+describe('deleted things take their files with them', () => {
+  const picture = (text) => `data:image/jpeg;base64,${Buffer.from(text).toString('base64')}`;
+
+  test('one photo used by two statuses goes only when the last status goes', async () => {
+    const shop = await register('Shared Photo Shop', 'seller');
+    const photo = picture('the same shirt, posted twice');
+
+    const first = await call('/stories', { token: shop.token, body: { kind: 'image', media: photo } });
+    const second = await call('/stories', { token: shop.token, body: { kind: 'image', media: photo } });
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    assert.equal(first.json.story.media, second.json.story.media, 'one picture is kept as one file');
+    assert.match(first.json.story.media, /^\/media\/[a-f0-9]{32}\.jpg$/);
+    const link = first.json.story.media;
+    assert.equal((await fetch(`${base}${link}`)).status, 200);
+
+    // The first status goes: the picture stays, because the second one still shows it.
+    assert.equal((await call(`/stories/${first.json.story.id}`, { method: 'DELETE', token: shop.token })).status, 200);
+    assert.equal((await fetch(`${base}${link}`)).status, 200, 'a file another status still shows is never taken away');
+
+    // The last one goes: nothing points at the file any more, so it goes too.
+    assert.equal((await call(`/stories/${second.json.story.id}`, { method: 'DELETE', token: shop.token })).status, 200);
+    assert.equal((await fetch(`${base}${link}`)).status, 404, 'nothing points at it, so it is removed');
+  });
+
+  test('a status that goes by itself takes its photo with it', async () => {
+    const shop = await register('Expiring Photo Shop', 'seller');
+    const made = await call('/stories', { token: shop.token, body: { kind: 'image', media: picture('gone in 24 hours') } });
+    const link = made.json.story.media;
+    assert.equal((await fetch(`${base}${link}`)).status, 200);
+
+    // The 24 hours are up: reading the ring clears the story (and its file).
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update stories set expires_at = ? where id = ?').run(new Date(Date.now() - 1000).toISOString(), made.json.story.id);
+    db.close();
+    await call('/stories', { token: shop.token });
+    assert.equal((await fetch(`${base}${link}`)).status, 404, 'an expired status leaves nothing behind');
+  });
+
+  test('a new profile photo takes the old file with it', async () => {
+    const person = await register('Changing Photo', 'buyer');
+    const before = await call('/auth/me', { method: 'PATCH', token: person.token, body: { avatar: picture('the old face') } });
+    assert.equal(before.status, 200, JSON.stringify(before.json));
+    const old = (await call('/auth/me', { token: person.token })).json.user.avatar;
+    assert.match(old, /^\/media\/[a-f0-9]{32}\.jpg$/);
+    assert.equal((await fetch(`${base}${old}`)).status, 200);
+
+    const after = await call('/auth/me', { method: 'PATCH', token: person.token, body: { avatar: picture('the new face') } });
+    assert.equal(after.status, 200, JSON.stringify(after.json));
+    const now = (await call('/auth/me', { token: person.token })).json.user.avatar;
+    assert.notEqual(now, old, 'the profile shows the new photo');
+    assert.equal((await fetch(`${base}${now}`)).status, 200);
+    assert.equal((await fetch(`${base}${old}`)).status, 404, 'the photo nobody shows any more is removed');
+
+    // Asking for the same photo again keeps it: it is still what the account shows.
+    const same = await call('/auth/me', { method: 'PATCH', token: person.token, body: { avatar: picture('the new face') } });
+    assert.equal(same.status, 200);
+    assert.equal((await call('/auth/me', { token: person.token })).json.user.avatar, now);
+    assert.equal((await fetch(`${base}${now}`)).status, 200, 'a photo still in use is never removed');
+  });
+});
+
+// A live's replay is named after the live (live-<id>.mp4) instead of by its own bytes, and it has to be served
+// like every other file — otherwise a replay exists on disk and no phone can play it.
+describe('live replays', () => {
+  test('a replay named after its live is served like any other file', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const media = join(data, 'media');
+    mkdirSync(media, { recursive: true });
+    writeFileSync(join(media, 'live-8f3c1d2b-replay.mp4'), 'not really a video, but a real file');
+    writeFileSync(join(media, 'live-8f3c1d2b-replay.jpg'), 'not really a picture either');
+
+    const video = await fetch(`${base}/media/live-8f3c1d2b-replay.mp4`);
+    assert.equal(video.status, 200, 'a replay plays instead of being refused at its own address');
+    assert.equal(video.headers.get('content-type'), 'video/mp4');
+    assert.equal(video.headers.get('accept-ranges'), 'bytes', 'a replay can be seeked');
+    assert.equal((await fetch(`${base}/media/live-8f3c1d2b-replay.jpg`)).status, 200, 'and so can its cover');
+
+    // Everything that is not a name this server writes is still refused.
+    assert.equal((await fetch(`${base}/media/other-file.mp4`)).status, 404);
+    assert.equal((await fetch(`${base}/media/..%2Fsaligue.db`)).status, 404, 'a link can never reach another folder');
   });
 });

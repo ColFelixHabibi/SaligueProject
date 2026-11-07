@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { getToken } from '@/lib/api';
+import { apiUrl, getToken } from '@/lib/api';
 
 export const MAX_VIDEO_SECONDS = 90;
 
@@ -46,7 +46,7 @@ export const uploadItemVideo = (productId: string, file: File, onProgress: (perc
 export function uploadVideo<T>(path: string, file: File, onProgress: (percent: number) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api${path}`);
+    xhr.open('PUT', apiUrl(path));
     const token = getToken();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');

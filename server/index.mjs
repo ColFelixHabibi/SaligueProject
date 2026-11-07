@@ -8,8 +8,8 @@ import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tryOn, unlimitedTryOn, whenPaidTryOnDown } from './tryon.mjs';
-import { MEDIA_DIR, moveImagesToFiles, serveMedia, storeImage } from './media.mjs';
-import { MAX_REPLAY_BYTES, processReplay, serverRecordingFile, processVideo, receiveUpload, replayFile } from './video.mjs';
+import { moveImagesToFiles, releaseMedia, serveMedia, storeImage, sweepMedia } from './media.mjs';
+import { MAX_REPLAY_BYTES, processReplay, serverRecordingFile, processVideo, receiveUpload, replayFile, storeVoice } from './video.mjs';
 import { AUTO_LANGUAGES, captionMissing, captionsAvailable, cuesToVtt, enqueueCaptions, storeVtt, textToVtt } from './captions.mjs';
 import { TYPES as FASHION_TYPES, checkPhoto, notFashionWord, warmUpFashionCheck } from './fashion.mjs';
 import { learn, productsChanged } from './learn.mjs';
@@ -27,10 +27,13 @@ import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareR
 import { controller, dpia, paidThisMonth, payoutRefused, payoutRules, payoutState, processingRecord, saveController, savePayoutRules } from './compliance.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
 import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, resealAiKeys, saveAiKey } from './ai-keys.mjs';
+import { contentSecurityPolicy, cspHeaderName, cspMode } from './csp.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = resolve(process.env.SALIGUE_STATIC || 'out');
 const MAX_BODY = 8 * 1024 * 1024; // product photos and sounds are sent inline
+// Where a browser posts what the Content-Security-Policy refused (server/csp.mjs), and where the header points.
+const CSP_REPORT_PATH = '/api/csp-report';
 
 class HttpError extends Error {
   constructor(status, code, message) {
@@ -372,6 +375,47 @@ route('GET', '/api/auth/me', ({ user }) => {
 // and bumped when the Terms change in a way that matters (src/lib/policies.ts, `terms.updated`).
 const TERMS_VERSION = '4 November 2026';
 
+// Saligue is for people aged 16 and over: the age the Terms state, the age the DPIA names (server/compliance.mjs),
+// and the age the Play Store data-safety answer is written against. It is asked once, when an account is created,
+// and the date given is kept on the account with the day it was given, so an age decision can be explained later.
+// The birth date is never shown on a profile, a live or a listing, and is never used to rank anything.
+const MIN_AGE = 16;
+const BIRTH_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A date of birth as `YYYY-MM-DD`, or null when it is not a real past date (30 February, tomorrow, year 1225). */
+function birthDateOf(value) {
+  const text = String(value ?? '').trim();
+  if (!BIRTH_DATE.test(text)) return null;
+  const date = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) return null;
+  if (date.getTime() > Date.now()) return null;
+  if (date.getUTCFullYear() < 1900) return null;
+  return text;
+}
+
+/** Whole years lived, counted like a birthday: full years only, so the day before the 16th birthday is still 15. */
+function ageOn(birthDate) {
+  const born = new Date(`${birthDate}T00:00:00Z`);
+  const today = new Date();
+  const month = today.getUTCMonth() - born.getUTCMonth();
+  const early = month < 0 || (month === 0 && today.getUTCDate() < born.getUTCDate());
+  return today.getUTCFullYear() - born.getUTCFullYear() - (early ? 1 : 0);
+}
+
+/**
+ * The date of birth a new account must state, or the request is refused. Called only when an account is created:
+ * signing in to an account that already stated its age never asks again.
+ */
+function requireBirthDate(body) {
+  const birthDate = birthDateOf(body.birthDate);
+  if (!birthDate) {
+    if (String(body.birthDate ?? '').trim() === '') fail(400, 'birth_date_required', `Please enter your date of birth. Saligue is for people aged ${MIN_AGE} and over.`);
+    fail(400, 'invalid_birth_date', 'That date of birth is not a real date. Please check it.');
+  }
+  if (ageOn(birthDate) < MIN_AGE) fail(403, 'too_young', `Saligue is for people aged ${MIN_AGE} and over. You are welcome back on your ${MIN_AGE}th birthday.`);
+  return birthDate;
+}
+
 route('POST', '/api/auth/register', ({ req, user, body }) => {
   const name = String(body.name ?? '').trim().slice(0, 80);
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -381,17 +425,19 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
   if (!EMAIL.test(email)) fail(400, 'invalid_email', 'Please enter a valid email address.');
   if (password.length < 6) fail(400, 'weak_password', 'Password must be at least 6 characters.');
   if (body.acceptTerms !== true) fail(400, 'terms_not_accepted', 'Please accept the Terms of Service and Privacy Policy.');
+  // The age gate. Everything above is the shape of the form; this is the one rule that can turn someone away.
+  const birthDate = requireBirthDate(body);
   if (db.prepare('select 1 from users where email = ?').get(email)) fail(409, 'user_already_exists', 'An account with this email already exists.');
 
   // A guest keeps everything they did: the guest account becomes the real one.
   let id = user?.is_guest ? user.id : null;
   if (id) {
-    db.prepare('update users set email = ?, password_hash = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ? where id = ?')
-      .run(email, hashPassword(password), name, role, now(), TERMS_VERSION, id);
+    db.prepare('update users set email = ?, password_hash = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ?, birth_date = ?, age_checked_at = ? where id = ?')
+      .run(email, hashPassword(password), name, role, now(), TERMS_VERSION, birthDate, now(), id);
   } else {
     id = randomUUID();
-    db.prepare('insert into users (id, email, password_hash, display_name, role, terms_accepted_at, terms_version, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, email, hashPassword(password), name, role, now(), TERMS_VERSION, now());
+    db.prepare('insert into users (id, email, password_hash, display_name, role, terms_accepted_at, terms_version, birth_date, age_checked_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, email, hashPassword(password), name, role, now(), TERMS_VERSION, birthDate, now(), now());
   }
   // Invited by someone (their link /register?ref=…): they get coins when this shop makes its first real sale.
   const ref = String(body.ref ?? '');
@@ -505,14 +551,16 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
     return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
   }
   // New account. A guest keeps everything they did: the guest account becomes the real one.
-  // The Google button is shown with "By continuing you accept the Terms and Privacy Policy".
+  // The Google button is shown with "By continuing you accept the Terms and Privacy Policy", and a new account
+  // states its date of birth in the same dialog, so Google does not become a way around the age gate.
+  const birthDate = requireBirthDate(body);
   if (user?.is_guest) {
-    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ? where id = ?').run(email, name, role ?? 'buyer', now(), TERMS_VERSION, user.id);
+    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ?, birth_date = ?, age_checked_at = ? where id = ?').run(email, name, role ?? 'buyer', now(), TERMS_VERSION, birthDate, now(), user.id);
     welcome(user.id, name, role ?? 'buyer');
     return { token: tokenOf(req), user: publicUser(db.prepare('select * from users where id = ?').get(user.id)), isNew: true };
   }
   const id = randomUUID();
-  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role ?? 'buyer', now(), TERMS_VERSION, now());
+  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, birth_date, age_checked_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role ?? 'buyer', now(), TERMS_VERSION, birthDate, now(), now());
   welcome(id, name, role ?? 'buyer');
   return { token: createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
@@ -586,6 +634,7 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     likes: all('select product_id from likes where user_id = ?', id).map((r) => r.product_id),
     saved: all('select product_id from wishlists where user_id = ?', id).map((r) => r.product_id),
     looks: all('select * from looks where user_id = ?', id).map((l) => lookOut(l, true)),
+    stories: all('select id, kind, media, caption, background, product_id, seconds, created_at, expires_at from stories where user_id = ?', id),
     searches: all('select q, created_at from searches where user_id = ? order by created_at', id),
     whatYouShowedInterestIn: all('select product_id, kind, weight, created_at from interactions where user_id = ? order by created_at', id),
     coins: all('select amount, reason, created_at from coins where user_id = ? order by created_at', id),
@@ -613,6 +662,9 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   const open = db.prepare("select count(*) as n from orders where (buyer_id = ? or seller_id = ?) and status in ('placed', 'confirmed', 'shipped')").get(user.id, user.id).n;
   if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
   const id = user.id;
+  // What is being erased and is a file of its own: their profile photo and their statuses' photos and voice notes.
+  // They are removed once the rows are gone — unless an item, a lesson or someone else's status shows the same file.
+  const theirFiles = [user.avatar, ...db.prepare('select media from stories where user_id = ?').all(id).map((s) => s.media)];
   transaction(() => {
     for (const { product_id } of db.prepare('select product_id from reposts where user_id = ?').all(id)) {
       db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(product_id);
@@ -621,7 +673,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
     // Their chat messages (with photos, videos and voice notes) are deleted; the other person sees "Message unsent".
     for (const m of db.prepare('select id, attachment from messages where sender_id = ? and attachment is not null').all(id)) removeChatFiles(m.attachment);
     db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where sender_id = ? and deleted_at is null").run(now(), id);
-    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
+    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'stories', 'story_views', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
     db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
@@ -638,6 +690,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
     db.prepare(`update users set email = ?, display_name = 'Deleted account', username = null, password_hash = null, avatar = null, bio = null, shop = null,
       admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = 'Account deleted by its owner' where id = ?`).run(`deleted-${id}@deleted.saligue`, id);
   });
+  releaseMedia(theirFiles);
   broadcast('products');
   broadcast('lessons');
   return { ok: true };
@@ -672,7 +725,10 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
     if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
     const avatar = body.avatar === null ? null : String(body.avatar);
     if (avatar !== null && (!/^data:image\/(jpeg|png|webp);base64,/.test(avatar) || avatar.length > 1_000_000)) fail(400, 'invalid_image', 'Use a JPG, PNG or WebP photo under 700 KB.');
+    const before = user.avatar ?? null;
     db.prepare('update users set avatar = ? where id = ?').run(avatar && storeImage(avatar), user.id);
+    // The photo that was there is no longer shown anywhere (unless an item or a status uses the same file).
+    if (before) releaseMedia(before);
     broadcast('products');
   }
   if (body.password !== undefined) {
@@ -1275,6 +1331,140 @@ route('POST', '/api/looks/([\\w-]+)/items', ({ user, params, body }) => {
   }
   db.prepare('update looks set updated_at = ? where id = ?').run(now(), l.id);
   return { added: !had, look: lookOut(db.prepare('select * from looks where id = ?').get(l.id), true) };
+});
+
+// ---------------------------------------------------------------------------
+// Stories: a photo or a line of words that goes by itself after 24 hours
+// ---------------------------------------------------------------------------
+const STORY_HOURS = 24;
+const STORY_MAX = 30;              // how many one person can have up at once
+const STORY_CAPTION_MAX = 280;
+const STORY_VOICE_SECONDS = 30;    // a voice status is a moment, like a photo
+
+const storyExpiry = () => new Date(Date.now() + STORY_HOURS * 3_600_000).toISOString();
+
+/** A story as the app draws it, with the item it opens and whether this viewer has already watched it. */
+function storyOut(r, viewerId) {
+  const p = r.product_id ? db.prepare('select id, name, price, deal_price, deal_until, image from products where id = ?').get(r.product_id) : null;
+  return {
+    id: r.id,
+    kind: r.kind,
+    media: r.media ?? null,
+    caption: r.caption,
+    background: r.background,
+    product: p ? { id: p.id, name: p.name, price: priceOf(p), image: p.image } : null,
+    // How long a voice status runs; the ring uses it to know when to move on.
+    seconds: r.seconds ?? null,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    seen: !!viewerId && !!db.prepare('select 1 from story_views where story_id = ? and user_id = ?').get(r.id, viewerId),
+    // The author's own ring says how many people watched; nobody else can see that.
+    views: viewerId && viewerId === r.user_id ? db.prepare('select count(*) as n from story_views where story_id = ?').get(r.id).n : undefined,
+  };
+}
+
+/** Whose stories this account may watch: its own, the shops it follows, and official accounts. */
+function storyRing(user) {
+  const ids = new Set([user.id]);
+  for (const r of db.prepare('select seller_id from follows where follower_id = ?').all(user.id)) ids.add(r.seller_id);
+  for (const r of db.prepare('select id from users where official = 1 and suspended = 0').all()) ids.add(r.id);
+  return [...ids];
+}
+
+route('GET', '/api/stories', ({ user }) => {
+  if (!user) return { groups: [], people: 0, unseen: 0 };
+  // Past its 24 hours a story is gone. Nothing runs on a timer: it is cleared as it is read (the index makes it cheap).
+  // Its photo or voice note goes with it, once no item, lesson or other status still shows the same file.
+  const expired = db.prepare('select media from stories where expires_at <= ?').all(now()).map((s) => s.media);
+  db.prepare('delete from stories where expires_at <= ?').run(now());
+  releaseMedia(expired);
+  const ids = storyRing(user);
+  const rows = db.prepare(`select * from stories where user_id in (${ids.map(() => '?').join(',')}) order by created_at`).all(...ids);
+  const groups = [];
+  const byAuthor = new Map();
+  for (const r of rows) {
+    let group = byAuthor.get(r.user_id);
+    if (!group) {
+      const author = db.prepare('select id, display_name, username, avatar, role, official from users where id = ?').get(r.user_id);
+      if (!author) continue;
+      group = { user: { id: author.id, displayName: author.display_name, username: author.username ?? null, avatar: author.avatar ?? null, role: author.role, official: !!author.official }, stories: [], unseen: 0 };
+      byAuthor.set(r.user_id, group);
+      groups.push(group);
+    }
+    const story = storyOut(r, user.id);
+    if (!story.seen && r.user_id !== user.id) group.unseen += 1;
+    group.stories.push(story);
+  }
+  // Your own ring first, then whoever has something this person has not watched yet.
+  groups.sort((a, b) => Number(b.user.id === user.id) - Number(a.user.id === user.id) || b.unseen - a.unseen);
+  return { groups, people: groups.length, unseen: groups.reduce((n, g) => n + g.unseen, 0) };
+});
+
+route('POST', '/api/stories', async ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to post a status.');
+  const kind = body.kind === 'text' ? 'text' : body.kind === 'voice' ? 'voice' : 'image';
+  const caption = String(body.caption ?? '').trim().slice(0, STORY_CAPTION_MAX);
+  const background = /^#[0-9a-f]{6}$/i.test(String(body.background ?? '')) ? String(body.background) : '#111111';
+  const productId = body.productId ? String(body.productId) : null;
+  if (productId && !db.prepare('select 1 from products where id = ?').get(productId)) fail(404, 'no_item', 'That item is no longer on Saligue.');
+  // A photo arrives as a data URL and is kept as a file, exactly like an item photo (media.mjs).
+  let media = kind === 'image' ? storeImage(body.media) : null;
+  let seconds = null;
+  // A voice status arrives as a recording from the phone and becomes one small M4A (video.mjs), so it plays on
+  // every phone and browser whichever way it was recorded.
+  if (kind === 'voice') {
+    if (typeof body.media !== 'string' || !body.media.startsWith('data:audio/')) fail(400, 'missing_voice', 'Record your voice status first.');
+    try {
+      const voice = await storeVoice(body.media, STORY_VOICE_SECONDS);
+      media = voice.media;
+      seconds = voice.duration;
+    } catch (error) {
+      fail(error.status ?? 400, 'invalid_voice', error.message || 'This voice status could not be saved. Record it again.');
+    }
+  }
+  if (kind === 'image' && (typeof media !== 'string' || !media.startsWith('/media/'))) fail(400, 'missing_photo', 'Choose a photo for your status.');
+  if (kind === 'voice' && (typeof media !== 'string' || !media.startsWith('/media/'))) fail(400, 'missing_voice', 'Record your voice status first.');
+  if (kind === 'text' && !caption) fail(400, 'missing_text', 'Write something for your status.');
+  const up = db.prepare('select count(*) as n from stories where user_id = ? and expires_at > ?').get(user.id, now()).n;
+  if (up >= STORY_MAX) fail(429, 'too_many_stories', `You have ${STORY_MAX} stories up already. They clear themselves after ${STORY_HOURS} hours.`);
+  const id = randomUUID();
+  db.prepare('insert into stories (id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, kind, media, caption, background, productId, seconds, now(), storyExpiry());
+  broadcast('stories');
+  return { story: storyOut(db.prepare('select * from stories where id = ?').get(id), user.id) };
+});
+
+// Watching a story. The author's own view is not counted, so "watched by" means other people.
+route('POST', '/api/stories/([\\w-]+)/seen', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const s = db.prepare('select id, user_id from stories where id = ?').get(params[0]);
+  if (!s) fail(404, 'not_found', 'That story has already gone.');
+  if (s.user_id !== user.id) db.prepare('insert or ignore into story_views (story_id, user_id, created_at) values (?, ?, ?)').run(s.id, user.id, now());
+  return { ok: true };
+});
+
+// Answering a story: it reaches the author as a notification, the same way a mention does.
+route('POST', '/api/stories/([\\w-]+)/reply', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to reply.');
+  const text = String(body.text ?? '').trim().slice(0, 500);
+  if (!text) fail(400, 'missing_text', 'Write a reply first.');
+  const s = db.prepare('select id, user_id from stories where id = ?').get(params[0]);
+  if (!s) fail(404, 'not_found', 'That story has already gone.');
+  if (s.user_id === user.id) fail(400, 'own_story', 'That is your own story.');
+  db.prepare('insert or ignore into story_views (story_id, user_id, created_at) values (?, ?, ?)').run(s.id, user.id, now());
+  notify(s.user_id, { type: 'story_reply', title: `${user.display_name || 'Someone'} replied to your story`, body: text, link: `/profile?id=${user.id}`, email: false });
+  return { ok: true };
+});
+
+route('DELETE', '/api/stories/([\\w-]+)', ({ user, params }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const s = db.prepare('select id, user_id, media from stories where id = ?').get(params[0]);
+  if (!s) fail(404, 'not_found', 'That story has already gone.');
+  if (s.user_id !== user.id && user.admin_level !== 1) fail(403, 'not_yours', 'That is not your story.');
+  db.prepare('delete from stories where id = ?').run(s.id);
+  releaseMedia(s.media);
+  broadcast('stories');
+  return { ok: true };
 });
 
 // The weekly note: a calm summary of what someone learned and made, instead of a stream of alerts.
@@ -2823,10 +3013,9 @@ route('POST', '/api/lives/([\\w-]+)/recording/done', ({ user, params }) => {
 route('DELETE', '/api/lives/([\\w-]+)/replay', ({ user, params }) => {
   const live = db.prepare('select * from lives where id = ?').get(params[0]);
   if (!live || (live.seller_id !== user?.id && !can(user, 'moderation'))) fail(404, 'not_found', 'Live not found.');
-  for (const f of [live.replay_video, live.replay_poster]) {
-    if (f) try { unlinkSync(join(MEDIA_DIR, f.replace('/media/', ''))); } catch { /* gone */ }
-  }
   db.prepare("update lives set replay_status = 'none', replay_video = null, replay_poster = null, replay_duration = null where id = ?").run(live.id);
+  // The recording and its cover go once nothing points at them any more (a replay is named after its live).
+  releaseMedia(live.replay_video, live.replay_poster);
   broadcast('lives');
   return { ok: true };
 });
@@ -5357,6 +5546,24 @@ route('POST', '/api/client-errors', ({ req, user, body }) => {
   return { ok: true };
 });
 
+// A page that was refused something (server/csp.mjs) tells us here. Browsers post this without signing in, so it
+// is public like /api/client-errors, and rate-limited the same way: a policy that is one address too tight shows
+// up in `journalctl -u saligue` as a line saying which rule blocked what, on which page, instead of as a shopper
+// staring at a page that half-loaded.
+const cspReports = new Map();
+route('POST', CSP_REPORT_PATH, ({ req, body }) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] ?? req.socket.remoteAddress;
+  const minute = Date.now() - 60_000;
+  const recent = (cspReports.get(ip) ?? []).filter((t) => t > minute);
+  if (recent.length >= 10) return { ok: true };
+  cspReports.set(ip, [...recent, Date.now()]);
+  const clip = (v, n) => String(v ?? '').replace(/[\r\n]+/g, ' | ').slice(0, n);
+  // Older browsers use the `csp-report` shape, newer ones send a Reporting API array.
+  const report = body?.['csp-report'] ?? (Array.isArray(body) ? body[0]?.body : null) ?? body ?? {};
+  console.error(`CSP ${clip(report['violated-directive'] ?? report.effectiveDirective ?? 'refused', 120)} blocked ${clip(report['blocked-uri'] ?? report.blockedURL ?? '-', 200)} on ${clip(report['document-uri'] ?? report.documentURL ?? '-', 200)} ua=${clip(req.headers['user-agent'], 120)}`);
+  return { ok: true };
+});
+
 route('GET', '/api/health', () => ({ ok: true, products: db.prepare('select count(*) as n from products').get().n }));
 
 // ---------------------------------------------------------------------------
@@ -5627,6 +5834,26 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // Saligue needs the camera and the microphone (live, try-on). It never asks for the location, takes a card
+    // payment in the page, or talks to USB/serial/Bluetooth: those are refused for the page and for anyone who
+    // embeds it. The camera and microphone stay allowed for Saligue itself, or live and try-on would break.
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), clipboard-write=(self), web-share=(self), geolocation=(), payment=(), usb=(), serial=(), hid=(), midi=()');
+    // What the pages may load and where they may send things (server/csp.mjs): every address comes from this
+    // server's own settings, so turning live on or pointing the app at another API cannot leave the policy behind.
+    // A refusal is posted to /api/csp-report and lands in the log. SALIGUE_CSP=report (log only, block nothing) or
+    // SALIGUE_CSP=off in /etc/saligue.env is the way back if a shopper ever reports a page that will not load.
+    const mode = cspMode();
+    const header = cspHeaderName(mode);
+    if (header) {
+      const policy = contentSecurityPolicy({
+        liveKitUrl: liveSettings().url,
+        apiUrl: process.env.NEXT_PUBLIC_API_URL,
+        studioUrl: process.env.AI_STUDIO_URL,
+        extraConnect: String(process.env.SALIGUE_CSP_CONNECT ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      });
+      res.setHeader('Reporting-Endpoints', `csp="${CSP_REPORT_PATH}"`);
+      res.setHeader(header, `${policy}; report-uri ${CSP_REPORT_PATH}; report-to csp`);
+    }
     if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     return serveStatic(req, res, url.pathname);
   }
@@ -5758,13 +5985,18 @@ const server = http.createServer(async (req, res) => {
     const bearer = (req.headers.authorization || '').startsWith('Bearer ');
     // Signed in by cookie only: refuse changes that don't come from the app itself (a plain form on another
     // site can't send JSON), so other websites can't act on someone's account.
-    if (!bearer && cookieToken(req) && ['POST', 'PUT', 'PATCH'].includes(req.method) && !String(req.headers['content-type'] || '').startsWith('application/json')) {
+    // (A policy report is exempt: browsers post it as `application/csp-report`, and refusing it would throw away the
+    // very warning it exists to carry.)
+    if (!bearer && cookieToken(req) && ['POST', 'PUT', 'PATCH'].includes(req.method) && url.pathname !== CSP_REPORT_PATH && !String(req.headers['content-type'] || '').startsWith('application/json')) {
       fail(403, 'forbidden', 'Invalid request.');
     }
     body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     user = userOf(req);
     if (user) markActive(user.id);
-    screenBody(ip, user?.id ?? null, body);
+    // A policy report is machine-written: its `blocked-uri` and `script-sample` carry the attacker's text, not the
+    // shopper's. Screening it would flag — and at five in ten minutes, block for 24 hours — the very person the
+    // report exists to help. The route keeps its own limit of ten reports a minute per address.
+    if (url.pathname !== CSP_REPORT_PATH) screenBody(ip, user?.id ?? null, body);
     // The visitor's country (from their address) travels with the request: per-country features, "near you".
     const result = await requestContext.run({ country: countryOf(req), ip }, () => match.handler({ req, res, url, params, body, user }));
     afterRequest(ip, url.pathname, req.method, body, user, result);
@@ -5812,6 +6044,19 @@ setInterval(cancelAbandonedOrders, 30 * 60_000).unref();
 // Watermarked downloads not asked for in 30 days are removed (made again when needed).
 sweepWatermarked();
 setInterval(sweepWatermarked, 24 * 60 * 60_000).unref();
+// Photos, videos and voice notes that nothing points at any more are removed (media.mjs): a status gone by, an
+// item taken down, a profile photo changed. At start-up too, so a server that was off for a while clears up at
+// once. Files younger than an hour are left alone, so a file saved a moment ago is never taken by mistake.
+function reclaimMedia() {
+  try {
+    const n = sweepMedia();
+    if (n) console.log(`Removed ${n} unused photo${n === 1 ? '' : 's'}, video${n === 1 ? '' : 's'} or voice note${n === 1 ? '' : 's'} from data/media.`);
+  } catch (error) {
+    console.error('Could not clear unused media:', error.message);
+  }
+}
+reclaimMedia();
+setInterval(reclaimMedia, 24 * 60 * 60_000).unref();
 setInterval(checkBadges, 60 * 60_000).unref();
 // Sunday evening: one note per person who learned or saved something that week (nothing for quiet weeks).
 function sendWeeklyNotes() {

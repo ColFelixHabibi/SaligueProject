@@ -1,13 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Download, ShieldCheck, Smartphone } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { AppVersion } from '@/components/app-update';
+import { ShieldCheck, Smartphone } from 'lucide-react';
+import { AppVersion, DownloadApp } from '@/components/app-update';
+import { BASE_PATH } from '@/lib/paths';
 
 export const metadata: Metadata = { title: 'Get the Saligue app' };
 
 const APK = '/download/saligue.apk';
-const apkUrl = `${(process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '')}${APK}`;
+// The APK comes from the Saligue server (server/index.mjs), not from this static page: a full link to whichever
+// address the site was built for, and a relative one (with the site's sub-path) only when none is known.
+// DownloadApp replaces it with the address the page was opened on, so the file still downloads where the
+// built-in name cannot be looked up (see src/components/app-update.tsx).
+const SITE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '');
+const apkUrl = SITE ? `${SITE}${APK}` : `${BASE_PATH}${APK}`;
 
 /** Download page for the Android app, with the steps Android asks for when installing from outside the Play Store. */
 export default function DownloadPage() {
@@ -18,10 +23,7 @@ export default function DownloadPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">Saligue for Android</h1>
         <p className="text-muted-foreground"><AppVersion /> · Android 7 or newer</p>
       </div>
-      <Button size="lg" className="h-14 w-full text-lg" asChild>
-        {/* A full link: inside the app, a relative one would point at the app itself. */}
-        <a href={apkUrl} download="Saligue.apk"><Download className="mr-2 h-5 w-5" /> Download the app</a>
-      </Button>
+      <DownloadApp path={APK} fallback={apkUrl} />
       <ol className="space-y-3 rounded-2xl border bg-card p-5 text-sm leading-relaxed">
         <li><b>1. Open this page on your Android phone</b> (not a computer) and tap <b>Download the app</b>.</li>
         <li><b>2. Already have an older Saligue app?</b> Uninstall it first (hold its icon → Uninstall). Otherwise Android says “App not installed”.</li>

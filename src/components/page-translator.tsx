@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { translate, useLang, type Lang } from '@/lib/i18n';
+import { BASE_PATH } from '@/lib/paths';
 
 // Translates every screen into Kinyarwanda or French without changing each page: texts, placeholders, titles and
 // labels that match an English text in /i18n/<lang>.json are swapped in place (and restored for English).
@@ -14,7 +15,7 @@ async function loadDict(lang: Lang) {
   if (lang === 'en') return {};
   if (!dicts[lang]) {
     try {
-      dicts[lang] = await (await fetch(`/i18n/${lang}.json`, { cache: 'force-cache' })).json();
+      dicts[lang] = await (await fetch(`${BASE_PATH}/i18n/${lang}.json`, { cache: 'force-cache' })).json();
     } catch {
       dicts[lang] = {};
     }

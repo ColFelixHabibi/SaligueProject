@@ -270,7 +270,8 @@ export function dpia() {
         measures: [
           'Consent is asked once per device and can be refused; the server refuses any look without it (src/lib/ai/consent.ts, server/index.mjs POST /api/ai/tryon)',
           'The default look is made on the phone, so a shopper who wants nothing sent anywhere can still use it (src/lib/ai/dress.ts)',
-          'Signing up with email needs the one box "I am at least 16 and I accept the Terms" ticked before Create Account will submit, the server refuses any registration without it, and the version accepted is recorded on the account (register-dialog.tsx, POST /api/auth/register, users.terms_version). Signing in with Google shows the same Terms statement and records the version, but the age is not asked for separately on that path',
+          'A new account cannot be made without a real date of birth, with email or with Google: the server refuses a missing or impossible date (birth_date_required, invalid_birth_date) and refuses anyone under 16 (too_young, MIN_AGE in server/index.mjs). It is asked once, when the account is created, and never again on sign-in. The date is kept on the account with the day it was checked (users.birth_date, users.age_checked_at), and is never shown on a profile, a listing or a live',
+          'The one box "I am at least 16 and I accept the Terms" must also be ticked before Create Account will submit, and the version accepted is recorded on the account (register-dialog.tsx, POST /api/auth/register, users.terms_version). Signing in with Google shows the same Terms statement and records the version',
           'A photo of someone else can be reported and taken down through the notice route (POST /api/takedowns)',
         ],
         residual: 'Medium — the age is declared, not proven, and a determined adult can upload any photo they hold.',

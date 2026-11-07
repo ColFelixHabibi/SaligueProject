@@ -169,7 +169,7 @@ export function TakedownForm() {
               id="claimant-target"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              placeholder="https://saligue.com/product?id=… or the item number"
+              placeholder="https://<your site>/product?id=… or the item number"
             />
           </div>
 

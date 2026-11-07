@@ -45,6 +45,8 @@ export function WriteWithAi({ facts, hasText, onWrite }: { facts: ItemFacts; has
           category: facts.category && isCategory(facts.category) ? categoryLabel(facts.category) : facts.category,
           lang,
         },
+        // DeepSeek takes up to 30 s on the server before it gives up (server/ai-keys.mjs): the app waits a little longer.
+        timeoutMs: 45_000,
       });
       onWrite(written.text);
       toast({

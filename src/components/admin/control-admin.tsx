@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { api, getToken } from '@/lib/api';
+import { api, apiUrl, getToken } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { DEFAULT_POLICIES, type Policy, type PolicyKey } from '@/lib/policies';
 import { cn } from '@/lib/utils';
@@ -353,7 +353,7 @@ export function VerificationsAdmin() {
   // Documents need the admin's session, so they are fetched and shown from memory (never a public link).
   const show = async (id: string, file: string) => {
     const token = getToken();
-    const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/admin/verifications/${id}/file/${file}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const r = await fetch(apiUrl(`/admin/verifications/${id}/file/${file}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!r.ok) return;
     const url = URL.createObjectURL(await r.blob());
     setImages((x) => ({ ...x, [`${id}/${file}`]: url }));

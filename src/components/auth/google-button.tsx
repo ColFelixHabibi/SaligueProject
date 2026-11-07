@@ -2,10 +2,14 @@
 
 import { friendlyError } from '@/lib/errors';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { yearsAgo } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useT } from '@/lib/i18n';
 import { googleClientId, loginWithGoogle } from '@/lib/auth-actions';
 
 declare global {
@@ -42,16 +46,25 @@ function GoogleLogo() {
 }
 
 /**
- * "Continue with Google" using Google's own sign-in button. New accounts get the buyer/seller role
- * chosen in the dialog. Until the server has a Google client ID, the button explains that instead.
+ * "Continue with Google" using Google's own sign-in button. New accounts get the buyer/seller role chosen in the
+ * dialog, and the date of birth the dialog collected: the server asks for it when it creates an account (16+), and
+ * never when someone signs back in to an account that already stated it. When no dialog collected a date — the login
+ * dialog, for instance — the date is asked for right here and the same Google token is retried.
  */
-export function GoogleButton({ role, onDone }: { role?: 'buyer' | 'seller'; onDone?: () => void }) {
+export function GoogleButton({ role, birthDate, onDone }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void }) {
   const { toast } = useToast();
+  const t = useT();
   const slot = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'off'>('loading');
+  // Google's ID token is held here when the server says a new account still has to state its age.
+  const pending = useRef<string | null>(null);
+  const [askedAge, setAskedAge] = useState(false);
+  const [typedDate, setTypedDate] = useState('');
+  const [checking, setChecking] = useState(false);
+  const ageId = useId();
   // Read inside Google's callback, which is registered only once.
-  const latest = useRef({ role, onDone });
-  latest.current = { role, onDone };
+  const latest = useRef({ role, birthDate, onDone, t });
+  latest.current = { role, birthDate, onDone, t };
 
   useEffect(() => {
     let cancelled = false;
@@ -68,10 +81,20 @@ export function GoogleButton({ role, onDone }: { role?: 'buyer' | 'seller'; onDo
           client_id: clientId,
           callback: async ({ credential }: { credential: string }) => {
             try {
-              await loginWithGoogle(credential, latest.current.role);
+              await loginWithGoogle(credential, latest.current.role, latest.current.birthDate || undefined);
               latest.current.onDone?.();
             } catch (error: any) {
-              toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) });
+              // A brand-new Google account still has to state its age: ask right here, then retry with the same token.
+              if (error?.code === 'birth_date_required' || error?.code === 'invalid_birth_date') {
+                pending.current = credential;
+                setAskedAge(true);
+                return;
+              }
+              toast({
+                variant: 'destructive',
+                title: latest.current.t('Google sign-in failed'),
+                description: friendlyError(error),
+              });
             }
           },
         });
@@ -93,10 +116,30 @@ export function GoogleButton({ role, onDone }: { role?: 'buyer' | 'seller'; onDo
     };
   }, [toast]);
 
+  /** Retries the Google sign-in with the date of birth typed after the server asked for it. */
+  async function confirmAge(event: React.FormEvent) {
+    event.preventDefault();
+    const credential = pending.current;
+    if (!credential) return;
+    setChecking(true);
+    try {
+      await loginWithGoogle(credential, latest.current.role, typedDate);
+      latest.current.onDone?.();
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: error?.code === 'too_young' ? 'Saligue is for people aged 16 and over' : 'Google sign-in failed',
+        description: friendlyError(error),
+      });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 text-xs uppercase text-muted-foreground">
-        <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+        <span className="h-px flex-1 bg-border" /> {t('or')} <span className="h-px flex-1 bg-border" />
       </div>
       <div ref={slot} className={state === 'ready' ? 'flex min-h-11 justify-center' : 'hidden'} />
       {state !== 'ready' && (
@@ -108,18 +151,26 @@ export function GoogleButton({ role, onDone }: { role?: 'buyer' | 'seller'; onDo
           disabled={state === 'loading'}
           onClick={() =>
             toast({
-              title: 'Google sign-in is not switched on yet',
-              description: 'Use email for now. Saligue needs a Google client ID on the server to turn this on.',
+              title: t('Google sign-in is not switched on yet'),
+              description: t('Use email for now. Saligue needs a Google client ID on the server to turn this on.'),
             })
           }
         >
-          <span className="mr-3"><GoogleLogo /></span> Continue with Google
+          <span className="mr-3"><GoogleLogo /></span> {t('Continue with Google')}
         </Button>
       )}
+      {askedAge && (
+        <form onSubmit={confirmAge} className="space-y-3 rounded-lg border p-4 text-left">
+          <Label htmlFor={`${ageId}-google-birth-date`} className="text-base font-medium">{t('First time here? Your date of birth')}</Label>
+          <Input id={`${ageId}-google-birth-date`} type="date" autoComplete="bday" required max={yearsAgo(16)} min={yearsAgo(120)} className="h-12 text-base" value={typedDate} onChange={(e) => setTypedDate(e.target.value)} />
+          <p className="text-xs text-muted-foreground">{t('Saligue is for people aged 16 and over. Only your age is kept, and it is never shown to anyone.')}</p>
+          <Button type="submit" size="lg" className="h-12 w-full" disabled={checking || !typedDate}>{checking ? t('Signing you in…') : t('Continue')}</Button>
+        </form>
+      )}
       <p className="text-center text-xs text-muted-foreground">
-        By continuing with Google you accept the{' '}
-        <Link href="/terms" target="_blank" className="underline">Terms of Service</Link> and{' '}
-        <Link href="/privacy" target="_blank" className="underline">Privacy Policy</Link>.
+        {t('By continuing with Google you accept the')}{' '}
+        <Link href="/terms" target="_blank" className="underline">{t('Terms of Service')}</Link> {t('and')}{' '}
+        <Link href="/privacy" target="_blank" className="underline">{t('Privacy Policy')}</Link>.
       </p>
     </div>
   );

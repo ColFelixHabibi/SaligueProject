@@ -190,3 +190,17 @@ body {
   60% { opacity: 1; transform: translate(-50%, -60%) scale(1) rotate(-12deg); }
   100% { opacity: 0; transform: translate(-50%, -110%) scale(0.9) rotate(-12deg); }
 }
+
+/* Reduced motion (phone or computer set to "reduce motion"): the floating shapes, the hearts rising over a live,
+   the gift sliding in and every other animation stop instead of moving. Nothing is hidden and nothing is lost:
+   a spinner still turns once, a screen still changes, the app simply stops moving on its own. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
