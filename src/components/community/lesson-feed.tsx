@@ -48,21 +48,22 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
       <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b bg-background/95 py-2 pl-2 pr-2 backdrop-blur md:px-4 md:py-3">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_88%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {!challenge && on('challenges') && (
-            <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
-              <Trophy className="h-4 w-4" /> {tr('Challenges')}
+            <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label={tr('Challenges')} title={tr('Challenges')}>
+              <Trophy className="h-4 w-4" /><span className="sr-only">{tr('Challenges')}</span>
             </Link>
           )}
-          <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic}>
-            <LayoutGrid className="h-4 w-4" /> {tr('All')}
+          <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic} title={tr('All')}>
+            <LayoutGrid className="h-4 w-4" />{!topic && <> {tr('All')}</>}{topic && <span className="sr-only">{tr('All')}</span>}
           </button>
           {LESSON_TOPICS.map((t) => (
-            <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value}>
-              <t.icon className="h-4 w-4" /> {tr(t.label)}
+            <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value} title={tr(t.label)}>
+              {/* Icons only; the chosen topic also shows its name. */}
+              <t.icon className="h-4 w-4" />{topic === t.value ? <> {tr(t.label)}</> : <span className="sr-only">{tr(t.label)}</span>}
             </button>
           ))}
           <span className="w-6 shrink-0" aria-hidden />
         </div>
-        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'bg-foreground px-3 text-background shadow-sm')} aria-label="Teach a lesson">
+        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'bg-foreground px-3 text-background shadow-sm')} aria-label={tr('Teach a lesson')} title={tr('Teach a lesson')}>
           <Plus className="h-4 w-4" /> {tr('Teach')}
         </Link>
       </div>
@@ -74,7 +75,6 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
           <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-32 text-center [scrollbar-width:none] [&>*]:shrink-0 md:gap-5 md:px-8 md:pt-40 [&::-webkit-scrollbar]:hidden">
             <GraduationCap className="h-12 w-12 text-primary md:h-16 md:w-16" />
             <p className="text-xl font-bold md:text-3xl">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
-            <p className="max-w-xs text-sm text-muted-foreground md:max-w-md md:text-base">A phone video up to 4 min 30 s. Ideas:</p>
             <div className="grid w-full max-w-sm grid-cols-2 gap-2 text-left text-sm md:max-w-3xl md:grid-cols-4 md:gap-3 md:text-base">
               {LESSON_IDEAS.map((idea) => (
                 <Link key={idea.title} href={`/learn/new?topic=${idea.topic}`} className="flex items-center gap-2 rounded-2xl bg-background p-3 font-semibold shadow-sm hover:ring-2 hover:ring-primary md:flex-col md:justify-center md:gap-3 md:p-5 md:text-center">
@@ -82,8 +82,8 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
                 </Link>
               ))}
             </div>
-            <Button asChild className="h-12 rounded-full px-6"><Link href="/learn/new"><Plus className="mr-2 h-5 w-5" /> {tr('Teach a lesson')}</Link></Button>
-            <SuggestedShops title="Follow shops and teachers" className="w-full max-w-lg text-left md:max-w-3xl" />
+            <Button asChild className="h-12 rounded-full px-6"><Link href="/learn/new"><Plus className="mr-2 h-5 w-5" /> {tr('Teach')}</Link></Button>
+            <SuggestedShops title="Follow" className="w-full max-w-lg text-left md:max-w-3xl" />
           </div>
         ) : (
           [...lessons.map((l) => <LessonSlide key={l.id} lesson={l} />), <CaughtUp key="caught-up" />]

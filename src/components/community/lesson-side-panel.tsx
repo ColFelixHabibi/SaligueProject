@@ -18,7 +18,6 @@ export function LessonSidePanel({ lessons }: { lessons: Lesson[] | null }) {
     <div className="space-y-4">
       <div className="space-y-2 rounded-2xl border bg-card p-4 shadow-sm">
         <p className="flex items-center gap-2 font-bold"><GraduationCap className="h-5 w-5 text-primary" /> {t('Teach a lesson')}</p>
-        <p className="text-sm text-muted-foreground">{t('Teach styling, sewing, clothing care or fashion business in a video up to 4 min 30 s.')}</p>
         <Button asChild className="w-full rounded-full">
           <Link href="/learn/new"><Plus className="mr-1.5 h-4 w-4" /> {t('Teach a lesson')}</Link>
         </Button>

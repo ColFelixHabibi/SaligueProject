@@ -12,6 +12,14 @@ export const LANGUAGES: { value: Lang; label: string }[] = [
 ];
 
 const DICT: Record<string, [rw: string, fr: string]> = {
+  Less: ['Bike', 'Moins'],
+  'Why?': ['Kubera iki?', 'Pourquoi ?'],
+  'New and popular': ['Bishya kandi bikunzwe', 'Nouveau et populaire'],
+  'All caught up': ['Wabibonye byose', 'Vous êtes à jour'],
+  Report: ['Tanga ikirego', 'Signaler'],
+  Reviews: ['Ibitekerezo', 'Avis'],
+  Size: ['Ingano', 'Taille'],
+  Sponsored: ['Byamamajwe', 'Sponsorisé'],
   // Menus
   'For You': ['Ibikubereye', 'Pour vous'],
   Explore: ['Shakisha', 'Explorer'],

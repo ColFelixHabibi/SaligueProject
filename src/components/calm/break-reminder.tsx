@@ -3,7 +3,7 @@
 import { useT } from '@/lib/i18n';
 
 import { useState } from 'react';
-import { Coffee, Moon } from 'lucide-react';
+import { Check, Coffee, Compass, GraduationCap, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useBreakReminder } from '@/lib/break-reminder';
 
@@ -43,12 +43,20 @@ export function CaughtUp({ onLearn }: { onLearn?: () => void }) {
   const t = useT();
   return (
     <section className="flex h-full snap-start flex-col items-center justify-center gap-5 bg-muted p-8 text-center">
-      <span className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-4xl">✓</span>
-      <p className="text-2xl font-bold">{t('You’re all caught up')}</p>
-      <p className="max-w-xs text-muted-foreground">{t('You’ve seen everything new for now.')}</p>
-      <div className="flex flex-wrap justify-center gap-2">
-        {onLearn && <Button className="rounded-full" onClick={onLearn}>{t('Learn something')}</Button>}
-        <Button variant="outline" className="rounded-full" asChild><a href="/search">{t('Explore')}</a></Button>
+      <span className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary"><Check className="h-10 w-10" /></span>
+      <p className="text-2xl font-bold">{t('All caught up')}</p>
+      {/* Two next steps as icons: learn something, or explore the shop. */}
+      <div className="flex justify-center gap-6 text-xs font-semibold">
+        {onLearn && (
+          <button type="button" onClick={onLearn} className="flex flex-col items-center gap-1.5">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow transition hover:opacity-90"><GraduationCap className="h-6 w-6" /></span>
+            {t('Learn')}
+          </button>
+        )}
+        <a href="/search" className="flex flex-col items-center gap-1.5">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"><Compass className="h-6 w-6" /></span>
+          {t('Explore')}
+        </a>
       </div>
     </section>
   );

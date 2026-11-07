@@ -31,6 +31,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [why, setWhy] = useState(false);
   const resaligued = useResaligued(product.id);
   const mine = !!user && user.uid === product.sellerId;
   const pinned = !!product.pinnedAt;
@@ -66,13 +67,15 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
     toast({ title: pinned ? t('Unpinned') : t('Pinned to your profile'), description: pinned ? undefined : t('It stays first on your profile.') });
   });
 
-  const device = typeof window !== 'undefined' && (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() ? t('To your phone') : t('To your device');
-  const tiles: { key: string; icon: typeof Repeat2; label: string; hint?: string; onClick: () => void; active?: boolean; show: boolean }[] = [
-    { key: 'resaligue', icon: Repeat2, label: resaligued ? t('Resaligued') : t('Resaligue'), hint: resaligued ? t('Tap to undo') : t('Repost'), onClick: resaligue, active: resaligued, show: !mine },
+  // Icons first, one short word each (fewer words to read, in any language).
+  const tiles: { key: string; icon: typeof Repeat2; label: string; onClick: () => void; active?: boolean; show: boolean }[] = [
+    { key: 'resaligue', icon: Repeat2, label: t('Repost'), onClick: resaligue, active: resaligued, show: !mine },
     { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('Unpin') : t('Pin'), onClick: pin, active: pinned, show: mine },
-    { key: 'download-image', icon: Download, label: product.video ? t('Save photo') : t('Download'), hint: device, onClick: () => download('image'), show: true },
-    { key: 'download-video', icon: Download, label: t('Save video'), hint: device, onClick: () => download('video'), show: !!product.video },
-    { key: 'look', icon: Layers, label: t('Add to a look'), onClick: () => { setOpen(false); addToLook({ kind: 'product', id: product.id }); }, show: !!user && on('looks') },
+    { key: 'download-image', icon: Download, label: t('Photo'), onClick: () => download('image'), show: true },
+    { key: 'download-video', icon: Download, label: t('Video'), onClick: () => download('video'), show: !!product.video },
+    { key: 'look', icon: Layers, label: t('Look'), onClick: () => { setOpen(false); addToLook({ kind: 'product', id: product.id }); }, show: !!user && on('looks') },
+    { key: 'less', icon: EyeOff, label: t('Less'), onClick: () => { setOpen(false); onHide?.(); }, show: !!onHide },
+    { key: 'why', icon: Info, label: t('Why?'), onClick: () => setWhy((w) => !w), active: why, show: !inline },
   ];
 
   return (
@@ -94,32 +97,28 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
           </SheetHeader>
           <div className="mt-4 grid grid-cols-4 gap-2">
             {tiles.filter((x) => x.show).map((x) => (
-              <button key={x.key} type="button" onClick={x.onClick} disabled={!!busy} className="flex min-w-0 flex-col items-center gap-1.5 rounded-2xl py-2 text-xs font-semibold transition active:scale-95 disabled:opacity-60">
+              <button key={x.key} type="button" onClick={x.onClick} disabled={!!busy} aria-pressed={x.active} className="flex min-w-0 flex-col items-center gap-1.5 rounded-2xl py-2 text-xs font-semibold transition active:scale-95 disabled:opacity-60">
                 <span className={cn('flex h-14 w-14 items-center justify-center rounded-full', x.active ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
                   {busy === x.key ? <Loader2 className="h-6 w-6 animate-spin" /> : <x.icon className="h-6 w-6" />}
                 </span>
                 <span className="w-full truncate text-center">{x.label}</span>
-                {x.hint && <span className="-mt-1 w-full truncate text-center text-[11px] font-normal text-muted-foreground">{x.hint}</span>}
               </button>
             ))}
-          </div>
-          {busy?.startsWith('download') && <p className="mt-2 text-center text-xs text-muted-foreground">{t('Adding the Saligue logo…')}</p>}
-
-          <div className="mt-4 divide-y rounded-2xl border text-sm">
-            {!inline && <div className="flex items-start gap-3 p-3">
-              <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <span><b className="block">{t('Why am I seeing this?')}</b><span className="text-muted-foreground">{sponsored ? 'A shop paid to show this item (Sponsored).' : reason ?? 'New and popular items, mixed for variety.'}</span></span>
-            </div>}
-            {onHide && (
-              <button type="button" className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted/60" onClick={() => { setOpen(false); onHide(); }}>
-                <EyeOff className="h-5 w-5 shrink-0" /> {t('Show less like this')}
-              </button>
+            {!mine && (
+              <span className="flex min-w-0 flex-col items-center gap-1.5 py-2 text-xs font-semibold">
+                <ReportButton product={product} iconOnly className="flex h-14 w-14 items-center justify-center rounded-full bg-muted p-0 text-foreground [&>svg]:h-6 [&>svg]:w-6" />
+                <span className="w-full truncate text-center">{t('Report')}</span>
+              </span>
             )}
-            <Link href="/how-feed-works" className="flex items-center gap-3 p-3 hover:bg-muted/60" onClick={() => setOpen(false)}>
-              <BookOpen className="h-5 w-5 shrink-0" /> {t('How For You works')}
-            </Link>
-            {!mine && <div className="p-1.5"><ReportButton product={product} className="w-full justify-start gap-3 rounded-xl p-1.5 text-sm text-foreground [&>svg]:h-5 [&>svg]:w-5" /></div>}
           </div>
+          {why && (
+            <p className="mt-3 flex items-center gap-2 rounded-2xl bg-muted p-3 text-sm">
+              <Info className="h-5 w-5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">{sponsored ? t('Sponsored') : reason ?? t('New and popular')}</span>
+              <Link href="/how-feed-works" onClick={() => setOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background" aria-label={t('How For You works')} title={t('How For You works')}><BookOpen className="h-4 w-4" /></Link>
+            </p>
+          )}
+          {busy?.startsWith('download') && <p className="mt-2 text-center text-xs text-muted-foreground">{t('Adding the Saligue logo…')}</p>}
         </SheetContent>
       </Sheet>
     </>

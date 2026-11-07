@@ -3,7 +3,7 @@
 import { useT } from '@/lib/i18n';
 
 import { useEffect, useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, UserCheck, UserPlus } from 'lucide-react';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -32,10 +32,19 @@ export function useFollow(sellerId?: string | null) {
 }
 
 /** Follow a shop or teacher: you become their client (shows the number of clients when `showCount`). */
-export function FollowButton({ sellerId, className, size = 'sm', showCount, onDark, labelClassName }: { sellerId?: string | null; className?: string; size?: ButtonProps['size']; showCount?: boolean; onDark?: boolean; labelClassName?: string }) {
+export function FollowButton({ sellerId, className, size = 'sm', showCount, onDark, labelClassName, iconOnly }: { sellerId?: string | null; className?: string; size?: ButtonProps['size']; showCount?: boolean; onDark?: boolean; labelClassName?: string; iconOnly?: boolean }) {
   const { following, clients, toggle, own } = useFollow(sellerId);
   const t = useT();
   if (!sellerId || own) return null;
+  // Just the icon (a person with + to follow, with ✓ once in your network), for tight places.
+  if (iconOnly) {
+    const label = following ? t('In your network') : t('Follow');
+    return (
+      <Button type="button" size="icon" onClick={toggle} variant={following ? 'outline' : 'default'} className={cn('h-10 w-10 shrink-0 rounded-full', className)} aria-pressed={!!following} aria-label={label} title={label}>
+        {following ? <UserCheck className="h-5 w-5" /> : <UserPlus className="h-5 w-5" />}
+      </Button>
+    );
+  }
   return (
     <Button type="button" size={size} onClick={toggle} variant={following ? 'outline' : 'default'}
       className={cn('rounded-full', following && onDark && 'border-white/60 bg-transparent text-white hover:bg-white/10', className)} aria-pressed={!!following}>

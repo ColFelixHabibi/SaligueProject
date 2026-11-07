@@ -32,7 +32,7 @@ export function SuggestedShops({ title = 'Shops to follow', className }: { title
               <span className="line-clamp-1 text-sm font-semibold">{s.name}{s.verified && <VerifiedBadge className="ml-0.5" />}</span>
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground">{s.city && <><MapPin className="h-3 w-3" /> {s.city} · </>}{s.items} {t('Items').toLowerCase()}</span>
             </Link>
-            <FollowButton sellerId={s.id} className="h-8 w-full" labelClassName="truncate" />
+            <FollowButton sellerId={s.id} iconOnly />
           </div>
         ))}
       </div>
