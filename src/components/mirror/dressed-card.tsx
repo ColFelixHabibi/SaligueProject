@@ -150,7 +150,7 @@ export function DressedCard({ product, person, landmarks, parsing, personUrl, ph
         {canBeRealistic && realisticError && !realisticUrl && !realisticBusy && (
           <div className="absolute inset-x-2 top-1/3 flex flex-col items-center gap-2 rounded-xl bg-background/95 p-3 text-center text-sm shadow">
             <span>{realisticError ?? 'Saligue AI couldn’t dress you in it this time.'}</span>
-            <Button size="sm" onClick={makeRealistic}><RefreshCw className="mr-1.5 h-4 w-4" /> Try again</Button>
+            <Button size="icon" onClick={makeRealistic} aria-label="Try again" title="Try again"><RefreshCw className="h-4 w-4" /></Button>
           </div>
         )}
         {!canBeRealistic && isClothes && (

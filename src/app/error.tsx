@@ -19,7 +19,7 @@ export default function PageError({ error, reset }: { error: Error & { digest?: 
       <h1 className="text-xl font-bold">Something went wrong</h1>
       <p className="max-w-xs text-sm text-muted-foreground">We’ve been told about it. Try again, or go back to the start.</p>
       <div className="flex flex-wrap justify-center gap-2">
-        <Button onClick={reset}><RefreshCw className="mr-2 h-4 w-4" /> Try again</Button>
+        <Button size="icon" onClick={reset} aria-label="Try again" title="Try again"><RefreshCw className="h-4 w-4" /></Button>
         <Button variant="outline" onClick={() => (window.history.length > 1 ? router.back() : router.push('/'))}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
         <Button variant="ghost" asChild><Link href="/"><Home className="mr-2 h-4 w-4" /> Home</Link></Button>
       </div>

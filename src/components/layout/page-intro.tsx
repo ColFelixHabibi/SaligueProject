@@ -19,10 +19,8 @@ export function PageIntro({ icon: Icon, title, subtitle, className, children }: 
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Icon className="h-6 w-6" />
         </span>
-        <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold tracking-tight">{title}</h1>
-          <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
-        </div>
+        {/* Icon and title only (fewer words); the subtitle is the title's tooltip. */}
+        <h1 className="min-w-0 truncate text-2xl font-extrabold tracking-tight" title={subtitle}>{title}</h1>
       </div>
       {children && <div className="flex shrink-0 gap-2">{children}</div>}
     </div>

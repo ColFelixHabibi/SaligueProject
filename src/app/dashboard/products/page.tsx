@@ -151,11 +151,10 @@ function ProductsTable() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="hidden text-2xl font-bold tracking-tight md:block">Products</h2>
-          <p className="text-sm text-muted-foreground">Add, edit, publish and remove your items. Change price and stock right in the table.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={exportCsv} disabled={!shown.length}><Download className="mr-2 h-4 w-4" /> Export</Button>
-          <Button asChild><Link href="/sell"><PackagePlus className="mr-2 h-4 w-4" /> Add item</Link></Button>
+          <Button size="icon" variant="outline" onClick={exportCsv} disabled={!shown.length} aria-label="Export" title="Export"><Download className="h-4 w-4" /></Button>
+          <Button size="icon" asChild><Link href="/sell" aria-label="Add item" title="Add item"><PackagePlus className="h-4 w-4" /></Link></Button>
         </div>
       </div>
 
@@ -178,9 +177,9 @@ function ProductsTable() {
         {selected.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b bg-primary/5 px-3 py-2 text-sm">
             <span className="font-semibold">{selected.size} selected</span>
-            <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'active')}><Upload className="mr-1.5 h-3.5 w-3.5" /> Publish</Button>
-            <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'draft')}><FileEdit className="mr-1.5 h-3.5 w-3.5" /> Draft</Button>
-            <Button size="sm" variant="outline" className="h-8" onClick={() => bulk([...selected], 'archived')}><Archive className="mr-1.5 h-3.5 w-3.5" /> Archive</Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => bulk([...selected], 'active')} aria-label="Publish" title="Publish"><Upload className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => bulk([...selected], 'draft')} aria-label="Draft" title="Draft"><FileEdit className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => bulk([...selected], 'archived')} aria-label="Archive" title="Archive"><Archive className="h-3.5 w-3.5" /></Button>
             <Button size="icon" variant="outline" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setConfirmDelete([...selected])} aria-label="Delete" title="Delete"><Trash2 className="h-4 w-4" /></Button>
             <Button size="sm" variant="ghost" className="ml-auto h-8" onClick={() => setSelected(new Set())}>Clear</Button>
           </div>

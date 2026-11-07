@@ -209,7 +209,6 @@ function Setup() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Saligue Live</p>
           <h1 className="text-2xl font-extrabold tracking-tight min-[360px]:text-3xl">Go live</h1>
-          <p className="text-muted-foreground">Show your items on camera. Shoppers chat, send hearts, buy while you talk, and can join you on camera.</p>
         </div>
         {mineLive && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/40 bg-primary/5 p-3 text-sm">
@@ -448,7 +447,6 @@ function Studio({ id }: { id: string }) {
           <Button type="button" variant={live.layout !== 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'side' }))}><PanelRight className="mr-2 h-4 w-4" /> Side</Button>
           <Button type="button" variant={live.layout === 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'grid' }))}><LayoutGrid className="mr-2 h-4 w-4" /> Grid</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Side: you fill the screen, guests in small boxes on the right. Grid: everyone the same size. The replay keeps the same layout.</p>
       </div>
       <div className="space-y-2">
         <p className="text-sm font-semibold">Picture</p>
@@ -456,7 +454,6 @@ function Studio({ id }: { id: string }) {
           <Button type="button" variant={live.videoFit !== 'fill' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { videoFit: 'fit' }))}><Minimize className="mr-2 h-4 w-4" /> Whole</Button>
           <Button type="button" variant={live.videoFit === 'fill' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { videoFit: 'fill' }))}><Maximize className="mr-2 h-4 w-4" /> Fill</Button>
         </div>
-        <p className="text-xs text-muted-foreground">Whole shows your full camera picture to everyone. Fill covers the screen and cuts the edges.</p>
       </div>
       {cameras.length > 1 && (
         <div className="space-y-2">

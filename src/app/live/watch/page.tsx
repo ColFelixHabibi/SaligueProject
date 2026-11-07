@@ -420,7 +420,7 @@ function Watch() {
           {live.description && <ExpandableText text={live.description} lines={3} className="text-muted-foreground" />}
           <div className="flex flex-wrap gap-2 pt-2">
             {featured[0] && <MessageSellerButton product={featured[0]} label={`Message ${live.sellerName}`} size="default" variant="secondary" />}
-            <Button variant="outline" onClick={share}><Share2 className="mr-2 h-4 w-4" /> Share</Button>
+            <Button size="icon" variant="outline" onClick={share} aria-label="Share" title="Share"><Share2 className="h-4 w-4" /></Button>
             {!isGuest && <Button variant="outline" onClick={requestJoin} disabled={myGuestStatus === 'requested'}><UserPlus className="mr-2 h-4 w-4" /> {myGuestStatus === 'requested' ? 'Request sent' : 'Join on camera'}</Button>}
           </div>
         </div>

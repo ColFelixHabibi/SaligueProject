@@ -291,8 +291,8 @@ function Mirror() {
               {(results || searchBusy) && (
                 <div className="flex flex-wrap items-center gap-3">
                   {results && (
-                    <Button type="button" variant="ghost" size="sm" onClick={clearSearch}>
-                      <X className="mr-1 h-4 w-4" /> Clear
+                    <Button type="button" variant="ghost" size="icon" onClick={clearSearch} aria-label="Clear" title="Clear">
+                      <X className="h-4 w-4" />
                     </Button>
                   )}
                   {searchBusy && <span className="text-sm text-muted-foreground">{searchBusy}</span>}
@@ -344,7 +344,7 @@ function Mirror() {
                   <CardContent className="space-y-3 p-4">
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="font-semibold">Compare your looks</h3>
-                      <Button variant="ghost" size="sm" onClick={() => setCompare([])}><X className="mr-1 h-4 w-4" /> Clear</Button>
+                      <Button variant="ghost" size="icon" onClick={() => setCompare([])} aria-label="Clear" title="Clear"><X className="h-4 w-4" /></Button>
                     </div>
                     <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
                       <figure className="w-40 shrink-0 snap-start sm:w-48">
@@ -428,7 +428,7 @@ function Mirror() {
                     <div className="flex justify-center gap-2">
                       <SaveImageButton variant="outline" size="sm" url={outfitUrl} name="saligue-outfit.jpg"><Download className="mr-2 h-4 w-4" /> Save</SaveImageButton>
                       <Button variant="outline" size="sm" onClick={() => { setWearForm(outfitForm); runSearch(outfitForm); }}>
-                        <Search className="mr-2 h-4 w-4" /> Find similar items to buy
+                        <Search className="mr-2 h-4 w-4" /> Find similar
                       </Button>
                     </div>
                   </div>

@@ -145,7 +145,6 @@ export default function AdsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="hidden items-center gap-2 text-2xl md:flex font-bold tracking-tight"><Megaphone className="h-6 w-6 text-primary" /> Ads</h2>
-          <p className="text-sm text-muted-foreground">Show your items to more shoppers in For You and Explore.</p>
         </div>
         <Button onClick={() => { setForm((f) => ({ ...f, productId: f.productId || mine[0]?.id || '' })); setCreating(true); }} disabled={!mine.length}>
           <Plus className="mr-2 h-4 w-4" /> New ad

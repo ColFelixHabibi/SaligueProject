@@ -12,7 +12,7 @@ import { TipButton } from '@/components/tip-button';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store } from 'lucide-react';
+import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store, UserCheck, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -131,18 +131,18 @@ function ProfileView({ id }: { id: string }) {
       <ProfileHeader profile={profile} onStat={(k) => (k === 'items' ? setTab('items') : k === 'clients' || k === 'following' ? void openList(k) : undefined)}>
         {profile.mine ? (
           <>
-            <Button className="h-10 min-w-0 flex-1 rounded-full" variant="secondary" onClick={() => setEditing(true)}><Pencil className="mr-2 h-4 w-4" /> {t('Edit bio')}</Button>
+            <Button size="icon" className="h-10 w-10 shrink-0 rounded-full" variant="secondary" onClick={() => setEditing(true)} aria-label={t('Edit bio')} title={t('Edit bio')}><Pencil className="h-4 w-4" /></Button>
             <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={profile.isShop ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-5 w-5" /></Link></Button>
           </>
         ) : (
-          <Button className="h-10 min-w-0 flex-1 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following}>
-            {follow.following ? t('In your network') : t('Follow')}
+          <Button size="icon" className="h-10 w-10 shrink-0 rounded-full" variant={follow.following ? 'outline' : 'default'} onClick={follow.toggle} aria-pressed={follow.following} aria-label={follow.following ? t('In your network') : t('Follow')} title={follow.following ? t('In your network') : t('Follow')}>
+            {follow.following ? <UserCheck className="h-5 w-5" /> : <UserPlus className="h-5 w-5" />}
           </Button>
         )}
         {/* Message: shops, and anyone in your Clients or Network (photos, videos, voice notes too). */}
         {profile.canMessage && on('messages') && (
-          <Button variant="secondary" className="h-10 min-w-0 flex-1 rounded-full" disabled={opening} onClick={() => void message()}>
-            {opening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />} {t('Message')}
+          <Button size="icon" variant="secondary" className="h-10 w-10 shrink-0 rounded-full" disabled={opening} onClick={() => void message()} aria-label={t('Message')} title={t('Message')}>
+            {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-5 w-5" />}
           </Button>
         )}
         {profile.shop && (profile.shop.whatsapp || profile.shop.phone) && (

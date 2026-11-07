@@ -91,7 +91,7 @@ export function LiveTryOn({ product, price, onClose, onBuy }: { product: Product
             ) : error ? (
               <div className="space-y-2 rounded-xl bg-muted p-3 text-sm">
                 <p>{error}</p>
-                <Button size="sm" variant="outline" onClick={run}><RefreshCw className="mr-1.5 h-4 w-4" /> {t('Try again')}</Button>
+                <Button size="icon" variant="outline" onClick={run} aria-label={t('Try again')} title={t('Try again')}><RefreshCw className="h-4 w-4" /></Button>
               </div>
             ) : null}
             <div className="grid grid-cols-[1fr_auto] gap-2">

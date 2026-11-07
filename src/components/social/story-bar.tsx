@@ -210,14 +210,14 @@ export function StoryBar({ className, compact = false }: { className?: string; c
 
           <form onSubmit={publish} className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
-              <Button type="button" variant={mode === 'photo' ? 'default' : 'outline'} onClick={() => chooseMode('photo')}>
-                <ImageIcon className="mr-2 h-4 w-4" /> {t('Photo')}
+              <Button type="button" className="h-12" variant={mode === 'photo' ? 'default' : 'outline'} onClick={() => chooseMode('photo')} aria-label={t('Photo')} title={t('Photo')} aria-pressed={mode === 'photo'}>
+                <ImageIcon className="h-6 w-6" />
               </Button>
-              <Button type="button" variant={mode === 'voice' ? 'default' : 'outline'} onClick={() => chooseMode('voice')}>
-                <Mic className="mr-2 h-4 w-4" /> {t('Voice')}
+              <Button type="button" className="h-12" variant={mode === 'voice' ? 'default' : 'outline'} onClick={() => chooseMode('voice')} aria-label={t('Voice')} title={t('Voice')} aria-pressed={mode === 'voice'}>
+                <Mic className="h-6 w-6" />
               </Button>
-              <Button type="button" variant={mode === 'text' ? 'default' : 'outline'} onClick={() => chooseMode('text')}>
-                <Type className="mr-2 h-4 w-4" /> {t('Words')}
+              <Button type="button" className="h-12" variant={mode === 'text' ? 'default' : 'outline'} onClick={() => chooseMode('text')} aria-label={t('Words')} title={t('Words')} aria-pressed={mode === 'text'}>
+                <Type className="h-6 w-6" />
               </Button>
             </div>
 

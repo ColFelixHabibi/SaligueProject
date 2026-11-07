@@ -237,9 +237,8 @@ function OrdersManager() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="hidden text-2xl font-bold tracking-tight md:block">Orders</h2>
-          <p className="text-sm text-muted-foreground">Confirm, send and deliver orders. Customers are told at every step.</p>
         </div>
-        <Button variant="outline" onClick={exportCsv} disabled={!shown.length}><Download className="mr-2 h-4 w-4" /> Export</Button>
+        <Button size="icon" variant="outline" onClick={exportCsv} disabled={!shown.length} aria-label="Export" title="Export"><Download className="h-4 w-4" /></Button>
       </div>
 
       <Card className="overflow-hidden rounded-2xl">

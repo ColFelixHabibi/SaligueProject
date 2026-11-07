@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 const RANGES = [7, 30, 90, 365];
 
-function ActionCard({ href, icon: Icon, label, value, hint, tone }: { href: string; icon: typeof Package; label: string; value: number; hint: string; tone?: 'warn' }) {
+function ActionCard({ href, icon: Icon, label, value, hint, tone }: { href: string; icon: typeof Package; label: string; value: number; hint?: string; tone?: 'warn' }) {
   return (
     <Link href={href} className={cn('group flex items-center gap-4 rounded-2xl border bg-card p-4 transition hover:border-primary hover:shadow-sm', value > 0 && tone === 'warn' && 'border-amber-300 bg-amber-50 dark:bg-amber-950/20')}>
       <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', value > 0 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
@@ -29,7 +29,7 @@ function ActionCard({ href, icon: Icon, label, value, hint, tone }: { href: stri
       <span className="min-w-0 flex-1">
         <span className="block text-2xl font-bold leading-none">{value}</span>
         <span className="block text-sm font-medium leading-tight">{label}</span>
-        <span className="line-clamp-2 block text-xs text-muted-foreground">{hint}</span>
+        {hint && <span className="line-clamp-2 block text-xs text-muted-foreground">{hint}</span>}
       </span>
       <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
     </Link>
@@ -74,25 +74,24 @@ export default function DashboardPage() {
           <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
             <div>
               <p className="text-lg font-bold">List your first item</p>
-              <p className="text-sm text-muted-foreground">Shoppers can wear it in the Fitting Room, message you and order straight away.</p>
             </div>
-            <Button size="lg" asChild><Link href="/sell"><PackagePlus className="mr-2 h-5 w-5" /> Add item</Link></Button>
+            <Button size="icon" asChild><Link href="/sell" aria-label="Add item" title="Add item"><PackagePlus className="h-5 w-5" /></Link></Button>
           </CardContent>
         </Card>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-        <ActionCard href="/dashboard/orders?status=placed" icon={Clock} label="Orders to confirm" value={toHandle} hint="New orders waiting for you" tone="warn" />
-        <ActionCard href="/dashboard/orders?payment=unpaid" icon={CircleDollarSign} label="Not paid yet" value={stats.unpaid} hint="Open orders without payment" />
-        <ActionCard href="/dashboard/messages" icon={MessageCircle} label="Unread messages" value={stats.unreadMessages} hint="Customers waiting for a reply" tone="warn" />
-        <ActionCard href="/dashboard/products?filter=low" icon={AlertTriangle} label="Low on stock" value={stats.lowStock.length} hint="3 or fewer left" tone="warn" />
+        <ActionCard href="/dashboard/orders?status=placed" icon={Clock} label="Orders to confirm" value={toHandle} tone="warn" />
+        <ActionCard href="/dashboard/orders?payment=unpaid" icon={CircleDollarSign} label="Not paid yet" value={stats.unpaid} />
+        <ActionCard href="/dashboard/messages" icon={MessageCircle} label="Unread messages" value={stats.unreadMessages} tone="warn" />
+        <ActionCard href="/dashboard/products?filter=low" icon={AlertTriangle} label="Low on stock" value={stats.lowStock.length} tone="warn" />
       </div>
 
       <Card className="overflow-hidden rounded-2xl">
         <MetricTiles stats={stats} selected={selected} onToggle={toggle} />
         <CardContent className="space-y-3 p-4 md:p-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Compared with the {days} days before.</p>
+            <span />
             <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
               <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
               <SelectContent>{RANGES.map((d) => <SelectItem key={d} value={String(d)}>{d === 365 ? 'Last 12 months' : `Last ${d} days`}</SelectItem>)}</SelectContent>
@@ -107,15 +106,14 @@ export default function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <div>
               <CardTitle>Recent orders</CardTitle>
-              <CardDescription>The newest orders for your shop.</CardDescription>
             </div>
-            <Button variant="outline" size="sm" asChild><Link href="/dashboard/orders">All orders <ArrowRight className="ml-1 h-4 w-4" /></Link></Button>
+            <Button variant="outline" size="icon" asChild><Link href="/dashboard/orders" aria-label="All orders" title="All orders"><ArrowRight className="h-4 w-4" /></Link></Button>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             {!orders ? (
               <Skeleton className="h-40 w-full" />
             ) : orders.length === 0 ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">No orders yet. Share your items so shoppers find them.</p>
+              <p className="py-10 text-center text-sm text-muted-foreground">No orders yet.</p>
             ) : (
               <Table>
                 <TableHeader>

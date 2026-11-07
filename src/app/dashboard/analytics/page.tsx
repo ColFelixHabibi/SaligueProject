@@ -42,7 +42,6 @@ export default function AnalyticsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="hidden text-2xl font-bold tracking-tight md:block">Analytics</h2>
-          <p className="text-sm text-muted-foreground">How shoppers find and buy your items.</p>
         </div>
         <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
           <SelectTrigger className="h-10 w-44"><SelectValue /></SelectTrigger>
@@ -84,10 +83,10 @@ export default function AnalyticsPage() {
               <CardTitle>Item performance</CardTitle>
               <CardDescription>Views and sales per item ({days === 365 ? '12 months' : `${days} days`}).</CardDescription>
             </div>
-            <Button variant="outline" size="sm" disabled={!rows.length} onClick={() => downloadCsv('saligue-item-performance.csv', [
+            <Button size="icon" variant="outline" disabled={!rows.length} onClick={() => downloadCsv('saligue-item-performance.csv', [
               ['Item', 'Views', 'Sold', 'Revenue', 'Conversion %'],
               ...rows.map((r) => [r.p.name, r.views, r.units, r.revenue, r.conversion.toFixed(1)]),
-            ])}><Download className="mr-1.5 h-4 w-4" /> Export</Button>
+            ])} aria-label="Export" title="Export"><Download className="h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             {rows.length === 0 ? (

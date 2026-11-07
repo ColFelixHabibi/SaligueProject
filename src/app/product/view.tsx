@@ -17,7 +17,7 @@ import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Layers, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck } from 'lucide-react';
+import { Layers, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck, ShoppingBag } from 'lucide-react';
 import ProductCard from '@/components/product-card';
 import { ensureProduct, useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
@@ -202,29 +202,28 @@ export default function ProductView({ id }: { id: string | null }) {
               </div>
               <p className={`mb-4 flex items-center gap-1.5 text-sm font-semibold ${soldOut ? 'text-destructive' : product.stock != null && product.stock <= 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {soldOut ? <PackageX className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
-                {soldOut ? 'Sold out' : product.stock != null && product.stock <= 3 ? `Only ${product.stock} left — order soon` : product.stock != null ? `${product.stock} left` : 'In stock'}
-                <span className="ml-2 font-normal text-muted-foreground">· {product.sold ?? 0} sold</span>
+                {/* Icons with numbers: what is left (words only for Sold out), and how many sold once there are any. */}
+                <span title={soldOut ? undefined : t('In stock')}>{soldOut ? t('Sold out') : product.stock != null ? `${product.stock} ${t('left')}` : null}</span>
+                {(product.sold ?? 0) > 0 && <span className="ml-2 flex items-center gap-1 font-normal text-muted-foreground" title={t('sold')}><ShoppingBag className="h-4 w-4" /> {product.sold}</span>}
               </p>
               {product.description && <ExpandableText text={product.description} lines={3} className="text-sm text-muted-foreground" />}
 
-              <Button size="lg" variant="secondary" className="mt-6 h-auto min-h-14 w-full whitespace-normal py-3 text-lg" asChild>
-                <Link href={`/mirror?item=${product.id}`}>
-                  <Wand2 className="mr-2 h-6 w-6" /> {t('Wear it')}
-                </Link>
-              </Button>
-
-              <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
-                <Button size="lg" variant="outline" className="h-14 text-lg" onClick={() => handleAddToCart()} disabled={soldOut}>
-                    <ShoppingCart className="mr-2 h-6 w-6" /> {t('Cart')}
+              {/* Icons for Wear it, Cart and Message; Buy (money) keeps its word. */}
+              <div className="mt-6 flex gap-2">
+                <Button size="icon" variant="secondary" className="h-14 w-14 shrink-0 rounded-2xl" asChild>
+                  <Link href={`/mirror?item=${product.id}`} aria-label={t('Wear it')} title={t('Wear it')}><Wand2 className="h-6 w-6" /></Link>
                 </Button>
-                <Button size="lg" className="h-14 text-lg" onClick={() => handleAddToCart(true)} disabled={soldOut}>
-                    <Zap className="mr-2 h-6 w-6" /> {t('Buy')}
+                <Button size="icon" variant="outline" className="h-14 w-14 shrink-0 rounded-2xl" onClick={() => handleAddToCart()} disabled={soldOut} aria-label={t('Cart')} title={t('Cart')}>
+                  <ShoppingCart className="h-6 w-6" />
                 </Button>
-                <MessageSellerButton product={product} size="icon" variant="secondary" className="h-14 w-14" label={`Message ${product.shop?.name ?? product.seller}`} />
+                <Button size="lg" className="h-14 min-w-0 flex-1 rounded-2xl text-lg" onClick={() => handleAddToCart(true)} disabled={soldOut}>
+                  <Zap className="mr-2 h-6 w-6" /> {t('Buy')}
+                </Button>
+                <MessageSellerButton product={product} size="icon" variant="secondary" className="h-14 w-14 shrink-0 rounded-2xl" label={`Message ${product.shop?.name ?? product.seller}`} />
               </div>
               <div className="mt-4 flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5" title="Pay securely online or on delivery"><ShieldCheck className="h-4 w-4 text-primary" /> {t('Secure pay')}</span>
-                <span className="flex items-center gap-1.5" title="Delivered by the shop, tracked in My orders"><Truck className="h-4 w-4 text-primary" /> {t('Tracked')}</span>
+                <span className="flex items-center gap-1.5" title={t('Secure pay')} aria-label={t('Secure pay')}><ShieldCheck className="h-5 w-5 text-primary" /></span>
+                <span className="flex items-center gap-1.5" title={t('Tracked')} aria-label={t('Tracked')}><Truck className="h-5 w-5 text-primary" /></span>
                 <MoreSheet product={product} inline className="ml-auto" />
               </div>
 
