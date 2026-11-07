@@ -370,7 +370,7 @@ export default function ForYouPage() {
       <BreakReminder />
     </div>
     {wide && mode !== 'learn' && (
-      <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto py-6 lg:block xl:w-[26rem]">
+      <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto overflow-x-hidden py-6 lg:block xl:w-[26rem]">
         <FeedSidePanel product={byId.get(current ?? '') ?? shown[0] ?? null} />
       </aside>
     )}
