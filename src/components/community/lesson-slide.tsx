@@ -203,7 +203,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </button>
       )}
 
-      <button type="button" onClick={toggle} className="absolute right-3 top-[84px] z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+      <button type="button" onClick={toggle} className="absolute right-3 top-[124px] z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
         {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
       </button>
 

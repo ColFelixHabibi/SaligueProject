@@ -69,7 +69,7 @@ export function MoreSheet({ product, reason, sponsored, onHide, className, inlin
 
   // Icons first, one short word each (fewer words to read, in any language).
   const tiles: { key: string; icon: typeof Repeat2; label: string; onClick: () => void; active?: boolean; show: boolean }[] = [
-    { key: 'resaligue', icon: Repeat2, label: t('Repost'), onClick: resaligue, active: resaligued, show: !mine },
+    { key: 'resaligue', icon: Repeat2, label: (product.repostCount ?? 0) > 0 ? `${t('Resaligue')} · ${product.repostCount}` : t('Resaligue'), onClick: resaligue, active: resaligued, show: !mine && !!inline },
     { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('Unpin') : t('Pin'), onClick: pin, active: pinned, show: mine },
     { key: 'download-image', icon: Download, label: t('Photo'), onClick: () => download('image'), show: true },
     { key: 'download-video', icon: Download, label: t('Video'), onClick: () => download('video'), show: !!product.video },

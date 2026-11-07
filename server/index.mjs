@@ -240,6 +240,8 @@ function productOut(r) {
     hidden: !!r.hidden,
     likeCount: r.like_count,
     repostCount: r.repost_count ?? 0,
+    // How many people saved it (who saved stays private; only the number is shown).
+    saveCount: r.save_count ?? saveCount(r.id),
     // Pinned by the shop to the top of its profile (newest pin first).
     pinnedAt: r.pinned_at ?? undefined,
     sound: parse(r.sound) ?? undefined,
@@ -760,6 +762,7 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
 // Sample items (server/seed.mjs) fill the app while it is new. They are marked as samples, and leave on their own
 // once real shops list enough real items.
 const SAMPLES_HIDE_AT = 12;
+const saveCount = (productId) => db.prepare('select count(*) as n from wishlists where product_id = ?').get(productId).n;
 const soldCount = (productId) => db.prepare("select coalesce(sum(json_extract(i.value, '$.quantity')), 0) as n from orders o, json_each(o.items) i where o.status != 'cancelled' and json_extract(i.value, '$.productId') = ?").get(productId).n;
 // ?limit=250&offset=0: a page (newest first), so the catalogue shows at once and the rest follows. Without
 // limit: everything (older app versions).
@@ -1610,12 +1613,12 @@ route('PUT', '/api/me/wishlist/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   if (!db.prepare('select 1 from products where id = ?').get(params[0])) fail(404, 'not_found', 'This item no longer exists.');
   db.prepare('insert or ignore into wishlists (user_id, product_id, added_at) values (?, ?, ?)').run(user.id, params[0], now());
-  return { ok: true };
+  return { ok: true, saveCount: saveCount(params[0]) };
 });
 
 route('DELETE', '/api/me/wishlist/([\\w-]+)', ({ user, params }) => {
   if (user) db.prepare('delete from wishlists where user_id = ? and product_id = ?').run(user.id, params[0]);
-  return { ok: true };
+  return { ok: true, saveCount: saveCount(params[0]) };
 });
 
 // Orders: one per shop; prices always come from the database.

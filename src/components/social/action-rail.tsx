@@ -5,7 +5,10 @@ import { shareLink } from '@/components/share-sheet';
 import { useFeatures } from '@/lib/features';
 
 import Link from 'next/link';
-import { Bookmark, Heart, MessageCircle, Share2, Wand2 } from 'lucide-react';
+import { Bookmark, Heart, MessageCircle, Repeat2, Share2, Wand2 } from 'lucide-react';
+import { toggleResaligue, useResaligued } from '@/hooks/use-resaligues';
+import { useAuth } from '@/components/auth/auth-provider';
+import { useT } from '@/lib/i18n';
 import { useToast } from '@/hooks/use-toast';
 import { toggleLike, useLiked } from '@/hooks/use-likes';
 import { useWishlist, useWishlistStore } from '@/hooks/use-wishlist';
@@ -43,6 +46,12 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
   const hideLikes = useHideLikes();
   const saved = useWishlistStore((s) => s.ids.includes(product.id));
   const { addToWishlist, removeFromWishlist } = useWishlist();
+  const resaligued = useResaligued(product.id);
+  const { user } = useAuth();
+  const t = useT();
+  const mine = !!user && user.uid === product.sellerId;
+  const saveCount = Math.max(0, product.saveCount ?? 0);
+  const resaligueCount = Math.max(0, product.repostCount ?? 0);
 
   const run = (action: () => Promise<unknown>) => action().catch((error) => toast({ variant: 'destructive', title: 'Try again', description: friendlyError(error) }));
 
@@ -76,7 +85,15 @@ export function ActionRail({ product, commentsOpen, onToggleComments, variant, h
       </button>}
       <button type="button" className={button} onClick={() => run(() => (saved ? removeFromWishlist(product.id) : addToWishlist(product)))} aria-pressed={saved} aria-label={saved ? 'Saved' : 'Save'} title={saved ? 'Saved' : 'Save'}>
         {icon(Bookmark, saved, 'fill-current')}
+        {saveCount > 0 && <span>{compact(saveCount)}</span>}
       </button>
+      {/* Resaligue: repost to your clients' Network, with how many have resaligued it. */}
+      {!mine && (
+        <button type="button" className={button} onClick={() => run(async () => { const now = await toggleResaligue(product.id); toast({ title: now ? t('Resaligued') : t('Resaligue removed') }); })} aria-pressed={resaligued} aria-label={t('Resaligue')} title={t('Resaligue')}>
+          {icon(Repeat2, resaligued, 'text-primary')}
+          {resaligueCount > 0 && <span>{compact(resaligueCount)}</span>}
+        </button>
+      )}
       {!hideWearIt && (
         <Link href={`/mirror?item=${product.id}`} className={button} aria-label="Wear it" title="Wear it">
           {icon(Wand2)}

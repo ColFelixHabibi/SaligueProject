@@ -16,6 +16,8 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Why?': ['Kubera iki?', 'Pourquoi ?'],
   'New and popular': ['Bishya kandi bikunzwe', 'Nouveau et populaire'],
   'All caught up': ['Wabibonye byose', 'Vous êtes à jour'],
+  Studies: ['Amasomo', 'Études'],
+  Topics: ['Ingingo', 'Sujets'],
   Report: ['Tanga ikirego', 'Signaler'],
   Reviews: ['Ibitekerezo', 'Avis'],
   Size: ['Ingano', 'Taille'],

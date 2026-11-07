@@ -122,6 +122,19 @@ describe('accounts', () => {
     assert.equal((await call('/auth/me', { method: 'PATCH', token: b.token, body: { username: 'a' } })).status, 400);
     assert.equal((await call('/usernames/jp.style')).json.id, a.id);
   });
+  // Who saved an item stays private, but how many did is shown on it (with the resaligues).
+  test('saving an item counts on it, and unsaving takes the count back', async () => {
+    const a = await register('Saver One');
+    const b = await register('Saver Two');
+    const id = (await call('/products')).json.find((p) => p.status === 'active').id;
+    const before = (await call(`/products/${id}`)).json.saveCount;
+    assert.equal(typeof before, 'number');
+    assert.equal((await call(`/me/wishlist/${id}`, { method: 'PUT', token: a.token })).json.saveCount, before + 1);
+    assert.equal((await call(`/me/wishlist/${id}`, { method: 'PUT', token: b.token })).json.saveCount, before + 2);
+    assert.equal((await call(`/me/wishlist/${id}`, { method: 'PUT', token: b.token })).json.saveCount, before + 2);
+    assert.equal((await call(`/me/wishlist/${id}`, { method: 'DELETE', token: a.token })).json.saveCount, before + 1);
+    assert.equal((await call(`/products/${id}`)).json.saveCount, before + 1);
+  });
   // One account per person: starting to sell adds a shop; nothing (an old app's switch, a login) takes it away.
   test('an account can start selling, and is never switched back to shopping only', async () => {
     const a = await register('One Account');

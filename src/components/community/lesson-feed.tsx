@@ -17,6 +17,9 @@ import { LESSON_TOPICS, useLessons, type Lesson } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { SuggestedShops } from '@/components/suggested-shops';
 
+// One word per tab, so every name fits under its icon on a phone (the full name is the tooltip).
+const SHORT: Record<string, string> = { sewing: 'Sewing', general: 'Studies' };
+
 const LESSON_IDEAS = [
   { emoji: '🧣', title: '3 ways to tie a headwrap', topic: 'styling' },
   { emoji: '🪡', title: 'Fix a loose button', topic: 'sewing' },
@@ -41,32 +44,36 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
   }, [startAt, lessons?.length]);
 
-  const chip = 'flex h-9 shrink-0 md:h-10 md:px-4 md:text-sm items-center gap-1.5 rounded-full px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
-  // One row on every screen: the topics scroll sideways, Teach stays in reach on the right.
+  // Every topic visible at once, evenly spread: an icon with its whole name underneath (like the Seller Center tabs).
+  // Each tab is as wide as its name and the space left is shared between them, so the row fits a phone and fills a
+  // computer's wider player (a longer translation can still slide sideways rather than be cut).
+  const tab = 'group flex shrink-0 flex-col items-center gap-1 rounded-xl px-0 py-1 text-[10px] font-semibold leading-none tracking-tight outline-none transition focus-visible:ring-2 focus-visible:ring-primary md:text-xs md:tracking-normal';
+  const dot = 'flex h-9 w-9 items-center justify-center rounded-full transition md:h-10 md:w-10';
+  const label = 'whitespace-nowrap text-center';
   return (
     <div className={cn('relative h-full', className)}>
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b bg-background/95 py-2 pl-2 pr-2 backdrop-blur md:px-4 md:py-3">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_88%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {!challenge && on('challenges') && (
-            <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label={tr('Challenges')} title={tr('Challenges')}>
-              <Trophy className="h-4 w-4" /><span className="sr-only">{tr('Challenges')}</span>
-            </Link>
-          )}
-          <button type="button" onClick={() => setTopic(null)} className={cn(chip, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={!topic} title={tr('All')}>
-            <LayoutGrid className="h-4 w-4" />{!topic && <> {tr('All')}</>}{topic && <span className="sr-only">{tr('All')}</span>}
+      <nav className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-0 overflow-x-auto border-b bg-background/95 px-1.5 py-1.5 backdrop-blur [scrollbar-width:none] md:gap-2 md:px-6 md:py-2 [&::-webkit-scrollbar]:hidden" aria-label={tr('Topics')}>
+        {!challenge && on('challenges') && (
+          <Link href="/challenges" className={tab} title={tr('Challenges')}>
+            <span className={cn(dot, 'bg-amber-400 text-black')}><Trophy className="h-4 w-4 md:h-5 md:w-5" /></span>
+            <span className={label}>{tr('Challenges')}</span>
+          </Link>
+        )}
+        <button type="button" onClick={() => setTopic(null)} className={tab} aria-pressed={!topic} title={tr('All')}>
+          <span className={cn(dot, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground group-hover:bg-muted/70')}><LayoutGrid className="h-4 w-4 md:h-5 md:w-5" /></span>
+          <span className={cn(label, !topic && 'text-primary')}>{tr('All')}</span>
+        </button>
+        {LESSON_TOPICS.map((t) => (
+          <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={tab} aria-pressed={topic === t.value} title={tr(t.label)}>
+            <span className={cn(dot, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground group-hover:bg-muted/70')}><t.icon className="h-4 w-4 md:h-5 md:w-5" /></span>
+            <span className={cn(label, topic === t.value && 'text-primary')}>{tr(SHORT[t.value] ?? t.label)}</span>
           </button>
-          {LESSON_TOPICS.map((t) => (
-            <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={cn(chip, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground hover:bg-muted/70')} aria-pressed={topic === t.value} title={tr(t.label)}>
-              {/* Icons only; the chosen topic also shows its name. */}
-              <t.icon className="h-4 w-4" />{topic === t.value ? <> {tr(t.label)}</> : <span className="sr-only">{tr(t.label)}</span>}
-            </button>
-          ))}
-          <span className="w-6 shrink-0" aria-hidden />
-        </div>
-        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={cn(chip, 'bg-foreground px-3 text-background shadow-sm')} aria-label={tr('Teach a lesson')} title={tr('Teach a lesson')}>
-          <Plus className="h-4 w-4" /> {tr('Teach')}
+        ))}
+        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={tab} title={tr('Teach a lesson')}>
+          <span className={cn(dot, 'bg-foreground text-background shadow-sm')}><Plus className="h-4 w-4 md:h-5 md:w-5" /></span>
+          <span className={label}>{tr('Teach')}</span>
         </Link>
-      </div>
+      </nav>
       <div className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lessons === null ? (
           <Skeleton className="h-full w-full rounded-none" />

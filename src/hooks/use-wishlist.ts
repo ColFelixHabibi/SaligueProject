@@ -6,7 +6,7 @@ import type { Product } from '@/lib/types';
 import { api } from '@/lib/api';
 import { useProductStore } from './use-product-store';
 
-// Saves are private (the wishlist); likes are public counts (use-likes.ts).
+// Who saved what is private (the wishlist); only each item's number of saves is shown. Likes: use-likes.ts.
 interface WishlistState {
   ids: string[];
   isInitialized: boolean;
@@ -17,7 +17,8 @@ async function change(id: string, saved: boolean) {
   const before = useWishlistStore.getState().ids;
   useWishlistStore.setState({ ids: saved ? [id, ...before.filter((x) => x !== id)] : before.filter((x) => x !== id) });
   try {
-    await api(`/me/wishlist/${id}`, { method: saved ? 'PUT' : 'DELETE' });
+    const { saveCount } = await api<{ saveCount?: number }>(`/me/wishlist/${id}`, { method: saved ? 'PUT' : 'DELETE' });
+    if (saveCount != null) useProductStore.setState((s) => ({ products: s.products.map((p) => (p.id === id ? { ...p, saveCount } : p)) }));
   } catch (error) {
     useWishlistStore.setState({ ids: before });
     throw error;

@@ -41,6 +41,7 @@ export type Product = {
   likeCount?: number;
   // Resaligues (reposts), and when the shop pinned it to the top of its profile.
   repostCount?: number;
+  saveCount?: number;
   pinnedAt?: string;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
   sound?: { name: string; duration: number };

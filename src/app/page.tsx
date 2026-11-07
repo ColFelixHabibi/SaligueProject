@@ -307,7 +307,7 @@ export default function ForYouPage() {
         <StoryBar compact className="mt-14 min-w-0 flex-1" />
       </div>
       {mode === 'learn' ? (
-        <LessonFeed breakReminder={false} className="h-full pt-0 [&>div:first-child]:top-12" />
+        <LessonFeed breakReminder={false} className="h-full pt-0 [&>nav:first-child]:top-12" />
       ) : !isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (
