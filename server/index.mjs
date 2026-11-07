@@ -2168,7 +2168,7 @@ route('POST', '/api/products/([\\w-]+)/view', ({ req, user, params }) => {
   const product = db.prepare('select id, seller_id from products where id = ?').get(params[0]);
   if (!product || product.seller_id === user?.id) return { ok: true };
   const day = now().slice(0, 10);
-  const viewer = user?.id ?? req.socket.remoteAddress;
+  const viewer = user?.id ?? clientIp(req);
   const key = `${day}|${viewer}|${product.id}`;
   if (viewedToday.has(key)) return { ok: true };
   if (viewedToday.size > 200_000) viewedToday.clear();
@@ -5536,10 +5536,11 @@ route('POST', '/api/ai/write', async ({ user, body }) => {
 // Crashes on shoppers' phones and browsers (src/lib/report-error.ts), written to the server log.
 const clientErrors = new Map();
 route('POST', '/api/client-errors', ({ req, user, body }) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] ?? req.socket.remoteAddress;
+  const ip = clientIp(req);
   const minute = Date.now() - 60_000;
   const recent = (clientErrors.get(ip) ?? []).filter((t) => t > minute);
   if (recent.length >= 10) return { ok: true };
+  if (clientErrors.size > 10_000) clientErrors.clear();
   clientErrors.set(ip, [...recent, Date.now()]);
   const clip = (v, n) => String(v ?? '').replace(/[\r\n]+/g, ' | ').slice(0, n);
   console.error(`CLIENT ERROR ${body.app ? '[app]' : '[web]'} ${clip(body.where, 120)} user=${user?.id?.slice(0, 8) ?? '-'} ua=${clip(req.headers['user-agent'], 120)}\n  ${clip(body.message, 500)}\n  ${clip(body.stack, 1500)}`);
@@ -5552,10 +5553,11 @@ route('POST', '/api/client-errors', ({ req, user, body }) => {
 // staring at a page that half-loaded.
 const cspReports = new Map();
 route('POST', CSP_REPORT_PATH, ({ req, body }) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] ?? req.socket.remoteAddress;
+  const ip = clientIp(req);
   const minute = Date.now() - 60_000;
   const recent = (cspReports.get(ip) ?? []).filter((t) => t > minute);
   if (recent.length >= 10) return { ok: true };
+  if (cspReports.size > 10_000) cspReports.clear();
   cspReports.set(ip, [...recent, Date.now()]);
   const clip = (v, n) => String(v ?? '').replace(/[\r\n]+/g, ' | ').slice(0, n);
   // Older browsers use the `csp-report` shape, newer ones send a Reporting API array.
