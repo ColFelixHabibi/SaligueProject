@@ -125,11 +125,16 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
     await shareLink({ title: lesson.title, text: `${lesson.title} · a fashion lesson on Saligue`, url: absoluteUrl(`/learn?lesson=${lesson.id}`) });
   };
   // Short phones: slightly smaller buttons, so the column never reaches the topic bar.
-  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition active:scale-90 [@media(max-height:680px)]:h-9 [@media(max-height:680px)]:w-9';
+  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition hover:bg-background active:scale-90 [@media(max-height:680px)]:h-9 [@media(max-height:680px)]:w-9 md:[@media(min-height:681px)]:h-12 md:[@media(min-height:681px)]:w-12';
   const moreTile = 'flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center text-xs font-semibold transition hover:bg-muted';
 
   return (
     <section ref={slide} id={`lesson-${lesson.id}`} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-black text-white">
+      {/* A computer's player is wider than a portrait video: a blurred copy of the poster fills the sides instead of black. */}
+      {lesson.poster && !lesson.duetOf && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={lesson.poster} alt="" aria-hidden loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-40 blur-2xl md:block" />
+      )}
       {lesson.video && (
         <video
           ref={video}
@@ -198,12 +203,12 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </button>
       )}
 
-      <button type="button" onClick={toggle} className="absolute right-3 top-[84px] z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+      <button type="button" onClick={toggle} className="absolute right-3 top-[84px] z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
         {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
       </button>
 
       {/* Five everyday actions; the rest are under More, so the column always fits a phone screen. */}
-      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-3 text-foreground [@media(max-height:680px)]:bottom-3 [@media(max-height:680px)]:gap-1.5">
+      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-3 text-foreground md:right-5 md:gap-4 [@media(max-height:680px)]:bottom-3 [@media(max-height:680px)]:gap-1.5">
         <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
         <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
@@ -248,8 +253,8 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </SheetContent>
       </Sheet>
 
-      <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-4 pr-20 pt-20">
-        <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+      <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-4 pr-20 pt-20 md:p-6 md:pr-24 md:pt-28 md:[&>*]:max-w-2xl">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold md:text-sm">
           <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
           {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
           {lesson.rank != null && lesson.rank <= 3 && <span className="inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-black">{['🥇', '🥈', '🥉'][lesson.rank - 1]} #{lesson.rank}</span>}
@@ -260,19 +265,19 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           )}
           {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
         </div>
-        <h2 className="line-clamp-2 text-xl font-bold leading-tight">{lesson.title}</h2>
-        {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 [&_button]:text-white" />}
-        <Link href={profileHref(lesson.authorId)} className="mt-2 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
+        <h2 className="line-clamp-2 text-xl font-bold leading-tight md:text-3xl">{lesson.title}</h2>
+        {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 md:text-base [&_button]:text-white" />}
+        <Link href={profileHref(lesson.authorId)} className="mt-2 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline md:text-base">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
       </div>
       <Sheet open={captionsOpen} onOpenChange={setCaptionsOpen}>
-        <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">
+        <SheetContent side="bottom" className="mx-auto flex h-[75vh] max-w-2xl flex-col rounded-t-3xl">
           <SheetHeader><SheetTitle className="text-left">Captions</SheetTitle></SheetHeader>
           <div className="mt-3 min-h-0 flex-1"><CaptionsEditor lesson={lesson} onSaved={() => setCaptionsOpen(false)} /></div>
           {tracks.length > 0 && <Button variant="outline" className="mt-2" onClick={toggleCc}>{cc ? 'Hide captions on my screen' : 'Show captions'}</Button>}
         </SheetContent>
       </Sheet>
       <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
-        <SheetContent side="bottom" className="flex h-[75vh] flex-col rounded-t-3xl">
+        <SheetContent side="bottom" className="mx-auto flex h-[75vh] max-w-2xl flex-col rounded-t-3xl">
           <SheetHeader><SheetTitle className="line-clamp-1 text-left">{lesson.title}</SheetTitle></SheetHeader>
           <div className="mt-3 min-h-0 flex-1"><LessonComments lesson={lesson} /></div>
         </SheetContent>

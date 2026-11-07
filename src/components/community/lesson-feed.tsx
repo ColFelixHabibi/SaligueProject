@@ -41,11 +41,11 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
   }, [startAt, lessons?.length]);
 
-  const chip = 'flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
+  const chip = 'flex h-9 shrink-0 md:h-10 md:px-4 md:text-sm items-center gap-1.5 rounded-full px-3 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-primary';
   // One row on every screen: the topics scroll sideways, Teach stays in reach on the right.
   return (
     <div className={cn('relative h-full', className)}>
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b bg-background/95 py-2 pl-2 pr-2 backdrop-blur">
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b bg-background/95 py-2 pl-2 pr-2 backdrop-blur md:px-4 md:py-3">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_88%,transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {!challenge && on('challenges') && (
             <Link href="/challenges" className={cn(chip, 'bg-amber-400 text-black')} aria-label="Challenges">
@@ -71,19 +71,19 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (
           // No lessons yet: invite people to be the first teacher, with ideas, and suggest shops/teachers to follow.
-          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-20 text-center">
-            <GraduationCap className="h-12 w-12 text-primary" />
-            <p className="text-xl font-bold">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
-            <p className="max-w-xs text-sm text-muted-foreground">A phone video up to 4 min 30 s. Ideas:</p>
-            <div className="grid w-full max-w-sm grid-cols-2 gap-2 text-left text-sm">
+          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-20 text-center md:gap-5 md:px-8 md:pt-28">
+            <GraduationCap className="h-12 w-12 text-primary md:h-16 md:w-16" />
+            <p className="text-xl font-bold md:text-3xl">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
+            <p className="max-w-xs text-sm text-muted-foreground md:max-w-md md:text-base">A phone video up to 4 min 30 s. Ideas:</p>
+            <div className="grid w-full max-w-sm grid-cols-2 gap-2 text-left text-sm md:max-w-3xl md:grid-cols-4 md:gap-3 md:text-base">
               {LESSON_IDEAS.map((idea) => (
-                <Link key={idea.title} href={`/learn/new?topic=${idea.topic}`} className="flex items-center gap-2 rounded-2xl bg-background p-3 font-semibold shadow-sm hover:ring-2 hover:ring-primary">
-                  <span className="text-xl">{idea.emoji}</span> <span className="leading-tight">{tr(idea.title)}</span>
+                <Link key={idea.title} href={`/learn/new?topic=${idea.topic}`} className="flex items-center gap-2 rounded-2xl bg-background p-3 font-semibold shadow-sm hover:ring-2 hover:ring-primary md:flex-col md:justify-center md:gap-3 md:p-5 md:text-center">
+                  <span className="text-xl md:text-4xl">{idea.emoji}</span> <span className="leading-tight">{tr(idea.title)}</span>
                 </Link>
               ))}
             </div>
             <Button asChild className="h-12 rounded-full px-6"><Link href="/learn/new"><Plus className="mr-2 h-5 w-5" /> {tr('Teach a lesson')}</Link></Button>
-            <SuggestedShops title="Follow shops and teachers" className="w-full max-w-lg text-left" />
+            <SuggestedShops title="Follow shops and teachers" className="w-full max-w-lg text-left md:max-w-3xl" />
           </div>
         ) : (
           [...lessons.map((l) => <LessonSlide key={l.id} lesson={l} />), <CaughtUp key="caught-up" />]

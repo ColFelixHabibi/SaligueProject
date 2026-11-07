@@ -265,7 +265,8 @@ export default function ForYouPage() {
   return (
     // Computers (lg): the feed column with a panel beside it about the item on screen; phones: the feed only.
     <div className="lg:flex lg:h-dvh lg:justify-center lg:gap-6 lg:bg-muted/50 lg:px-6">
-    <div ref={scroller} className="relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl">
+    {/* Learn has no item panel beside it, so on a computer its player takes the room instead of a phone-width strip. */}
+    <div ref={scroller} className={cn('relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl', mode === 'learn' && 'md:max-w-[56rem] lg:w-auto lg:min-w-0 lg:max-w-[56rem] lg:flex-1 lg:shrink')}>
       {/* Pull to refresh: the spinner follows the finger, and turns once a refresh starts. */}
       <div className="pointer-events-none sticky top-0 z-[60] flex h-0 justify-center" aria-live="polite">
         {(pull > 0 || refreshing) && (
