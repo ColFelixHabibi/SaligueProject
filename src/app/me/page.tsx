@@ -16,10 +16,9 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, Coins, FileText, HandCoins, Layers, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Repeat, Settings, ShieldCheck, Store, TrendingUp, UserPlus } from 'lucide-react';
+import { Bookmark, ChevronRight, Coins, FileText, HandCoins, Layers, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Settings, ShieldCheck, Store, TrendingUp, UserPlus } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
-import { BadgeCheck, CircleUserRound, GraduationCap, Share2, Smartphone } from 'lucide-react';
-import { updateAccount } from '@/lib/auth-actions';
+import { BadgeCheck, Eye, GraduationCap, Share2, Smartphone } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -75,10 +74,11 @@ export default function MePage() {
         <ProfileHeader profile={{ ...stats, avatar: photo ?? null }}
           avatar={<ProfilePhotoField photoOnly name={shop?.name ?? user.displayName} required={role === 'seller'} />}
           statHref={{ items: '/dashboard/products', clients: `/profile?id=${user.uid}`, following: `/profile?id=${user.uid}`, likes: `/profile?id=${user.uid}` }}>
-          <Button asChild variant="secondary" className="h-10 flex-1 rounded-full"><Link href={`/profile?id=${user.uid}`}><CircleUserRound className="mr-2 h-4 w-4" /> {t(role === 'seller' ? 'My shop profile' : 'My profile')}</Link></Button>
-          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full" aria-label="Share profile"
+          {/* One profile: this is it, as others see it (with the shop's items when there is a shop). */}
+          <Button asChild variant="secondary" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={`/profile?id=${user.uid}`} aria-label={t('See my profile as others see it')} title={t('See my profile as others see it')}><Eye className="h-4 w-4" /></Link></Button>
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full" aria-label="Share profile" title="Share profile"
             onClick={() => shareLink({ title: stats.name, text: `${stats.name} on Saligue`, url: absoluteUrl(profileHref(user.uid)) })}><Share2 className="h-4 w-4" /></Button>
-          <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings"><Settings className="h-4 w-4" /></Link></Button>
+          <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={role === 'seller' ? '/dashboard/settings' : '/my-account/settings'} aria-label="Settings" title="Settings"><Settings className="h-4 w-4" /></Link></Button>
         </ProfileHeader>
       ) : user ? (
         <Skeleton className="mx-auto h-64 w-full max-w-sm rounded-2xl" />
@@ -124,20 +124,20 @@ export default function MePage() {
       {user && on('weekly') && <WeekCard />}
 
       <div className="grid grid-cols-4 gap-2">
+        {/* One account: the shopping side for everyone, the shop's tools added when there is a shop. */}
+        {user && (
+          <>
+            <Tile href="/my-account/orders" icon={Package} label="Orders" />
+            <Tile href="/my-account/saved" icon={Bookmark} label="Saved" />
+            <Tile href="/messages" icon={MessageCircle} label="Messages" />
+            <Tile href="/my-account/coins" icon={Coins} label="Coins" />
+          </>
+        )}
         {user && role === 'seller' && (
           <>
             <Tile href="/sell" icon={PlusSquare} label="Add item" />
             <Tile href="/live/studio" icon={Radio} label="Go live" />
-            <Tile href="/dashboard/messages" icon={MessageCircle} label="Messages" />
             <Tile href="/dashboard/analytics" icon={TrendingUp} label="Stats" />
-          </>
-        )}
-        {user && role !== 'seller' && (
-          <>
-            <Tile href="/my-account/orders" icon={Package} label="Orders" />
-            <Tile href="/my-account/saved" icon={Bookmark} label="Saved" />
-            <Tile href="/my-account/messages" icon={MessageCircle} label="Messages" />
-            <Tile href="/my-account/coins" icon={Coins} label="Coins" />
           </>
         )}
         {!user && (
@@ -149,11 +149,9 @@ export default function MePage() {
         {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
         {user && on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
         {user && <Tile href="/invite" icon={UserPlus} label="Bring a shop" />}
-        {user && role !== 'seller' && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
+        {user && on('lessons') && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
         {user && <Tile href="/verify" icon={BadgeCheck} label="Get verified" />}
-        {user && (role === 'seller'
-          ? <Tile icon={Repeat} label="Switch to shopping" onClick={() => updateAccount({ role: 'buyer' }).then(() => router.push('/'))} />
-          : <Tile href="/sell" icon={Store} label={shop ? 'Switch to my shop' : 'Start selling'} />)}
+        {user && role !== 'seller' && <Tile href="/sell" icon={Store} label="Start selling" />}
         <Tile href="/download" icon={Smartphone} label="Android app" />
         <Tile href="/policies" icon={FileText} label="Policies" />
         {user && <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />}

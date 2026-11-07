@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!/\/(checkout|cart|sell|payment|verify|invite)$/.test(path)) routerRef.current.push(account.role === 'seller' ? '/dashboard' : '/my-account');
         toast({
           title: change === 'registered' ? 'Welcome to Saligue!' : 'Welcome back!',
-          description: account.role === 'seller' ? 'You are signed in as a seller.' : `Signed in as ${account.displayName || account.email}.`,
+          description: `Signed in as ${account.displayName || account.email}.`,
         });
       }
     };

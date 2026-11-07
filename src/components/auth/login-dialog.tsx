@@ -16,14 +16,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { AtSign, KeyRound, Store } from 'lucide-react';
+import { AtSign, KeyRound } from 'lucide-react';
 import React, { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { loginWithEmail } from '@/lib/auth-actions';
 import { GoogleButton } from './google-button';
 import Link from 'next/link';
-import { useUserRoleStore } from '@/hooks/use-user-role-store';
-import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
 
 interface LoginDialogProps {
@@ -44,15 +42,14 @@ export function LoginDialog({
   const id = React.useId();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { role, setRole, pendingRole } = useUserRoleStore();
   const [busy, setBusy] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      // Send the role only if the visitor flipped the seller switch.
-      await loginWithEmail(email, password, useUserRoleStore.getState().pendingRole ?? undefined);
+      // One account per person: logging in never changes whether it has a shop.
+      await loginWithEmail(email, password);
       onOpenChange(false);
     } catch (error: any) {
       toast({
@@ -106,24 +103,10 @@ export function LoginDialog({
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-lg border p-4">
-                            <div className="flex items-center space-x-3">
-                                <Store className="h-6 w-6 text-muted-foreground" />
-                                <Label htmlFor={`${id}-seller-switch-login`} className="text-base font-medium">
-                                    {t('Log in as a Seller')}
-                                </Label>
-                            </div>
-                            <Switch 
-                              id={`${id}-seller-switch-login`} 
-                              checked={role === 'seller'} 
-                              onCheckedChange={(checked) => setRole(checked ? 'seller' : 'buyer')}
-                            />
-                        </div>
-
                         <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? t('Logging in…') : t('Log In')}</Button>
                         </form>
                         {/* No date is collected here: a brand-new Google account is asked for it inside the button. */}
-                        <GoogleButton role={pendingRole ?? undefined} onDone={() => onOpenChange(false)} />
+                        <GoogleButton onDone={() => onOpenChange(false)} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         {t("Don't have an account?")}{' '}

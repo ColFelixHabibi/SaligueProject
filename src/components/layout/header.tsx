@@ -31,7 +31,7 @@ export function Logo({ light, compact }: { light?: boolean; compact?: boolean })
 
 export default function Header() {
   const pathname = usePathname();
-  const { user, role } = useAuth();
+  const { user } = useAuth();
   const on = useFeatures();
   const { cartItems } = useCart();
   const unreadMessages = useUnreadMessages();
@@ -77,7 +77,7 @@ export default function Header() {
               )}
             </Link>
           </Button>}
-          {role !== 'seller' && <Button variant="ghost" size="icon" className="relative" asChild>
+          {<Button variant="ghost" size="icon" className="relative" asChild>
             <Link href="/cart" aria-label={`Cart, ${cartCount} items`}>
               <ShoppingBag className="h-5 w-5" />
               {cartCount > 0 && (

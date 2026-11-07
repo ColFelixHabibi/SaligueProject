@@ -18,7 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { AtSign, KeyRound, User, Store, CalendarDays } from 'lucide-react';
+import { AtSign, KeyRound, User, CalendarDays } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { registerWithEmail } from '@/lib/auth-actions';
 import { GoogleButton } from './google-button';
@@ -26,7 +26,6 @@ import Link from 'next/link';
 import { Checkbox } from '../ui/checkbox';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { ScrollArea } from '../ui/scroll-area';
-import { Switch } from '../ui/switch';
 
 interface RegisterDialogProps {
     open: boolean;
@@ -38,7 +37,8 @@ interface RegisterDialogProps {
 export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }: RegisterDialogProps) {
     const { toast } = useToast();
     const t = useT();
-    const { role, setRole } = useUserRoleStore();
+    // One account for shopping and selling: it gets a shop from Sell (which sets this before sign-up), never from a switch here.
+    const role = useUserRoleStore((s) => s.role);
     const id = useId();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -117,20 +117,6 @@ export function RegisterDialog({ open, onOpenChange, onSwitchToLogin, trigger }:
                                 <Input id={`${id}-birth-date`} type="date" autoComplete="bday" max={yearsAgo(16)} min={yearsAgo(120)} className="pl-10 h-12 text-base" required value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
                             </div>
                             <p className="text-xs text-muted-foreground">{t('Saligue is for people aged 16 and over. Only your age is kept, and it is never shown to anyone.')}</p>
-                        </div>
-
-                        <div className="flex items-center justify-between rounded-lg border p-4">
-                            <div className="flex items-center space-x-3">
-                                <Store className="h-6 w-6 text-muted-foreground" />
-                                <Label htmlFor={`${id}-seller-switch-register`} className="text-base font-medium">
-                                    {t('Sign up as a Seller')}
-                                </Label>
-                            </div>
-                            <Switch 
-                              id={`${id}-seller-switch-register`} 
-                              checked={role === 'seller'} 
-                              onCheckedChange={(checked) => setRole(checked ? 'seller' : 'buyer')}
-                            />
                         </div>
 
                         <label className="flex items-start gap-3 text-sm leading-snug">

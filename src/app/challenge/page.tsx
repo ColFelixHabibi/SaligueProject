@@ -69,7 +69,7 @@ function ChallengeView() {
         <LessonFeed challenge={c.id} className="min-h-0 flex-1" />
       </div>
       {wide && (
-        <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto overflow-x-hidden py-6 lg:block xl:w-[26rem]">
+        <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto overflow-x-hidden py-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:block xl:w-[26rem]">
           <ChallengePanel c={c} />
         </aside>
       )}

@@ -85,7 +85,7 @@ export default function Sidebar() {
         </Link>
         )}
 
-        {role !== 'seller' && (
+        {(
         <Link href="/cart" title="Cart" className={cn(row, inCart ? 'text-primary' : 'text-foreground')}>
           <span className="relative shrink-0">
             <ShoppingBag className="h-7 w-7" />

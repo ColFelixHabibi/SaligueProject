@@ -10,12 +10,15 @@ import { useWishlist } from '@/hooks/use-wishlist';
 import { getCoins } from '@/lib/live';
 import { formatPrice, useOrders } from '@/lib/orders';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/components/auth/auth-provider';
 
 const STATUS: Record<string, string> = { placed: 'Placed', confirmed: 'Confirmed', shipped: 'On the way', delivered: 'Delivered', cancelled: 'Cancelled' };
 
 /** My Saligue at a glance: orders on their way, saved items, the bag and coins; then the latest orders. */
 export default function MySaligue() {
   const orders = useOrders('buyer');
+  // One account: with a shop, the last card leads to it instead of offering to open one.
+  const { role } = useAuth();
   const { wishlistItems } = useWishlist();
   const { cartItems } = useCart();
   const [coins, setCoins] = useState<number | null>(null);
@@ -68,7 +71,7 @@ export default function MySaligue() {
       )}
 
       <div className="grid gap-2 sm:grid-cols-3">
-        {([[Wand2, 'Fitting Room', 'See yourself in any item', '/mirror'], [GraduationCap, 'Teach a lesson', 'Share what you know', '/learn/new'], [Store, 'Start selling', 'Open your own shop', '/sell']] as const).map(([Icon, label, hint, href]) => (
+        {([[Wand2, 'Fitting Room', 'See yourself in any item', '/mirror'], [GraduationCap, 'Teach a lesson', 'Share what you know', '/learn/new'], role === 'seller' ? ([Store, 'Seller Center', 'Your shop: items, orders, earnings', '/dashboard'] as const) : ([Store, 'Start selling', 'Open your own shop', '/sell'] as const)] as const).map(([Icon, label, hint, href]) => (
           <Link key={label} href={href} className="flex items-center gap-3 rounded-2xl border bg-card p-3 transition hover:border-primary">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-5 w-5" /></span>
             <span className="min-w-0"><span className="block text-sm font-semibold">{label}</span><span className="block truncate text-xs text-muted-foreground">{hint}</span></span>

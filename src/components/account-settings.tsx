@@ -1,0 +1,222 @@
+
+'use client';
+
+import { DeleteAccount, DownloadData } from '@/components/delete-account';
+import { CommentControls } from '@/components/comment-controls';
+import { BlockedCard } from '@/components/blocked-card';
+
+import { PersonalisationCard } from '@/components/personalisation-card';
+import { AiKeyCard } from '@/components/ai-key-card';
+import { ProfilePhotoField } from '@/components/profile-photo-field';
+import { friendlyError } from '@/lib/errors';
+
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import React, { useState, useEffect } from 'react';
+import { updateAccount } from '@/lib/auth-actions';
+import { useAuth } from '@/components/auth/auth-provider';
+import { useToast } from '@/hooks/use-toast';
+import { ShopProfileForm } from '@/components/shop-profile-form';
+
+/**
+ * The one settings page of an account (My Saligue and Seller Center both show it): photo, name, comments, privacy,
+ * data. An account with a shop also gets the shop's details, and its name is the shop's name.
+ */
+export function AccountSettings() {
+  const { toast } = useToast();
+  const { user, role } = useAuth();
+  const shop = role === 'seller';
+  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isPasswordSaving, setIsPasswordSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.displayName || '');
+      setUsername(user.username || '');
+      setEmail(user.email || '');
+    }
+  }, [user]);
+
+  const handleSaveChanges = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    
+    try {
+      await updateAccount({ displayName, ...(username && username !== user.username ? { username } : {}) });
+      toast({
+        title: 'Success',
+        description: 'Your profile has been updated.',
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: friendlyError(error),
+      });
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsPasswordSaving(true);
+
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Not logged in.' });
+        setIsPasswordSaving(false);
+        return;
+    }
+    if (newPassword !== confirmPassword) {
+        toast({ variant: 'destructive', title: 'Error', description: 'New passwords do not match.' });
+        setIsPasswordSaving(false);
+        return;
+    }
+    if (!currentPassword || !newPassword) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Please fill all password fields.' });
+        setIsPasswordSaving(false);
+        return;
+    }
+
+    try {
+        await updateAccount({ currentPassword, password: newPassword });
+            
+            toast({
+                title: 'Success',
+                description: 'Your password has been changed successfully.',
+            });
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+    } catch (error: any) {
+        toast({
+            variant: 'destructive',
+            title: 'Error changing password',
+            description: friendlyError(error),
+        });
+    } finally {
+        setIsPasswordSaving(false);
+    }
+  };
+
+
+  return (
+    <div className="grid gap-6">
+      <PersonalisationCard />
+      <AiKeyCard />
+      <BlockedCard />
+      <Card className="p-6">
+        <ProfilePhotoField name={user?.displayName} required={shop} />
+      </Card>
+      {shop && <ShopProfileForm />}
+
+      <Card>
+        <form onSubmit={handleSaveChanges}>
+          <CardHeader>
+            <CardTitle>{shop ? 'Store Name' : 'Profile Information'}</CardTitle>
+            <CardDescription>
+              {shop ? 'Used to identify your store in the marketplace. This will be your public-facing name.' : 'Update your public-facing name.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+              <div className="space-y-2">
+                <Label htmlFor="displayName">{shop ? 'Store Name' : 'Full Name'}</Label>
+                <Input 
+                  id="displayName" 
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={shop ? 'Your Store Name' : 'Your Name'}
+                />
+              </div>
+              <div className="mt-4 space-y-2">
+                <Label htmlFor="username">Username</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                  <Input id="username" value={username} onChange={(e) => setUsername(e.target.value.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, ''))} maxLength={24} className="pl-7" placeholder="yourname" />
+                </div>
+                <p className="text-xs text-muted-foreground">People tag you with @{username || 'yourname'}. Letters, numbers, _ and . only.</p>
+              </div>
+          </CardContent>
+          <CardFooter className="border-t px-6 py-4">
+            <Button type="submit">Save</Button>
+          </CardFooter>
+        </form>
+      </Card>
+      
+      <Card>
+        <form onSubmit={handlePasswordChange}>
+          <CardHeader>
+            <CardTitle>Change Password</CardTitle>
+            <CardDescription>Set or update the password for this account.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <Input 
+                  id="newPassword" 
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <Input 
+                  id="confirmPassword" 
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+          </CardContent>
+          <CardFooter className="border-t px-6 py-4">
+            <Button type="submit" disabled={isPasswordSaving}>Update Password</Button>
+          </CardFooter>
+        </form>
+      </Card>
+
+      <Card>
+        <CardHeader>
+            <CardTitle>Email</CardTitle>
+            <CardDescription>
+                Your login email. This cannot be changed.
+            </CardDescription>
+        </CardHeader>
+        <CardContent>
+            <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" value={email} readOnly disabled />
+            </div>
+        </CardContent>
+      </Card>
+      <CommentControls />
+      <DownloadData />
+      <DeleteAccount seller={shop} />
+    </div>
+  );
+}

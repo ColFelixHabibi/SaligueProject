@@ -132,6 +132,7 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   Followers: ['Abagukurikira', 'Abonnés'],
   Likes: ['Abakunze', 'J’aime'],
   'My shop profile': ['Iduka ryanjye', 'Ma boutique'],
+  'See my profile as others see it': ['Reba umwirondoro wanjye uko abandi bawubona', 'Voir mon profil comme les autres le voient'],
   'Add a bio so clients know what you sell or teach.': ['Andika amagambo make ku byo ucuruza cyangwa wigisha.', 'Ajoutez une bio pour dire ce que vous vendez ou enseignez.'],
   'Bring a shop': ['Zana iduka', 'Amenez une boutique'],
   'coins': ['ibiceri', 'pièces'],

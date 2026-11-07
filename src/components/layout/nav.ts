@@ -1,7 +1,8 @@
-import { Compass, Flame, LayoutDashboard, PlusSquare, ShoppingBag, User, Wand2 } from 'lucide-react';
+import { Compass, Flame, LayoutDashboard, PlusSquare, User, Wand2 } from 'lucide-react';
 
 // The app's main destinations. Each appears once: in the side menu on computers, the bottom bar on phones.
-// Shoppers and sellers see different ones: a seller's day is their shop, a shopper's is finding and trying on.
+// One account per person: the same menu for shopping and selling. Someone with a shop keeps Explore and the Fitting
+// Room (shop owners shop too); Sell becomes their Dashboard, where items, orders and earnings are.
 export const SHOPPER_NAV = [
   { href: '/', label: 'For You', icon: Flame },
   { href: '/search', label: 'Explore', icon: Compass },
@@ -10,13 +11,7 @@ export const SHOPPER_NAV = [
   { href: '/me', label: 'Me', icon: User },
 ] as const;
 
-export const SELLER_NAV = [
-  { href: '/', label: 'For You', icon: Flame },
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/sell', label: 'Add item', icon: PlusSquare },
-  { href: '/dashboard/orders', label: 'Orders', icon: ShoppingBag },
-  { href: '/me', label: 'Me', icon: User },
-] as const;
+export const SELLER_NAV = SHOPPER_NAV.map((d) => (d.href === '/sell' ? { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard } : d));
 
 // Visitors who haven't logged in: browsing and trying on only. Selling, messages and the account come after logging in.
 export const GUEST_NAV = SHOPPER_NAV.filter((d) => d.href !== '/sell' && d.href !== '/me');
@@ -31,7 +26,6 @@ export function isActive(href: string, pathname: string) {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (href === '/') return path === '/';
   if (href === '/me') return ['/me', '/my-account', '/wishlist', '/cart', '/checkout', '/orders', '/notifications'].some((p) => path.endsWith(p) || path.includes(`${p}/`));
-  // The dashboard's own sections (orders) are highlighted on their own.
-  if (href === '/dashboard') return path.endsWith('/dashboard') || (path.includes('/dashboard/') && !path.includes('/dashboard/orders'));
+  if (href === '/dashboard') return path.endsWith('/dashboard') || path.includes('/dashboard/') || path.endsWith('/sell') || path.endsWith('/edit-product');
   return path.endsWith(href) || path.includes(`${href}/`);
 }

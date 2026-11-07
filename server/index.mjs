@@ -519,7 +519,7 @@ route('POST', '/api/auth/login', ({ user, body }) => {
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
   failedLogins.delete(email);
-  if (body.role === 'seller' || body.role === 'buyer') db.prepare('update users set role = ? where id = ?').run(body.role, account.id);
+  // Logging in never changes what the account is (older apps send a "Log in as a Seller" switch).
   if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
   return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
 });
@@ -546,7 +546,6 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
 
   const account = db.prepare('select * from users where email = ?').get(email);
   if (account) {
-    if (role) db.prepare('update users set role = ? where id = ?').run(role, account.id);
     if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
     return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
   }
@@ -720,7 +719,9 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
     db.prepare('update users set username = ? where id = ?').run(username, user.id);
     broadcast('products');
   }
-  if (body.role === 'seller' || body.role === 'buyer') db.prepare('update users set role = ? where id = ?').run(body.role, user.id);
+  // One account per person: starting to sell adds a shop to it; nothing switches it back (older apps still send
+  // "buyer" from a removed Switch to shopping, which would hide the shop).
+  if (body.role === 'seller') db.prepare("update users set role = 'seller' where id = ?").run(user.id);
   if (body.avatar !== undefined) {
     if (user.is_guest) fail(403, 'forbidden', 'Create an account first.');
     const avatar = body.avatar === null ? null : String(body.avatar);

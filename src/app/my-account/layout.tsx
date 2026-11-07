@@ -10,7 +10,18 @@ import { useNotificationStore } from '@/hooks/use-notification-store';
 import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useUnreadMessages } from '@/lib/messages';
 
-/** My Saligue: a shopper's own space (orders, messages, saved, coins…). Shops have Seller Center instead. */
+/**
+ * My Saligue: the shopping side of an account (what I bought, saved, coins). One account per person, so someone with
+ * a shop has it too; their messages, notifications, settings and help are the shop's (Seller Center), not a copy.
+ */
+// With a shop, these open in Seller Center (the same inbox, notifications and settings), so there is only one of each.
+const SHOP_SIDE: Record<string, string> = {
+  '/my-account/messages': '/dashboard/messages',
+  '/my-account/notifications': '/dashboard/notifications',
+  '/my-account/settings': '/dashboard/settings',
+  '/my-account/support': '/dashboard/support',
+};
+
 export default function MySaligueLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname().replace(/\/+$/, '');
   const router = useRouter();
@@ -22,10 +33,9 @@ export default function MySaligueLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (isAuthLoading) return;
     if (!user) router.replace('/login');
-    else if (role === 'seller') router.replace('/dashboard');
-  }, [user, role, isAuthLoading, router]);
+  }, [user, isAuthLoading, router]);
 
-  if (isAuthLoading || !user || role === 'seller') {
+  if (isAuthLoading || !user) {
     return (
       <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-8">
         <Skeleton className="h-20 w-full rounded-2xl" />
@@ -49,7 +59,7 @@ export default function MySaligueLayout({ children }: { children: React.ReactNod
 
   return (
     <Hub tone="shopper" kicker="My Saligue" title={user.displayName || 'My account'} avatar={avatar} avatarName={user.displayName || user.email || 'Me'}
-      items={items.map((i) => ({ ...i, href: i.key }))} activeKey={active}>
+      items={items.map((i) => ({ ...i, href: role === 'seller' && SHOP_SIDE[i.key] ? SHOP_SIDE[i.key] : i.key }))} activeKey={active}>
       {children}
     </Hub>
   );

@@ -122,6 +122,19 @@ describe('accounts', () => {
     assert.equal((await call('/auth/me', { method: 'PATCH', token: b.token, body: { username: 'a' } })).status, 400);
     assert.equal((await call('/usernames/jp.style')).json.id, a.id);
   });
+  // One account per person: starting to sell adds a shop; nothing (an old app's switch, a login) takes it away.
+  test('an account can start selling, and is never switched back to shopping only', async () => {
+    const a = await register('One Account');
+    assert.equal(a.user.role, 'buyer');
+    assert.equal((await call('/auth/me', { method: 'PATCH', token: a.token, body: { role: 'seller' } })).status, 200);
+    assert.equal((await call('/auth/me', { token: a.token })).json.user.role, 'seller');
+    assert.equal((await call('/auth/me', { method: 'PATCH', token: a.token, body: { role: 'buyer' } })).status, 200);
+    assert.equal((await call('/auth/me', { token: a.token })).json.user.role, 'seller');
+    const email = (await call('/auth/me', { token: a.token })).json.user.email;
+    const login = await call('/auth/login', { body: { email, password: 'Test12345!', role: 'buyer' } });
+    assert.equal(login.status, 200, JSON.stringify(login.json));
+    assert.equal(login.json.user.role, 'seller');
+  });
   // The Terms and the age line on the register form are only worth anything if the account records which Terms it
   // accepted, and if an account cannot be made without ticking the box at all.
   test('an account cannot be made without accepting the Terms, and the version accepted is kept', async () => {
