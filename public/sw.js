@@ -1,6 +1,10 @@
 // Saligue service worker: makes the app installable and quick to reopen.
 // AI model files are cached separately by the app (Cache Storage "saligue-models-v1" and Transformers.js).
-const CACHE = 'saligue-app-v2';
+// v3: v2 could keep a failed or cut-off build file (a 404 during a rebuild, a dropped connection) and serve it
+// forever, leaving the site stuck on its loading screen. Moving to v3 deletes every v2 copy on activation.
+const CACHE = 'saligue-app-v3';
+// Only complete, successful answers are kept: never an error page, a partial (206) or an opaque response.
+const keepable = (response) => response.ok && response.status === 200 && response.type === 'basic';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -26,8 +30,10 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ||
           fetch(request).then((response) => {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
+            if (keepable(response)) {
+              const copy = response.clone();
+              caches.open(CACHE).then((cache) => cache.put(request, copy));
+            }
             return response;
           })
       )
@@ -40,8 +46,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          if (keepable(response)) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
         .catch(() => caches.match(request).then((hit) => hit || caches.match(self.registration.scope)))

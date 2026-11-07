@@ -7,6 +7,10 @@ import { watchErrors } from '@/lib/report-error';
 
 // Registers the service worker so the site can be installed as an app on Android and iOS.
 export function PwaRegister() {
+  // The app runs: the stuck-page watchdog in layout.tsx (UNSTICK) stands down.
+  useEffect(() => {
+    (window as { __saligueStarted?: boolean }).__saligueStarted = true;
+  }, []);
   useEffect(() => watchErrors(), []);
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return;
