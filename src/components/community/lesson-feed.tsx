@@ -71,7 +71,7 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (
           // No lessons yet: invite people to be the first teacher, with ideas, and suggest shops/teachers to follow.
-          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-20 text-center md:gap-5 md:px-8 md:pt-28">
+          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-32 text-center [scrollbar-width:none] [&>*]:shrink-0 md:gap-5 md:px-8 md:pt-40 [&::-webkit-scrollbar]:hidden">
             <GraduationCap className="h-12 w-12 text-primary md:h-16 md:w-16" />
             <p className="text-xl font-bold md:text-3xl">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
             <p className="max-w-xs text-sm text-muted-foreground md:max-w-md md:text-base">A phone video up to 4 min 30 s. Ideas:</p>

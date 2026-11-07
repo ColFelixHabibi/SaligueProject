@@ -265,8 +265,8 @@ export default function ForYouPage() {
   return (
     // Computers (lg): the feed column with a panel beside it about the item on screen; phones: the feed only.
     <div className="lg:flex lg:h-dvh lg:justify-center lg:gap-6 lg:bg-muted/50 lg:px-6">
-    {/* Learn has no item panel beside it, so on a computer its player takes the room instead of a phone-width strip. */}
-    <div ref={scroller} className={cn('relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-background [scrollbar-width:none] md:h-dvh [&::-webkit-scrollbar]:hidden lg:mx-0 lg:w-[28rem] lg:shrink-0 lg:shadow-xl', mode === 'learn' && 'md:max-w-[56rem] lg:w-auto lg:min-w-0 lg:max-w-[56rem] lg:flex-1 lg:shrink')}>
+    {/* On a computer the feed grows with the screen (photos sit whole on a blurred copy), so it is not a phone-width strip in empty space; Learn, with no item panel beside it, grows further. */}
+    <div ref={scroller} className={cn('relative mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md snap-y snap-mandatory overflow-y-auto overscroll-y-contain bg-background [scrollbar-width:none] md:h-dvh md:max-w-2xl [&::-webkit-scrollbar]:hidden lg:mx-0 lg:min-w-0 lg:max-w-[44rem] lg:flex-1 lg:shadow-xl', mode === 'learn' && 'md:max-w-[56rem] lg:max-w-[56rem]')}>
       {/* Pull to refresh: the spinner follows the finger, and turns once a refresh starts. */}
       <div className="pointer-events-none sticky top-0 z-[60] flex h-0 justify-center" aria-live="polite">
         {(pull > 0 || refreshing) && (
@@ -370,7 +370,7 @@ export default function ForYouPage() {
       <BreakReminder />
     </div>
     {wide && mode !== 'learn' && (
-      <aside className="hidden h-dvh w-[22rem] shrink-0 overflow-y-auto overflow-x-hidden py-6 lg:block xl:w-[26rem]">
+      <aside className="hidden h-dvh w-80 shrink-0 overflow-y-auto overflow-x-hidden py-6 lg:block xl:w-[24rem] 2xl:w-[26rem]">
         <FeedSidePanel product={byId.get(current ?? '') ?? shown[0] ?? null} />
       </aside>
     )}
