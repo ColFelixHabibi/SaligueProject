@@ -58,8 +58,16 @@ https://78-47-151-100.sslip.io/.well-known/assetlinks.json
 - **If Play signs your app with Google's key** (Play App Signing, which is the default and keeps the upload key
   above as a separate key), Play re-signs the APK, so Android compares against **Google's** certificate. Copy it
   from Play Console → *Test and release → App integrity → App signing key certificate → SHA-256 certificate
-  fingerprint* and add it as a second entry in `sha256_cert_fingerprints`. Without it, links open a browser on
-  installs that came from Play, while the APK from the site keeps working — an easy thing to miss.
+  fingerprint*, and paste it on the line under the comments in **`deploy/play-signing-sha256`** — then rebuild
+  (`node scripts/build-app.mjs --aab`) so it is added to `assetlinks.json` beside your own. `scripts/assetlinks.mjs`
+  accepts it with or without colons, in either case, and ignores anything that is not 32 bytes of hex instead of
+  publishing a fingerprint Android cannot compare. A build can also be given one directly:
+  `SALIGUE_PLAY_SHA256=AA:BB:… node scripts/build-app.mjs --aab`.
+  - The published list only ever grows: your key signs the APK the site hands out, Google's signs the app Play
+    installs, and **both phones must open shared links**. `tests/applinks.test.mjs` fails if a pasted fingerprint
+    is missing from the file, and once it is pasted it also proves the entry is in place.
+  - Without it, links open a browser on installs that came from Play while the APK from the site keeps working —
+    an easy thing to miss, because nothing looks broken on the phone you tested with.
 - Check it on a phone: **Settings → Apps → Saligue → Open by default → Add links** should list the address as
   verified, or run
   `adb shell pm get-app-links com.indeciana.saligue` (look for `verified`) and

@@ -5,7 +5,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { ASSETLINKS, PACKAGE_NAME, published, signingFingerprint } from '../scripts/assetlinks.mjs';
+import {
+  ASSETLINKS,
+  PACKAGE_NAME,
+  mergePublished,
+  normalizeFingerprint,
+  playFingerprint,
+  published,
+  signingFingerprint,
+} from '../scripts/assetlinks.mjs';
 import { FIRST_ADDRESS } from '../scripts/site-url.mjs';
 
 const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
@@ -31,6 +39,49 @@ test('every published key is a SHA-256 Android can compare', () => {
   assert.ok(keys.length >= 1, `${ASSETLINKS} lists no signing key`);
   // Android ignores the whole file if one entry is malformed (lowercase, missing colons, a SHA-1).
   for (const key of keys) assert.match(key, /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+});
+
+// Play App Signing re-signs the bundle with Google's certificate, so a phone that installed Saligue from Play only
+// opens Saligue links while Google's fingerprint is published too. It is copied by hand out of the Play Console,
+// which prints it in whatever shape it likes — so the shape is normalised here, once.
+test('a fingerprint is only published when Android can compare it', () => {
+  const canonical = 'E49BD9DE8A7C2B2A1C7951A9CAE54A7F022568EBEEFCBAE9C1BB49307F758A2F';
+  const dotted = canonical.match(/.{2}/g).join(':');
+  assert.equal(normalizeFingerprint(canonical), dotted);
+  assert.equal(normalizeFingerprint(canonical.toLowerCase()), dotted);
+  assert.equal(normalizeFingerprint(`  ${dotted}\r\n`), dotted);
+  // A SHA-1 (40 hex), a half-copied line, a whole certificate block and an empty file publish nothing at all.
+  assert.equal(normalizeFingerprint('E49BD9DE8A7C2B2A1C7951A9CAE54A7F022568EB'), null);
+  assert.equal(normalizeFingerprint('-----BEGIN CERTIFICATE-----'), null);
+  assert.equal(normalizeFingerprint(''), null);
+  assert.equal(normalizeFingerprint(undefined), null);
+});
+
+test('a rebuild adds a key, never drops one', () => {
+  // Android compares against the certificate of the *installed* app, and Saligue is installed from the site (our
+  // key) and from Play (Google's). A refresh that replaced the list would break whichever channel it forgot, and
+  // nothing would look broken until someone tapped a shared link.
+  const ours = 'E4:9B:D9:DE:8A:7C:2B:2A:1C:79:51:A9:CA:E5:4A:7F:02:25:68:EB:EE:FC:BA:E9:C1:BB:49:30:7F:75:8A:2F';
+  const google = 'AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99';
+  assert.deepEqual(mergePublished([ours], [google]), [ours, google]);
+  assert.deepEqual(mergePublished([ours], [ours]), [ours]);
+  assert.deepEqual(mergePublished([ours, google], []), [ours, google]);
+});
+
+test("Play App Signing's key is published once it is pasted", { skip: playFingerprint() ? false : `no Play fingerprint yet (deploy/play-signing-sha256)` }, () => {
+  const google = playFingerprint();
+  assert.ok(
+    published().includes(google),
+    'deploy/play-signing-sha256 is filled in but the fingerprint is not in assetlinks.json: run node scripts/build-app.mjs --aab',
+  );
+});
+
+test('the step that keeps Play installs working is written down where it is needed', () => {
+  // Skipped or not, the paragraph that explains it has to name the paste target: it is the only thing left for a
+  // human to do before uploading, and Play's own copy of the fingerprint is the only place it exists.
+  const play = readFileSync('deploy/play-store.md', 'utf8');
+  assert.match(play, /deploy\/play-signing-sha256/);
+  assert.match(play, /SALIGUE_PLAY_SHA256/);
 });
 
 test('Android is asked to verify Saligue links, for the address the site is served on', () => {

@@ -1,0 +1,14 @@
+# The SHA-256 certificate fingerprint Google signs the app with, when Play App Signing re-signs your bundle.
+# Play Console → Test and release → App integrity → App signing key certificate → "SHA-256 certificate fingerprint".
+#
+# Paste it alone on the line below — with or without colons, in either case; scripts/assetlinks.mjs normalises it.
+# Nothing is published until a line here is a real fingerprint (32 bytes of hex), and a paste that is not one is
+# ignored rather than published: a malformed entry leaves Android comparing against nothing, so the links keep
+# opening a browser with nothing looking broken.
+#
+# Why this file exists: an app installed from the site is signed with android/'s key and matches the fingerprint the
+# build publishes by itself. An app installed from Play carries Google's certificate instead, so it only opens
+# Saligue links while Google's fingerprint is listed too. Both live in public/.well-known/assetlinks.json; a rebuild
+# only ever adds to that list, never replaces it.
+#
+# A build can also be given one without touching this file: SALIGUE_PLAY_SHA256=AA:BB:… node scripts/build-app.mjs --aab
