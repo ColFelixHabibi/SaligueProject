@@ -81,6 +81,10 @@ Shared links open the app, not a browser tab: a Saligue link sent on WhatsApp la
 lesson. Android is switched on by `public/.well-known/assetlinks.json` (`scripts/assetlinks.mjs`), the iPhone by
 `public/.well-known/apple-app-site-association` plus the Associated Domains entitlement
 (`scripts/apple-association.mjs`) — the iPhone half waits for an Apple Team ID in `deploy/apple-team-id`.
+Android names a key per install channel: the build publishes the key it signs the APK with, and when Play App
+Signing re-signs the bundle, Google's certificate goes in `deploy/play-signing-sha256` — a rebuild adds it beside
+the first, because a phone that installed from Play compares against Google's key and one that installed from the
+site compares against ours.
 
 The one link that does not stay inside the app is the download: `/download/` asks for the APK as soon as it opens, and
 the app hands those addresses to the phone's browser (`openInBrowser` in `src/lib/native.ts`), because the WebView
