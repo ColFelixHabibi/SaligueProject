@@ -41,6 +41,7 @@ function dayLabel(iso: string) {
 }
 
 function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Conversation; active: boolean; onOpen: () => void; onClear: () => void; onArchive: () => void }) {
+  const t = useT();
   return (
     // The bin sits beside the row, not inside it: a button inside a button is not valid and swallows the tap.
     <div className={cn('group flex items-center rounded-xl transition-colors hover:bg-muted', active && 'bg-primary/10 hover:bg-primary/10')}>
@@ -77,8 +78,8 @@ function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Convers
       <button
         type="button"
         onClick={onArchive}
-        aria-label={c.archived ? `Bring back the chat with ${c.other.name}` : `Archive the chat with ${c.other.name}`}
-        title={c.archived ? 'Bring back' : 'Archive'}
+        aria-label={`${c.archived ? t('Bring back the chat with') : t('Archive the chat with')} ${c.other.name}`}
+        title={c.archived ? t('Bring back') : t('Archive')}
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
       >
         {c.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
@@ -87,8 +88,8 @@ function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Convers
       <button
         type="button"
         onClick={onClear}
-        aria-label={`Clear chat with ${c.other.name}`}
-        title="Clear chat"
+        aria-label={`${t('Clear chat')} · ${c.other.name}`}
+        title={t('Clear chat')}
         className="mr-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
       >
         <Trash2 className="h-4 w-4" />
@@ -116,6 +117,7 @@ function ItemCard({ productId }: { productId: string }) {
 function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onClear: (c: Conversation) => void }) {
   const { authUid } = useAuth();
   const { toast } = useToast();
+  const t = useT();
   const { data, error, send } = useConversation(id);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -149,9 +151,9 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
     setForwardingMessage(null);
     try {
       await forwardMessage(source.id, to.id);
-      toast({ title: `Forwarded to ${to.other.name}` });
+      toast({ title: `${t('Forwarded to')} ${to.other.name}` });
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Could not forward that message', description: friendlyError(e) });
+      toast({ variant: 'destructive', title: t('Could not forward that message'), description: friendlyError(e) });
     }
   };
 
@@ -212,7 +214,7 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
                     )}
                     {m.forwarded && (
                       <p className={cn('mb-0.5 flex items-center gap-1 text-[10px] font-semibold', mine ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-                        <Forward className="h-3 w-3" /> Forwarded
+                        <Forward className="h-3 w-3" /> {t('Forwarded')}
                       </p>
                     )}
                     <p className="whitespace-pre-wrap break-words">{m.text}</p>
@@ -224,8 +226,8 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
                         <button
                           type="button"
                           onClick={() => setForwardingMessage(m)}
-                          aria-label="Forward this message"
-                          title="Forward"
+                          aria-label={t('Forward this message')}
+                          title={t('Forward this message')}
                           className={cn('rounded-full p-0.5', mine ? 'hover:bg-white/25' : 'hover:bg-muted')}
                         >
                           <Forward className="h-3 w-3" />
@@ -272,11 +274,11 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
         <Dialog open onOpenChange={(open) => !open && setForwardingMessage(null)}>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
-              <DialogTitle>Forward to</DialogTitle>
-              <DialogDescription>The message, an item and an order travel with it. A photo or voice note stays where it was sent.</DialogDescription>
+              <DialogTitle>{t('Forward to')}</DialogTitle>
+              <DialogDescription>{t('The message, an item and an order travel with it. A photo or voice note stays where it was sent.')}</DialogDescription>
             </DialogHeader>
             <div className="max-h-72 space-y-1 overflow-y-auto">
-              {conversations.filter((x) => x.id !== id).length === 0 && <p className="p-2 text-sm text-muted-foreground">No other conversation to forward to yet.</p>}
+              {conversations.filter((x) => x.id !== id).length === 0 && <p className="p-2 text-sm text-muted-foreground">{t('No other conversation to forward to yet.')}</p>}
               {conversations
                 .filter((x) => x.id !== id)
                 .map((x) => (

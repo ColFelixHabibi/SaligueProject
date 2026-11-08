@@ -4,7 +4,7 @@ Everything the Play Console asks for, taken from this repository: the exact comm
 data-safety answers that match what the code actually does. Nothing here is guessed — each claim names the file it
 comes from, so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionCode **45**, versionName **2.34**, minSdk 24, targetSdk 36.
+Current build: `com.indeciana.saligue`, versionCode **46**, versionName **2.35**, minSdk 24, targetSdk 36.
 The iOS app carries the same two numbers (`ios/App/App.xcodeproj/project.pbxproj`), so the two stores never drift.
 
 ---
@@ -15,7 +15,7 @@ Play takes a **bundle**, not an APK. The release script already produces one, si
 
 ```bash
 node scripts/build-app.mjs --aab
-# → dist/saligue-2.34-45.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
+# → dist/saligue-2.35-46.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
 ```
 
 **Upload that `.aab`. Never the `.apk`.** The bundle goes to `dist/`, deliberately never to `data/downloads/`
@@ -37,7 +37,7 @@ your key as the upload key). If you let Google make a *different* app signing ke
 `saligue.apk` from the site gets "App not installed" when it tries to update from Play. Keep one key.
 
 After the first upload, **every later upload must have a higher `versionCode`** in `android/app/build.gradle`
-(currently `versionCode 45`). `/api/app/version` reads the same number, so the in-app "update available" banner and
+(currently `versionCode 46`). `/api/app/version` reads the same number, so the in-app "update available" banner and
 the Play update arrive from one source.
 
 ### Links in WhatsApp must open the app

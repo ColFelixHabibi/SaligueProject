@@ -69,6 +69,20 @@ test('the two stores carry the same version', () => {
   assert.deepEqual([...new Set(versions)], [/versionName\s+"([^"]+)"/.exec(gradle)?.[1]]);
 });
 
+test('the release notes name the build that was actually made', () => {
+  // deploy/play-store.md and deploy/ios.md are read before an upload. A stale number there sends someone looking for
+  // a bundle that no longer exists, and a wrong filename fails nothing on its own. A version holds only digits and
+  // dots, so escaping the dots is enough to search with it.
+  const dotted = (s) => s.split('.').join('\\.');
+  const code = /versionCode\s+(\d+)/.exec(gradle)?.[1];
+  const name = /versionName\s+"([^"]+)"/.exec(gradle)?.[1];
+  const play = readFileSync('deploy/play-store.md', 'utf8');
+  const ios = readFileSync('deploy/ios.md', 'utf8');
+  assert.ok(new RegExp('versionCode \\*\\*' + code + '\\*\\*, versionName \\*\\*' + dotted(name) + '\\*\\*').test(play), 'deploy/play-store.md "Current build" is out of date');
+  assert.ok(play.includes('dist/saligue-' + name + '-' + code + '.aab'), 'deploy/play-store.md names a bundle that does not exist');
+  assert.ok(new RegExp('versionName \\*\\*' + dotted(name) + '\\*\\*, build \\*\\*' + code + '\\*\\*').test(ios), 'deploy/ios.md "Current build" is out of date');
+});
+
 test('the link iOS hands over reaches the page', () => {
   // iOS delivers a Universal Link as an NSUserActivity; without this forwarding in the scene delegate Capacitor never
   // hears about it and the app opens on the home page instead of the shared product or lesson.

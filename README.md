@@ -16,6 +16,32 @@ AI features run on the user's device (browser or installed app). Shopper photos 
 
 Models are downloaded on first use and cached by the browser. Product photos and their cut-outs are stored with the product in Supabase; try-on photos remain on the shopper's device.
 
+## Statuses, chats and what stays private
+
+A status is a photo, a line of words or a voice note that clears itself after 24 hours. It goes to everyone who follows
+the author, or to a **close friends** list chosen in the composer. That list only accepts someone the account is already
+connected to — it follows them or they follow it, the same rule a direct chat uses (`/api/close-friends`), so a stranger
+cannot be put on it. The server drops a close status for anyone not on the author's list *before* the bar is built
+(`server/index.mjs`), so the audience is enforced on the server, not by hiding it in the app.
+
+**Muting** somebody's statuses takes their ring out of this account's bar and touches nothing else: their items, chats
+and profile stay as they were, and they are never told (`/api/stories/mute/:id`). It is reversible from the same bell.
+
+**Archiving** a chat puts it away for one side only — `conversations.buyer_archived` and `seller_archived` are separate
+columns — so the other person still sees the chat, nothing is deleted, and the row comes back from "Archived" whenever
+it is wanted (`/api/conversations/:id/archive`). This is different from clearing a chat, which hides its messages from
+that one account until something new is written in it.
+
+**Forwarding** copies a message into another chat of the same account, marked "Forwarded". The text, the item and the
+order travel with it; a photo, video or voice note never does — that file belongs to the message it was sent with, and
+unsending that message deletes the file outright (`removeChatFiles` in `server/chat-media.mjs`), so a second reference
+would break the original. `tests/social.test.mjs` pins that rule so it cannot be "improved" into data loss later.
+
+The screens are `src/components/social/story-bar.tsx` (composer and audience), `story-viewer.tsx` (mute, remove) and
+`src/components/messages/inbox.tsx` (archive, forward), over `src/lib/stories.ts` and `src/lib/messages.ts`. All copy
+added with these features is translated into Kinyarwanda and French, and `tests/i18n.test.mjs` fails on any string
+handed to `t('…')` that is missing from the dictionary in `src/lib/i18n.ts`.
+
 ## Supabase setup
 
 1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql) in its SQL Editor.

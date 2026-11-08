@@ -3,7 +3,7 @@
 Everything the iOS side needs, taken from this repository. Like `deploy/play-store.md`, each claim names the file it
 comes from so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionName **2.33**, build **44** — the same two numbers as the Android app,
+Current build: `com.indeciana.saligue`, versionName **2.35**, build **46** — the same two numbers as the Android app,
 so the two stores never drift. They live in `ios/App/App.xcodeproj/project.pbxproj` (`MARKETING_VERSION`,
 `CURRENT_PROJECT_VERSION`) and reach the app through `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` in
 `ios/App/App/Info.plist`.
