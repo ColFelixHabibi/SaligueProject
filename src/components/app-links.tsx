@@ -20,8 +20,10 @@ export function AppLinks() {
     if (capacitor?.isNativePlatform?.() !== true) return;
 
     const site = siteHost();
-    // The app owns every path on the address (App Links cannot exclude one), so the download is recognised here:
-    // /download/ and the APK itself must reach the phone's browser, since this window cannot save a file.
+    // /download is not among the paths the app claims (android/app/src/main/AndroidManifest.xml lists the shared
+    // pages one by one), so Android hands those links to the browser itself. This stays as the second net: a build
+    // from before that change still claims the whole address, and a link that does arrive here must not be shown in
+    // a window that cannot save a file.
     const isDownload = (pathname: string) => /^\/download(\/|$)/.test(pathname);
     // Everything else that is not a page — the API, media, a model file — is left alone.
     const isPage = (pathname: string) => !/^\/(api|media|models|_next)\//.test(pathname) && !/\.[a-z0-9]{1,6}$/i.test(pathname);

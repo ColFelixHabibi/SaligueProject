@@ -24,12 +24,29 @@
             <!-- Links to Saligue sent in WhatsApp, messages or anywhere else open the app on the page they point
                  at, like every other social app, instead of a browser tab. Android checks that this app really owns
                  the address by reading https://<host>/.well-known/assetlinks.json and comparing it with the key this
-                 build is signed with; if that check ever fails, links simply open in a browser as they do now. -->
+                 build is signed with; if that check ever fails, links simply open in a browser as they do now.
+
+                 The paths are listed one by one on purpose. A filter with no path claims EVERY address on the host,
+                 and that included /download — which a phone answered by opening this app, whose window cannot save a
+                 file, so the download link did nothing at all on any phone that had Saligue installed. App Links has
+                 no way to exclude one path from a wildcard, so the shared pages are named instead and /download is
+                 left to the browser. Adding a page people share means adding its prefix here. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="78-47-151-100.sslip.io" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:path="/" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/product" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/indeciana" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/looks" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/live" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/learn" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/challenge" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/profile" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/me" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/tag" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/register" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/invite" />
             </intent-filter>
         </activity>
 

@@ -38,11 +38,13 @@ export function teamId({ file = TEAM_ID_FILE, env = process.env } = {}) {
 }
 
 /**
- * The association file itself: one app, claiming every path on this address — the same claim assetlinks.json makes
- * for Android. Which of those paths the app can actually show is decided in the app (src/components/app-links.tsx).
+ * The association file itself: one app, claiming the pages on this address. `/download` is excluded with Apple's
+ * `NOT` rule, for the same reason Android lists its paths one by one (AndroidManifest.xml): a download opened in the
+ * app is a dead end, because the app's window cannot save a file. Everything the app cannot usefully show is the
+ * browser's job — a page that does not open the app is a page that works.
  */
 export function appAssociation(team) {
-  const details = [{ appID: `${team}.${BUNDLE_ID}`, paths: ['*'] }];
+  const details = [{ appID: `${team}.${BUNDLE_ID}`, paths: ['*', 'NOT /download/*'] }];
   return `${JSON.stringify({ applinks: { details } }, null, 2)}\n`;
 }
 

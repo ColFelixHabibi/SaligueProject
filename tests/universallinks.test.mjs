@@ -37,7 +37,9 @@ test('the app the association file points at is the app the phone installs', () 
   // iOS reads the app id out of the file Apple fetches, and it must be <TeamID>.<bundle id>.
   const detail = JSON.parse(appAssociation('A1B2C3D4E5')).applinks.details[0];
   assert.equal(detail.appID, `A1B2C3D4E5.${BUNDLE_ID}`);
-  assert.deepEqual(detail.paths, ['*']);
+  assert.ok(detail.paths.includes('*'), 'the shared pages must open the app');
+  // A download in the app is a dead end: its window cannot save a file. It must reach Safari instead.
+  assert.ok(detail.paths.includes('NOT /download/*'), `/download must be left to Safari, paths are ${detail.paths.join(', ')}`);
 });
 
 // Only meaningful once the app has an Apple Developer account: until then nothing is published, which is correct —
@@ -45,7 +47,7 @@ test('the app the association file points at is the app the phone installs', () 
 test("a published association file names a real Team ID and this app", { skip: existsSync(AASA) ? false : 'no Apple Team ID yet' }, () => {
   const detail = JSON.parse(readFileSync(AASA, 'utf8')).applinks.details[0];
   assert.match(detail.appID, /^[A-Z0-9]{10}\.com\.indeciana\.saligue$/);
-  assert.deepEqual(detail.paths, ['*']);
+  assert.ok(detail.paths.includes('NOT /download/*'), 'a published file must leave /download to Safari');
 });
 
 test('a Team ID is only believed when it looks like one', () => {

@@ -4,7 +4,7 @@ Everything the Play Console asks for, taken from this repository: the exact comm
 data-safety answers that match what the code actually does. Nothing here is guessed — each claim names the file it
 comes from, so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionCode **44**, versionName **2.33**, minSdk 24, targetSdk 36.
+Current build: `com.indeciana.saligue`, versionCode **45**, versionName **2.34**, minSdk 24, targetSdk 36.
 The iOS app carries the same two numbers (`ios/App/App.xcodeproj/project.pbxproj`), so the two stores never drift.
 
 ---
@@ -15,7 +15,7 @@ Play takes a **bundle**, not an APK. The release script already produces one, si
 
 ```bash
 node scripts/build-app.mjs --aab
-# → dist/saligue-2.33-44.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
+# → dist/saligue-2.34-45.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
 ```
 
 **Upload that `.aab`. Never the `.apk`.** The bundle goes to `dist/`, deliberately never to `data/downloads/`
@@ -37,7 +37,7 @@ your key as the upload key). If you let Google make a *different* app signing ke
 `saligue.apk` from the site gets "App not installed" when it tries to update from Play. Keep one key.
 
 After the first upload, **every later upload must have a higher `versionCode`** in `android/app/build.gradle`
-(currently `versionCode 44`). `/api/app/version` reads the same number, so the in-app "update available" banner and
+(currently `versionCode 45`). `/api/app/version` reads the same number, so the in-app "update available" banner and
 the Play update arrive from one source.
 
 ### Links in WhatsApp must open the app
@@ -68,12 +68,18 @@ https://78-47-151-100.sslip.io/.well-known/assetlinks.json
   **added** (not substituted) in the manifest, because phones already installed were built with the old one.
 - The iPhone's twin of this section is *Universal Links*: `deploy/ios.md` §1, same promise, same address, file
   `public/.well-known/apple-app-site-association` (`scripts/apple-association.mjs`). It waits only on an Apple Team ID.
-- **The download is the one exception.** The app claims the whole address (App Links cannot exclude a path), so
-  `/download/` and `/download/saligue.apk` arrive in the app too — and a WebView cannot save a file. Both
-  `src/components/app-links.tsx` and the in-app **Update** button therefore send those addresses out of the app
-  (`openInBrowser` in `src/lib/native.ts`), and Chrome does the download and the install. Before that, tapping
-  **Update** on an outdated app did nothing at all. Check it on a phone by sending yourself
-  `https://78-47-151-100.sslip.io/download`: Saligue opens, the browser follows, the APK downloads.
+- **The download is the one address the app deliberately does not claim.** `/download` and
+  `/download/saligue.apk` are absent from the manifest's path list, so the phone hands them straight to Chrome,
+  which saves the file and installs it — a WebView cannot save a file. The filter therefore names the shared
+  pages one by one instead of claiming the host, because **App Links cannot exclude a path from a wildcard**.
+  Adding a page people share means adding its prefix to the `<data>` list in `AndroidManifest.xml` **and** to
+  `scripts/apple-association.mjs`; `tests/applinks.test.mjs` fails if a path-less `<data>` comes back.
+  - Check it on a phone by sending yourself `https://78-47-151-100.sslip.io/download`: Chrome opens the page and
+    the APK starts downloading on its own.
+  - Installs older than **45 / 2.34** were built with the wildcard filter, so on those phones `/download` still
+    opens the app. The handoff below is what rescues them: `src/components/app-links.tsx` hands download (and
+    model/API) addresses to the browser, and so does the in-app **Update** button via `openInBrowser`
+    (`src/lib/native.ts`). Before that, tapping **Update** on an outdated app did nothing at all.
   - How it leaves: `capacitor.config.ts` sets no `server.allowNavigation`, and Capacitor's documented default is
     that **external addresses open in the browser rather than the WebView** — the app's own pages are served from
     `https://localhost`, so the site's address counts as external. This is the same road

@@ -51,8 +51,19 @@ test('the published key is the release signing key', { skip: signingFingerprint(
   assert.ok(published().includes(signingFingerprint()), 'the APK is signed with a key that is not published: links would open in a browser');
 });
 
-// A WebView cannot save a file. Since the app claims the whole address (App Links cannot exclude a path), the download
-// links arrive in the app too, and without this handoff a tapped "download" or "update" did nothing at all.
+// A <data> element with no path claims every address on the host. That included /download, so tapping a download
+// link on a phone that had Saligue installed opened the app — whose window cannot save a file — and nothing
+// downloaded. App Links cannot say "everything except", so the shared pages are named and the download is left out.
+test('the app claims pages, never the whole address', () => {
+  const data = [...manifest.matchAll(/<data[^>]*>/g)].map((m) => m[0]);
+  assert.ok(data.length > 0, 'the app claims no path at all: shared links would never open it');
+  for (const tag of data) assert.match(tag, /android:(path|pathPrefix)="/, `${tag} claims every path on the address`);
+  assert.ok(!data.some((tag) => tag.includes('android:pathPrefix="/download')), '/download must be left to the browser');
+  assert.ok(!data.some((tag) => tag.includes('android:pathPrefix="/"')), 'a "/" prefix claims every path again');
+});
+
+// A WebView cannot save a file. The manifest no longer hands /download to the app, but an older build still claims
+// every path, so the links that do arrive are handed to the phone's browser instead of a page that cannot download.
 test('a link to the download goes to the phone\'s browser, not to a page the app cannot download from', () => {
   assert.match(appLinks, /\^\\\/download\(\\\/\|\$\)/); // the /download/ page and /download/saligue.apk
   assert.match(appLinks, /openInBrowser\(target\.toString\(\)\)/);
