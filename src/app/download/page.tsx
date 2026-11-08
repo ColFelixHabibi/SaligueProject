@@ -23,9 +23,9 @@ export default function DownloadPage() {
         <h1 className="text-3xl font-extrabold tracking-tight">Saligue for Android</h1>
         <p className="text-muted-foreground"><AppVersion /> · Android 7 or newer</p>
       </div>
-      <DownloadApp path={APK} fallback={apkUrl} />
+      <DownloadApp path={APK} fallback={apkUrl} auto />
       <ol className="space-y-3 rounded-2xl border bg-card p-5 text-sm leading-relaxed">
-        <li><b>1. Open this page on your Android phone</b> (not a computer) and tap <b>Download the app</b>.</li>
+        <li><b>1. Open this page on your Android phone</b> (not a computer). The file starts downloading by itself — if it doesn’t, tap <b>Download the app</b>.</li>
         <li><b>2. Already have an older Saligue app?</b> Uninstall it first (hold its icon → Uninstall). Otherwise Android says “App not installed”.</li>
         <li><b>3. Open the downloaded file</b> (from the notification or Files → Downloads).</li>
         <li><b>4. Allow the install:</b> if Android asks, tap <b>Settings → Allow from this source</b>, then go back.</li>

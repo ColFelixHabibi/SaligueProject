@@ -9,3 +9,20 @@ export function isNativeApp(): boolean {
   const w = window as Window & { Capacitor?: { isNativePlatform?: () => boolean } };
   return w.Capacitor?.isNativePlatform?.() === true;
 }
+
+/**
+ * Opens a link where it can actually work: the phone's own browser, when we are inside the app.
+ *
+ * Inside the app every page is drawn in a WebView, which has no tabs and cannot save a file — so the APK that
+ * updates the app, and the download page that carries it, did nothing at all when tapped. `capacitor.config.ts`
+ * sets no `server.allowNavigation`, and Capacitor's documented default is that external addresses (anything
+ * outside the app's own `https://localhost`) open in the external browser. That is the road
+ * src/components/native-links.tsx already sends WhatsApp, maps and other sites down. The site's own address is
+ * external to the app, so a download takes it too and the browser installs the update the way this window cannot.
+ *
+ * On the website this is simply a navigation, so the same call is right on both.
+ */
+export function openInBrowser(url: string): void {
+  if (typeof window === 'undefined') return;
+  window.location.href = url;
+}

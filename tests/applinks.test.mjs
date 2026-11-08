@@ -11,6 +11,10 @@ import { FIRST_ADDRESS } from '../scripts/site-url.mjs';
 const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
 const gradle = readFileSync('android/app/build.gradle', 'utf8');
 const host = new URL(FIRST_ADDRESS).host;
+// The in-app side of a link (where it lands) and the two places that can fetch the app itself.
+const appLinks = readFileSync('src/components/app-links.tsx', 'utf8');
+const appUpdate = readFileSync('src/components/app-update.tsx', 'utf8');
+const native = readFileSync('src/lib/native.ts', 'utf8');
 
 test('the app is published as the app that owns Saligue links', () => {
   const list = JSON.parse(readFileSync(ASSETLINKS, 'utf8'));
@@ -45,4 +49,27 @@ test('the address matches the one the site is built for', () => {
 // Only meaningful on the machine that holds the release key; anywhere else (CI, a laptop) there is nothing to compare.
 test('the published key is the release signing key', { skip: signingFingerprint() ? false : 'no signing key on this machine' }, () => {
   assert.ok(published().includes(signingFingerprint()), 'the APK is signed with a key that is not published: links would open in a browser');
+});
+
+// A WebView cannot save a file. Since the app claims the whole address (App Links cannot exclude a path), the download
+// links arrive in the app too, and without this handoff a tapped "download" or "update" did nothing at all.
+test('a link to the download goes to the phone\'s browser, not to a page the app cannot download from', () => {
+  assert.match(appLinks, /\^\\\/download\(\\\/\|\$\)/); // the /download/ page and /download/saligue.apk
+  assert.match(appLinks, /openInBrowser\(target\.toString\(\)\)/);
+});
+
+test('the in-app download and update both hand the file to the browser', () => {
+  assert.match(appUpdate, /openInBrowser\(latest\.url\)/);
+  assert.match(appUpdate, /openInBrowser\(href\)/);
+  // The helper must really leave the WebView: a navigation to an address outside the app is what Capacitor opens in
+  // the phone's browser (deploy/play-store.md says why, and why allowNavigation has to stay empty).
+  assert.match(native, /export function openInBrowser/);
+  assert.match(native, /window\.location\.href = url/);
+});
+
+test('the WebView is not told to keep addresses that Capacitor would open in the browser', () => {
+  // `server.allowNavigation` holds listed origins inside the WebView. The site's own address must never be listed:
+  // it is where the APK is downloaded from, and this window cannot save a file.
+  const config = readFileSync('capacitor.config.ts', 'utf8');
+  assert.doesNotMatch(config, /allowNavigation/);
 });

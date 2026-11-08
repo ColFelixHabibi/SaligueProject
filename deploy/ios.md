@@ -3,7 +3,7 @@
 Everything the iOS side needs, taken from this repository. Like `deploy/play-store.md`, each claim names the file it
 comes from so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionName **2.31**, build **42** — the same two numbers as the Android app,
+Current build: `com.indeciana.saligue`, versionName **2.33**, build **44** — the same two numbers as the Android app,
 so the two stores never drift. They live in `ios/App/App.xcodeproj/project.pbxproj` (`MARKETING_VERSION`,
 `CURRENT_PROJECT_VERSION`) and reach the app through `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` in
 `ios/App/App/Info.plist`.
@@ -35,21 +35,39 @@ npm run build:app
 Confirm the copy happened: `ios/App/App/public/_next/static/chunks/` should hold the full set of chunks for this
 build, not a couple of leftovers from an old one.
 
-### Links in WhatsApp (not done yet — it needs the Apple Team ID)
+### Links in WhatsApp (one line away — it needs your Apple Team ID)
 
-On Android a shared Saligue link opens the app, because the site publishes `/.well-known/assetlinks.json` with the
-signing key (`deploy/play-store.md` §1). The iPhone equivalent is *Universal Links*: an
-`apple-app-site-association` file served at the site root naming the app's **Team ID** and bundle id
-(`com.indeciana.saligue`), plus the Associated Domains capability in Xcode. That Team ID only exists once you have a
-paid Apple Developer account, so it cannot be filled in from here.
+A Saligue link sent on WhatsApp (a product, a look, a live, a lesson) already opens **the app on that page** on
+Android, because the site publishes `/.well-known/assetlinks.json` with the signing key (`deploy/play-store.md` §1).
+The iPhone equivalent is *Universal Links*. Everything except your **Apple Team ID** is in this repository:
 
-To finish it, on the Mac: Xcode → the target → *Signing & Capabilities* → **+ Capability → Associated Domains** →
-`applinks:78-47-151-100.sslip.io`; then send me the Team ID and the two lines get served exactly like the Android
-file (`server/index.mjs` → `serveWellKnown`). Until then an iPhone opens shared links in Safari, and "Add to Home
-Screen" still gives the full app.
+| Piece | Where it lives |
+| --- | --- |
+| The address the app claims | `ios/App/App/App.entitlements` — `applinks:78-47-151-100.sslip.io`, compiled in through `CODE_SIGN_ENTITLEMENTS` in `ios/App/App.xcodeproj/project.pbxproj` |
+| The answer Apple fetches | `public/.well-known/apple-app-site-association`, served by `server/index.mjs` → `serveWellKnown` as `application/json`, with no redirect |
+| Keeping the pair in step | `scripts/apple-association.mjs`, run by every `node scripts/build-app.mjs` |
+| Handing the link to the page | `src/components/app-links.tsx` (shared with Android) and `ios/App/App/SceneDelegate.swift` (`scene(_:continue:)`) |
 
-The app-side routing is already in place and shared by both platforms: `src/components/app-links.tsx` listens for
-the link the operating system hands over and opens the page inside the app.
+To finish it, once the Apple Developer account exists:
+
+1. Find the Team ID: Xcode → *Settings → Accounts* (the ten characters beside the team), or App Store Connect →
+   *Membership*.
+2. Put it in `deploy/apple-team-id` — one line, no quotes — or pass `APPLE_TEAM_ID=…` to the build.
+3. Publish the file: `node scripts/build-app.mjs --apk`, or on its own
+   `node -e "import('./scripts/apple-association.mjs').then((m) => m.refreshAppleAssociation())"`.
+   It prints `Universal links: published <TEAM>.com.indeciana.saligue`.
+4. In Xcode the target's *Signing & Capabilities* already shows **Associated Domains** →
+   `applinks:78-47-151-100.sslip.io` (it comes from the entitlements file; automatic signing adds the capability to
+   the App ID, so nothing needs clicking).
+5. On a phone, a Saligue link tapped in Messages or WhatsApp opens the app. Apple caches the file — and caches a
+   *failure* for longer — so if a link still opens Safari, reinstall the app and wait a few minutes.
+
+Until step 2 nothing is published and the file answers `404`, which is the honest answer: iPhones open shared links
+in Safari, and "Add to Home Screen" still gives the full app.
+
+One trap: the entitlement host must be exactly the address the site is served on. `tests/universallinks.test.mjs`
+compares it with `scripts/site-url.mjs` and with the Android manifest, so a domain switch that forgets one of the
+three fails the test suite instead of quietly breaking links.
 
 ## 2. Build it on a Mac (App Store / TestFlight)
 

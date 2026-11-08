@@ -18,7 +18,7 @@ const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8'
 
 test('the app claims the address the site is served on', () => {
   // Xcode turns these lines into the Associated Domains capability; a host that is not the site's claims nothing.
-  assert.deepEqual(claimedHosts(), [`applinks:${host}`]);
+  assert.deepEqual(claimedHosts(), [host]);
   // Both platforms must claim the same address, or a link opens the app on one phone and a browser on the other.
   assert.ok(manifest.includes(`android:host="${host}"`), `AndroidManifest.xml must own https://${host}/`);
 });
@@ -55,6 +55,16 @@ test('a Team ID is only believed when it looks like one', () => {
   assert.equal(teamId({ env: { APPLE_TEAM_ID: 'someone@example.com' }, file: '' }), null);
   assert.equal(teamId({ env: { APPLE_TEAM_ID: 'a1b2c3d4e5' }, file: '' }), null);
   assert.equal(teamId({ env: { APPLE_TEAM_ID: 'A1B2C3D4E5' }, file: '' }), 'A1B2C3D4E5');
+});
+
+test('the two stores carry the same version', () => {
+  // versionCode / versionName are written by hand in two files, and both stores plus the in-app "update available"
+  // banner read them: a release raised in one file only is never offered to the phones.
+  const builds = [...pbxproj.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => m[1]);
+  const versions = [...pbxproj.matchAll(/MARKETING_VERSION = ([^;]+);/g)].map((m) => m[1]);
+  assert.equal(builds.length, 2, 'Debug and Release must both set CURRENT_PROJECT_VERSION');
+  assert.deepEqual([...new Set(builds)], [/versionCode\s+(\d+)/.exec(gradle)?.[1]]);
+  assert.deepEqual([...new Set(versions)], [/versionName\s+"([^"]+)"/.exec(gradle)?.[1]]);
 });
 
 test('the link iOS hands over reaches the page', () => {

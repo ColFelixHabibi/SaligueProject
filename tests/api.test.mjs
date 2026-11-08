@@ -715,6 +715,10 @@ describe('profiles, lives and the admin log', () => {
     const whole = await fetch(`${base}/download/saligue.apk`);
     assert.equal(whole.status, 200);
     assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+    // Tapping the link must start the download at once: the phone is told what the file is and that it is to be
+    // saved, not opened in the browser. Without the attachment line a phone shows the 35 MB as a page instead.
+    assert.equal(whole.headers.get('content-type'), 'application/vnd.android.package-archive');
+    assert.equal(whole.headers.get('content-disposition'), 'attachment; filename="Saligue.apk"');
     assert.equal(Buffer.from(await whole.arrayBuffer()).equals(bytes), true);
     // The rest, from where the connection dropped.
     const rest = await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=4000-' } });

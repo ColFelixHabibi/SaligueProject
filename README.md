@@ -51,6 +51,17 @@ Both commands rebuild the website into the native projects, so the apps always c
 app can be built anywhere with the Android SDK; the iPhone app needs macOS and Xcode — see
 [deploy/play-store.md](deploy/play-store.md) and [deploy/ios.md](deploy/ios.md).
 
+Shared links open the app, not a browser tab: a Saligue link sent on WhatsApp lands on that product, look, live or
+lesson. Android is switched on by `public/.well-known/assetlinks.json` (`scripts/assetlinks.mjs`), the iPhone by
+`public/.well-known/apple-app-site-association` plus the Associated Domains entitlement
+(`scripts/apple-association.mjs`) — the iPhone half waits for an Apple Team ID in `deploy/apple-team-id`.
+
+The one link that does not stay inside the app is the download: `/download/` asks for the APK as soon as it opens, and
+the app hands those addresses to the phone's browser (`openInBrowser` in `src/lib/native.ts`), because the WebView
+cannot save a file — the in-app **Update** banner takes the same road. That handoff depends on
+`server.allowNavigation` staying empty in `capacitor.config.ts`: Capacitor keeps listed sites in the WebView, and a
+download kept there does nothing.
+
 ## Licence
 
 Proprietary. Copyright © 2026 INDECIANA. All rights reserved. See [LICENSE](LICENSE).

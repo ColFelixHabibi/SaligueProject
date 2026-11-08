@@ -1,0 +1,10 @@
+# The Apple Team ID of the INDECIANA developer account: ten characters, uppercase, from Xcode →
+# Settings → Accounts (beside the team) or App Store Connect → Membership.
+#
+# Paste it alone on the line below, with no quotes and no e-mail address. scripts/apple-association.mjs reads it to
+# publish public/.well-known/apple-app-site-association, the file that lets a Saligue link sent on WhatsApp open the
+# iPhone app instead of Safari — the iPhone's half of public/.well-known/assetlinks.json. Until a valid id is here
+# nothing is published and iPhone links keep opening in a browser, which is the honest answer: Apple's CDN caches a
+# wrong file for hours.
+#
+# A build can also be given one without touching this file: APPLE_TEAM_ID=A1B2C3D4E5 node scripts/build-app.mjs --apk
