@@ -5,7 +5,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Saligue uses the camera so you can take a photo of yourself or of an item to try on, and to go live.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Saligue uses the microphone so viewers can hear you when you go live.</string>
+	<string>Saligue uses the microphone so viewers can hear you when you go live, and to record a voice status.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Saligue lets you choose a photo of yourself or of an item to try on.</string>
   <key>CAPACITOR_DEBUG</key>
@@ -55,7 +55,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

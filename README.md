@@ -40,6 +40,17 @@ the API and the database together. The live test address is https://78-47-151-10
 
 The site is installable as a web app. Open the published link on a phone and choose **Add to Home Screen** (iPhone: Share → Add to Home Screen; Android: menu → Install app). It opens full-screen with its own icon.
 
+Native apps wrap the same site (`capacitor.config.ts`, `webDir: 'out'`):
+
+```bash
+node scripts/build-app.mjs --apk    # signed APK → data/downloads/saligue.apk, downloaded from /download/saligue.apk
+node scripts/build-app.mjs --aab    # signed bundle for Google Play → dist/
+```
+
+Both commands rebuild the website into the native projects, so the apps always carry the current code. The Android
+app can be built anywhere with the Android SDK; the iPhone app needs macOS and Xcode — see
+[deploy/play-store.md](deploy/play-store.md) and [deploy/ios.md](deploy/ios.md).
+
 ## Licence
 
 Proprietary. Copyright © 2026 INDECIANA. All rights reserved. See [LICENSE](LICENSE).

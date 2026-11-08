@@ -51,6 +51,21 @@ try {
     rmSync(leftover, { recursive: true, force: true });
   }
   run('npx cap sync android');
+  // The iPhone app must carry the same web build as the Android one, or it opens an old version of Saligue:
+  // `cap copy ios` alone refreshes the web assets, while `cap sync ios` additionally runs `pod install`,
+  // which needs CocoaPods and therefore macOS. Try the full sync, fall back to the copy, and never let a
+  // missing iOS toolchain stop an Android release.
+  if (existsSync('ios/App')) {
+    try {
+      run('npx cap sync ios');
+    } catch {
+      try {
+        run('npx cap copy ios');
+      } catch {
+        console.warn('iOS web assets not refreshed — run `npx cap copy ios` on a Mac before archiving.');
+      }
+    }
+  }
 } finally {
   // Put the website's models back (a run cut short mid-build leaves them parked).
   if (existsSync(parked)) {
