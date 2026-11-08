@@ -14,7 +14,7 @@ import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { compressImage } from '@/lib/image';
 import { formatPrice } from '@/lib/orders';
-import { postStory, useStories, type StoryGroup } from '@/lib/stories';
+import { closeFriends, postStory, setCloseFriend, useStories, type CloseFriend, type StoryGroup } from '@/lib/stories';
 import { cn } from '@/lib/utils';
 import { VOICE_MAX_SECONDS, useVoiceRecorder } from '@/lib/voice';
 import { StoryViewer } from './story-viewer';
@@ -50,6 +50,12 @@ export function StoryBar({ className, compact = false }: { className?: string; c
   const [caption, setCaption] = useState('');
   const [background, setBackground] = useState(BACKGROUNDS[0]);
   const [productId, setProductId] = useState<string | null>(null);
+  // Who the status is for, and — when that is the small list — the list itself (loaded only when it is chosen).
+  const [audience, setAudience] = useState<'everyone' | 'close'>('everyone');
+  const [friends, setFriends] = useState<CloseFriend[] | null>(null);
+  const [candidates, setCandidates] = useState<CloseFriend[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [loadingFriends, setLoadingFriends] = useState(false);
   const [busy, setBusy] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -67,6 +73,10 @@ export function StoryBar({ className, compact = false }: { className?: string; c
     setCaption('');
     setBackground(BACKGROUNDS[0]);
     setProductId(null);
+    setAudience('everyone');
+    setFriends(null);
+    setCandidates([]);
+    setPicking(false);
     setMode('photo');
     // Closing the composer throws the recording away (and lets the microphone go either way).
     voice.discard();
@@ -115,6 +125,7 @@ export function StoryBar({ className, compact = false }: { className?: string; c
         caption: caption.trim(),
         background,
         productId,
+        audience,
       });
       setComposing(false);
       reset();
@@ -122,6 +133,36 @@ export function StoryBar({ className, compact = false }: { className?: string; c
       toast({ variant: 'destructive', title: t('Your status was not posted'), description: friendlyError(error) });
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** Loads the close friends list and the people who could go on it: only asked for when that audience is chosen. */
+  const openCloseFriends = async () => {
+    setLoadingFriends(true);
+    try {
+      const data = await closeFriends();
+      setFriends(data.friends);
+      setCandidates(data.people);
+    } catch (error) {
+      toast({ variant: 'destructive', title: t('Could not open your close friends'), description: friendlyError(error) });
+    } finally {
+      setLoadingFriends(false);
+    }
+  };
+
+  const chooseAudience = async (next: 'everyone' | 'close') => {
+    setAudience(next);
+    if (next === 'close' && !friends) await openCloseFriends();
+  };
+
+  /** Adds or removes one person, telling the server at once so a status can never go to someone just taken off. */
+  const toggleFriend = async (person: CloseFriend, inside: boolean) => {
+    setFriends((list) => (inside ? (list ?? []).filter((f) => f.id !== person.id) : [...(list ?? []), person]));
+    try {
+      await setCloseFriend(person.id, !inside);
+    } catch (error) {
+      setFriends((list) => (inside ? [...(list ?? []), person] : (list ?? []).filter((f) => f.id !== person.id)));
+      toast({ variant: 'destructive', title: t('That did not work'), description: friendlyError(error) });
     }
   };
 
@@ -205,10 +246,63 @@ export function StoryBar({ className, compact = false }: { className?: string; c
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('Post a status')}</DialogTitle>
-            <DialogDescription>{t('It goes by itself after 24 hours. Everyone who follows you can see it.')}</DialogDescription>
+            <DialogDescription>{t('It goes by itself after 24 hours.')}</DialogDescription>
           </DialogHeader>
 
           <form onSubmit={publish} className="space-y-4">
+            {/* Who can see it. Everything else about posting stays the same. */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" className="h-10" variant={audience === 'everyone' ? 'default' : 'outline'} onClick={() => void chooseAudience('everyone')} aria-pressed={audience === 'everyone'}>
+                  {t('Everyone')}
+                </Button>
+                <Button type="button" className="h-10" variant={audience === 'close' ? 'default' : 'outline'} onClick={() => void chooseAudience('close')} aria-pressed={audience === 'close'}>
+                  {t('Close friends')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {audience === 'close' ? t('Only the people on your close friends list can see this.') : t('Everyone who follows you can see this.')}
+              </p>
+              {audience === 'close' && (
+                <div className="space-y-2 rounded-lg border p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">
+                      {loadingFriends ? t('Loading…') : `${friends?.length ?? 0} ${t('close friends')}`}
+                    </span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setPicking((v) => !v)}>
+                      {t(picking ? 'Done' : 'Edit')}
+                    </Button>
+                  </div>
+                  {(friends?.length ?? 0) === 0 && !loadingFriends && !picking && (
+                    <p className="text-xs text-muted-foreground">{t('Nobody yet: only you would see this status.')}</p>
+                  )}
+                  {picking && (
+                    <div className="max-h-48 space-y-1 overflow-y-auto">
+                      {candidates.length === 0 && <p className="p-1 text-xs text-muted-foreground">{t('No connected people to add yet.')}</p>}
+                      {candidates.map((person) => {
+                        const inside = (friends ?? []).some((f) => f.id === person.id);
+                        return (
+                          <button
+                            key={person.id}
+                            type="button"
+                            onClick={() => void toggleFriend(person, inside)}
+                            aria-pressed={inside}
+                            className={cn('flex w-full items-center gap-2 rounded-md p-1.5 text-left hover:bg-muted', inside && 'bg-primary/10')}
+                          >
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">
+                              {initials(person.name)}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm">{person.name}</span>
+                            {inside && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               <Button type="button" className="h-12" variant={mode === 'photo' ? 'default' : 'outline'} onClick={() => chooseMode('photo')} aria-label={t('Photo')} title={t('Photo')} aria-pressed={mode === 'photo'}>
                 <ImageIcon className="h-6 w-6" />
@@ -257,7 +351,7 @@ export function StoryBar({ className, compact = false }: { className?: string; c
                 <p className={cn('text-xs', voice.problemText ? 'text-destructive' : 'text-muted-foreground')}>
                   {voice.problemText
                     ? t(voice.problemText)
-                    : `${t('Up to')} ${VOICE_MAX_SECONDS} ${t('seconds. Everyone who follows you can hear it.')}`}
+                    : `${t('Up to')} ${VOICE_MAX_SECONDS} ${t('seconds.')}`}
                 </p>
               </div>
             ) : mode === 'photo' ? (

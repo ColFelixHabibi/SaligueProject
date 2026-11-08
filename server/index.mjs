@@ -1359,6 +1359,8 @@ function storyOut(r, viewerId) {
     product: p ? { id: p.id, name: p.name, price: priceOf(p), image: p.image } : null,
     // How long a voice status runs; the ring uses it to know when to move on.
     seconds: r.seconds ?? null,
+    // 'everyone' (anyone who follows you) or 'close' (only the people on your close friends list).
+    audience: r.audience === 'close' ? 'close' : 'everyone',
     createdAt: r.created_at,
     expiresAt: r.expires_at,
     seen: !!viewerId && !!db.prepare('select 1 from story_views where story_id = ? and user_id = ?').get(r.id, viewerId),
@@ -1375,6 +1377,12 @@ function storyRing(user) {
   return [...ids];
 }
 
+/** The people whose close friends list this account is on: they may share a status with that list alone. */
+const closeFriendsOf = (userId) => new Set(db.prepare('select user_id from close_friends where friend_id = ?').all(userId).map((r) => r.user_id));
+
+/** People whose statuses this account muted: their ring stays out of the bar until it is asked for again. */
+const mutedStatuses = (userId) => new Set(db.prepare('select muted_id from story_mutes where user_id = ?').all(userId).map((r) => r.muted_id));
+
 route('GET', '/api/stories', ({ user }) => {
   if (!user) return { groups: [], people: 0, unseen: 0 };
   // Past its 24 hours a story is gone. Nothing runs on a timer: it is cleared as it is read (the index makes it cheap).
@@ -1384,14 +1392,24 @@ route('GET', '/api/stories', ({ user }) => {
   releaseMedia(expired);
   const ids = storyRing(user);
   const rows = db.prepare(`select * from stories where user_id in (${ids.map(() => '?').join(',')}) order by created_at`).all(...ids);
+  // Two lists narrow what is shown, never what anyone may post: a close-friends status is for the people on that
+  // list alone, and a muted ring is left out of the bar (their statuses are still there for anyone not muted).
+  const closeTo = closeFriendsOf(user.id);
+  const muted = mutedStatuses(user.id);
   const groups = [];
   const byAuthor = new Map();
   for (const r of rows) {
+    // Muted, or a close-friends status from someone who did not put this account on their list: never shown.
+    if (r.user_id !== user.id && (muted.has(r.user_id) || (r.audience === 'close' && !closeTo.has(r.user_id)))) continue;
     let group = byAuthor.get(r.user_id);
     if (!group) {
       const author = db.prepare('select id, display_name, username, avatar, role, official from users where id = ?').get(r.user_id);
       if (!author) continue;
-      group = { user: { id: author.id, displayName: author.display_name, username: author.username ?? null, avatar: author.avatar ?? null, role: author.role, official: !!author.official }, stories: [], unseen: 0 };
+      group = {
+        user: { id: author.id, displayName: author.display_name, username: author.username ?? null, avatar: author.avatar ?? null, role: author.role, official: !!author.official, muted: muted.has(author.id) },
+        stories: [],
+        unseen: 0,
+      };
       byAuthor.set(r.user_id, group);
       groups.push(group);
     }
@@ -1411,6 +1429,8 @@ route('POST', '/api/stories', async ({ user, body }) => {
   const background = /^#[0-9a-f]{6}$/i.test(String(body.background ?? '')) ? String(body.background) : '#111111';
   const productId = body.productId ? String(body.productId) : null;
   if (productId && !db.prepare('select 1 from products where id = ?').get(productId)) fail(404, 'no_item', 'That item is no longer on Saligue.');
+  // Who it is for. 'close' is read back against the author's close friends list every time the bar is loaded.
+  const audience = body.audience === 'close' ? 'close' : 'everyone';
   // A photo arrives as a data URL and is kept as a file, exactly like an item photo (media.mjs).
   let media = kind === 'image' ? storeImage(body.media) : null;
   let seconds = null;
@@ -1432,8 +1452,8 @@ route('POST', '/api/stories', async ({ user, body }) => {
   const up = db.prepare('select count(*) as n from stories where user_id = ? and expires_at > ?').get(user.id, now()).n;
   if (up >= STORY_MAX) fail(429, 'too_many_stories', `You have ${STORY_MAX} stories up already. They clear themselves after ${STORY_HOURS} hours.`);
   const id = randomUUID();
-  db.prepare('insert into stories (id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, kind, media, caption, background, productId, seconds, now(), storyExpiry());
+  db.prepare('insert into stories (id, user_id, kind, media, caption, background, product_id, seconds, audience, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, kind, media, caption, background, productId, seconds, audience, now(), storyExpiry());
   broadcast('stories');
   return { story: storyOut(db.prepare('select * from stories where id = ?').get(id), user.id) };
 });
@@ -1469,6 +1489,48 @@ route('DELETE', '/api/stories/([\\w-]+)', ({ user, params }) => {
   releaseMedia(s.media);
   broadcast('stories');
   return { ok: true };
+});
+
+// Muting a person's statuses: their ring leaves this account's bar. Nothing else changes — their items, chats and
+// profile stay exactly as they are — and they are never told about it.
+route('POST', '/api/stories/mute/([\\w-]+)', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to choose what you see.');
+  const id = params[0];
+  if (id === user.id) fail(400, 'own_story', 'That is your own status.');
+  if (!db.prepare('select 1 from users where id = ?').get(id)) fail(404, 'not_found', 'This account does not exist.');
+  const muted = body.muted !== false;
+  if (muted) db.prepare('insert or ignore into story_mutes (user_id, muted_id, created_at) values (?, ?, ?)').run(user.id, id, now());
+  else db.prepare('delete from story_mutes where user_id = ? and muted_id = ?').run(user.id, id);
+  broadcast('stories');
+  return { ok: true, muted };
+});
+
+/** One person in a close friends list, in the shape the app already reads people in. */
+const closeFriendOut = (u) => ({ id: u.id, name: u.display_name || u.username || 'Someone', username: u.username ?? null, avatar: u.avatar ?? null, official: !!u.official, verified: !!u.verified, isShop: u.role === 'seller' });
+
+// Who a status can be shared with when it is not for everyone. The candidates are the people already connected to
+// this account — someone it follows, or someone who follows it — exactly the rule a direct chat uses, so a stranger
+// cannot be put on the list.
+route('GET', '/api/close-friends', ({ user }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const friends = db.prepare('select u.* from close_friends f join users u on u.id = f.friend_id where f.user_id = ? order by u.display_name').all(user.id);
+  const people = db.prepare(`select u.* from users u where u.id != ? and u.is_guest = 0 and u.suspended = 0
+      and (exists (select 1 from follows f where f.follower_id = u.id and f.seller_id = ?)
+        or exists (select 1 from follows f where f.follower_id = ? and f.seller_id = u.id))
+    order by u.display_name limit 300`).all(user.id, user.id, user.id);
+  return { friends: friends.map(closeFriendOut), people: people.map(closeFriendOut) };
+});
+
+route('POST', '/api/close-friends/([\\w-]+)', ({ user, params, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to choose close friends.');
+  const friendId = params[0];
+  if (friendId === user.id) fail(400, 'own_account', 'That is you.');
+  const add = body.in !== false;
+  if (add) {
+    if (!connected(user.id, friendId)) fail(403, 'not_connected', 'You can add people you are connected to: someone you follow, or someone who follows you.');
+    db.prepare('insert or ignore into close_friends (user_id, friend_id, created_at) values (?, ?, ?)').run(user.id, friendId, now());
+  } else db.prepare('delete from close_friends where user_id = ? and friend_id = ?').run(user.id, friendId);
+  return { ok: true, in: add };
 });
 
 // The weekly note: a calm summary of what someone learned and made, instead of a stream of alerts.
@@ -1913,6 +1975,8 @@ function conversationOut(c, me) {
     },
     lastMessage: last ? { text: last.deleted_at ? 'Message unsent' : last.text || attachmentLabel(parse(last.attachment)), fromMe: last.sender_id === me.id, productId: last.product_id, createdAt: last.created_at } : null,
     unread,
+    // A chat this side put away: it leaves the list until it is asked for, on this account only.
+    archived: !!(iAmBuyer ? c.buyer_archived : c.seller_archived),
     lastMessageAt: c.last_message_at,
   };
 }
@@ -1922,6 +1986,8 @@ function messageOut(m) {
   const a = parse(m.attachment);
   return {
     id: m.id, senderId: m.sender_id, text: m.text, productId: m.product_id ?? null, orderId: m.order_id ?? null, createdAt: m.created_at,
+    // A copy of someone else's message: the app writes "Forwarded" above it.
+    forwarded: !!m.forwarded,
     attachment: a ? { kind: a.kind, url: chatFileUrl(a.file), poster: chatFileUrl(a.poster), width: a.width ?? null, height: a.height ?? null, duration: a.duration ?? null } : null,
   };
 }
@@ -1939,7 +2005,7 @@ const blockedBetween = (a, b) => !!(a && b && db.prepare('select 1 from blocks w
 // Two people are connected when either follows the other (one is in the other's Clients or Network).
 const connected = (a, b) => !!db.prepare('select 1 from follows where (follower_id = ? and seller_id = ?) or (follower_id = ? and seller_id = ?)').get(a, b, b, a);
 
-function addMessage(user, c, { text, productId = null, orderId = null, attachment = null }) {
+function addMessage(user, c, { text, productId = null, orderId = null, attachment = null, forwarded = false }) {
   if (blockedBetween(c.buyer_id, c.seller_id)) fail(403, 'blocked', 'You can’t message this account.');
   const clean = String(text ?? '').trim().slice(0, 3000);
   if (!clean && !attachment && !productId) fail(400, 'empty_message', 'Write a message first.');
@@ -1964,8 +2030,8 @@ function addMessage(user, c, { text, productId = null, orderId = null, attachmen
   const id = randomUUID();
   const iAmBuyer = c.buyer_id === user.id;
   transaction(() => {
-    db.prepare('insert into messages (id, conversation_id, sender_id, text, product_id, order_id, attachment, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, c.id, user.id, clean, productId, orderId, attachment ? json(attachment) : null, time);
+    db.prepare('insert into messages (id, conversation_id, sender_id, text, product_id, order_id, attachment, forwarded, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, c.id, user.id, clean, productId, orderId, attachment ? json(attachment) : null, forwarded ? 1 : 0, time);
     db.prepare(`update conversations set last_message_at = ?, ${iAmBuyer ? 'buyer_read_at' : 'seller_read_at'} = ? where id = ?`).run(time, time, c.id);
   });
   sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
@@ -1997,6 +2063,35 @@ route('GET', '/api/conversations', ({ user }) => {
     // A chat this account cleared stays out of the list until something new is written in it.
     .filter((c) => c.last_message_at > clearedAtOf(c, user))
     .map((c) => conversationOut(c, user));
+});
+
+// Puts a chat away for this account alone: it leaves the list and comes back when it is asked for. Nothing is
+// deleted, the other person is not told, and — unlike clearing — its messages stay readable.
+route('POST', '/api/conversations/([\\w-]+)/archive', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const c = ownConversation(user, params[0]);
+  const side = c.buyer_id === user.id ? 'buyer' : 'seller';
+  const archived = body.archived !== false;
+  db.prepare(`update conversations set ${side}_archived = ? where id = ?`).run(archived ? 1 : 0, c.id);
+  sendTo([c.buyer_id, c.seller_id], 'messages', { conversationId: c.id });
+  return { ok: true, archived };
+});
+
+// Forwarding: a copy of a message, marked "Forwarded", into another chat of this account. The text, the item and
+// the order travel with it; a photo, video or voice note does not — the file belongs to the message it was sent
+// with, and unsending that one deletes it, so a forward must never point at a file another message owns.
+route('POST', '/api/conversations/([\\w-]+)/forward', ({ user, params, body }) => {
+  needFeature('messages');
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const to = ownConversation(user, params[0]);
+  const source = db.prepare('select * from messages where id = ?').get(String(body.messageId ?? ''));
+  if (!source) fail(404, 'not_found', 'Message not found.');
+  const from = db.prepare('select id, buyer_id, seller_id from conversations where id = ?').get(source.conversation_id);
+  if (!from || (from.buyer_id !== user.id && from.seller_id !== user.id)) fail(404, 'not_found', 'Message not found.');
+  if (source.deleted_at) fail(400, 'gone', 'That message was unsent.');
+  if (!source.text && !source.product_id && !source.order_id) fail(400, 'nothing_to_forward', 'Only a message, an item or an order can be forwarded.');
+  const id = addMessage(user, to, { text: source.text, productId: source.product_id ?? null, orderId: source.order_id ?? null, forwarded: true });
+  return messageOut(db.prepare('select * from messages where id = ?').get(id));
 });
 
 // Starts (or continues) a conversation from an item, an order, or a shop, and sends the first message.

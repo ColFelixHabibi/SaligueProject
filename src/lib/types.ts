@@ -143,8 +143,10 @@ export type Conversation = {
   other: { id: string; name: string; username?: string | null; official: boolean; verified?: boolean; isShop?: boolean; isGuest: boolean; avatar: string | null };
   lastMessage: { text: string; fromMe: boolean; productId: string | null; createdAt: string } | null;
   unread: number;
+  // A chat this side put away: it leaves the list until it is asked for. The other person's list is untouched.
+  archived?: boolean;
   lastMessageAt: string;
 };
 
 export type ChatAttachment = { kind: 'image' | 'video' | 'voice'; url: string; poster: string | null; width: number | null; height: number | null; duration: number | null };
-export type Message = { id: string; senderId: string; text: string; productId: string | null; orderId: string | null; attachment?: ChatAttachment | null; deleted?: boolean; createdAt: string };
+export type Message = { id: string; senderId: string; text: string; productId: string | null; orderId: string | null; attachment?: ChatAttachment | null; deleted?: boolean; forwarded?: boolean; createdAt: string };

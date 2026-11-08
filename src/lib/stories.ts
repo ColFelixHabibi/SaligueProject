@@ -23,6 +23,8 @@ export type Story = {
   createdAt: string;
   expiresAt: string;
   seen: boolean;
+  // Who it is for: anyone who follows you, or only the people on your close friends list.
+  audience: 'everyone' | 'close';
   // Your own stories only: how many other people watched.
   views?: number;
 };
@@ -34,6 +36,8 @@ export type StoryPerson = {
   avatar: string | null;
   role: 'buyer' | 'seller';
   official: boolean;
+  // Their ring stays out of this account's bar; their statuses themselves are untouched.
+  muted?: boolean;
 };
 
 export type StoryGroup = { user: StoryPerson; stories: Story[]; unseen: number };
@@ -116,7 +120,7 @@ export function useStories() {
 
 /** Posts a status. A photo travels as the data URL `compressImage` makes, a voice note as the phone's recording;
  *  either way the server keeps it as a file. */
-export async function postStory(input: { kind: 'image' | 'text' | 'voice'; media?: string; caption?: string; background?: string; productId?: string | null }) {
+export async function postStory(input: { kind: 'image' | 'text' | 'voice'; media?: string; caption?: string; background?: string; productId?: string | null; audience?: 'everyone' | 'close' }) {
   // A photo or a recording is a whole file, and a voice note is turned into an M4A on the server: this is given
   // longer than a usual call.
   const { story } = await api<{ story: Story }>('/stories', { body: input, timeoutMs: 60_000 });
@@ -147,4 +151,27 @@ export async function replyToStory(id: string, text: string) {
 export async function deleteStory(id: string) {
   await api(`/stories/${id}`, { method: 'DELETE' });
   reloadStories();
+}
+
+/** Hides a person's ring from the bar, or brings it back. They are not told, and nothing else about them changes. */
+export async function muteStatuses(personId: string, muted: boolean) {
+  await api(`/stories/mute/${personId}`, { body: { muted } });
+  // Shown at once; the refreshed list confirms it a moment later.
+  if (state) {
+    state = { ...state, groups: state.groups.map((g) => (g.user.id === personId ? { ...g, user: { ...g.user, muted } } : g)) };
+    emit();
+  }
+  reloadStories();
+}
+
+export type CloseFriend = { id: string; name: string; username: string | null; avatar: string | null; official: boolean; verified?: boolean; isShop?: boolean };
+
+/** The close friends list, and the people connected to this account who could be put on it. */
+export function closeFriends() {
+  return api<{ friends: CloseFriend[]; people: CloseFriend[] }>('/close-friends');
+}
+
+/** Adds someone to the close friends list, or takes them off it. */
+export function setCloseFriend(personId: string, inside: boolean) {
+  return api<{ ok: boolean; in: boolean }>(`/close-friends/${personId}`, { body: { in: inside } });
 }

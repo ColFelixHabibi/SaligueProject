@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Eye, Mic, Pause, Play, Send, Trash2, X } from 'lucide-react';
+import { Bell, BellOff, Eye, Mic, Pause, Play, Send, Trash2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,7 @@ import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
-import { deleteStory, hoursLeft, markStorySeen, replyToStory, storyPhoto, storyVoice, type StoryGroup } from '@/lib/stories';
+import { deleteStory, hoursLeft, markStorySeen, muteStatuses, replyToStory, storyPhoto, storyVoice, type StoryGroup } from '@/lib/stories';
 
 /** How long a photo stays on screen before the next one, like any status app. */
 const PHOTO_MS = 5000;
@@ -152,6 +152,20 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
     }
   };
 
+  /** Hides this person's ring from the bar, or brings it back. Their statuses are untouched and they are not told. */
+  const toggleMuted = async () => {
+    const muted = !group.user.muted;
+    try {
+      await muteStatuses(group.user.id, muted);
+      toast({ title: t(muted ? 'Their statuses are hidden' : 'Their statuses are back') });
+      // Muted means the ring is gone from the bar, so there is nothing left to watch here.
+      if (muted) onClose();
+      else onChanged?.();
+    } catch (error) {
+      toast({ variant: 'destructive', title: t('That did not work'), description: friendlyError(error) });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black text-white">
       {/* The bars: one for each story, filling as it plays. */}
@@ -172,10 +186,27 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
           <p className="truncate text-sm font-semibold">{group.user.displayName}</p>
           <p className="text-xs text-white/70">{hoursLeft(story.expiresAt)} {t('left')}</p>
         </div>
+        {mine && story.audience === 'close' && (
+          <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px]" title={t('Only your close friends can see this')}>
+            {t('Close friends')}
+          </span>
+        )}
         {mine && <span className="flex items-center gap-1 text-xs text-white/70"><Eye className="h-4 w-4" /> {story.views ?? 0}</span>}
         {mine && (
           <button onClick={remove} aria-label={t('Remove this story')} className="rounded-full p-2 hover:bg-white/10">
             <Trash2 className="h-5 w-5" />
+          </button>
+        )}
+        {!mine && (
+          // Their ring leaves this account's bar; their statuses themselves are untouched and they are not told.
+          <button
+            onClick={() => void toggleMuted()}
+            aria-label={t(group.user.muted ? 'Show their statuses again' : 'Hide their statuses')}
+            title={t(group.user.muted ? 'Show their statuses again' : 'Hide their statuses')}
+            aria-pressed={!!group.user.muted}
+            className="rounded-full p-2 hover:bg-white/10"
+          >
+            {group.user.muted ? <BellOff className="h-5 w-5" /> : <Bell className="h-5 w-5" />}
           </button>
         )}
         <button onClick={close} aria-label={t('Close')} className="rounded-full p-2 hover:bg-white/10">

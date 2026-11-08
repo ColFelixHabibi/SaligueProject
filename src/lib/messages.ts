@@ -54,6 +54,22 @@ export async function clearConversation(id: string) {
   useInbox.setState((s) => ({ conversations: s.conversations.filter((c) => c.id !== id) }));
 }
 
+/**
+ * Puts a chat away for this account, or brings it back. Nothing is deleted, the other person is not told, and its
+ * messages stay readable — unlike clearing, which hides them until something new arrives.
+ */
+export async function setArchived(id: string, archived: boolean) {
+  await api(`/conversations/${id}/archive`, { body: { archived } });
+  useInbox.setState((s) => ({ conversations: s.conversations.map((c) => (c.id === id ? { ...c, archived } : c)) }));
+}
+
+/** Sends a copy of a message into another chat, marked as forwarded. */
+export async function forwardMessage(messageId: string, conversationId: string) {
+  const message = await api<Message>(`/conversations/${conversationId}/forward`, { body: { messageId } });
+  void loadInbox();
+  return message;
+}
+
 /** One conversation's messages, live, marked as read while it is open. */
 export function useConversation(id: string | null) {
   const [state, setState] = useState<{ conversation: Conversation; messages: Message[]; otherReadAt: string | null } | null>(null);

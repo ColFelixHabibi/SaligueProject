@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowLeft, BadgeCheck, CheckCheck, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, User, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, BadgeCheck, CheckCheck, Forward, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, User, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ask } from '@/components/confirm-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useT } from '@/lib/i18n';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
-import { clearConversation, useConversation, useInbox } from '@/lib/messages';
+import { clearConversation, forwardMessage, setArchived, useConversation, useInbox } from '@/lib/messages';
 import { formatPrice, shortOrderId } from '@/lib/orders';
 import type { Conversation, Message } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -39,7 +40,7 @@ function dayLabel(iso: string) {
   return format(d, 'EEEE d MMMM yyyy');
 }
 
-function ConversationRow({ c, active, onOpen, onClear }: { c: Conversation; active: boolean; onOpen: () => void; onClear: () => void }) {
+function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Conversation; active: boolean; onOpen: () => void; onClear: () => void; onArchive: () => void }) {
   return (
     // The bin sits beside the row, not inside it: a button inside a button is not valid and swallows the tap.
     <div className={cn('group flex items-center rounded-xl transition-colors hover:bg-muted', active && 'bg-primary/10 hover:bg-primary/10')}>
@@ -71,6 +72,16 @@ function ConversationRow({ c, active, onOpen, onClear }: { c: Conversation; acti
             )}
           </span>
         </span>
+      </button>
+      {/* Puts the chat away, or brings it back: nothing is deleted and the other person is not told. */}
+      <button
+        type="button"
+        onClick={onArchive}
+        aria-label={c.archived ? `Bring back the chat with ${c.other.name}` : `Archive the chat with ${c.other.name}`}
+        title={c.archived ? 'Bring back' : 'Archive'}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+      >
+        {c.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
       </button>
       {/* Clears this chat for this account only. Always shown on a phone, on hover on a computer. */}
       <button
@@ -108,6 +119,9 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
   const { data, error, send } = useConversation(id);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // The other chats, offered when a message is forwarded.
+  const conversations = useInbox((s) => s.conversations);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -125,6 +139,19 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
       toast({ variant: 'destructive', title: 'Message not sent', description: friendlyError(e) });
     } finally {
       setSending(false);
+    }
+  };
+
+  /** Sends a copy of a message into another chat, marked "Forwarded". */
+  const doForward = async (to: Conversation) => {
+    if (!forwardingMessage) return;
+    const source = forwardingMessage;
+    setForwardingMessage(null);
+    try {
+      await forwardMessage(source.id, to.id);
+      toast({ title: `Forwarded to ${to.other.name}` });
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Could not forward that message', description: friendlyError(e) });
     }
   };
 
@@ -183,10 +210,27 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
                         <Package className="h-3.5 w-3.5" /> Order #{shortOrderId(m.orderId)}
                       </Link>
                     )}
+                    {m.forwarded && (
+                      <p className={cn('mb-0.5 flex items-center gap-1 text-[10px] font-semibold', mine ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                        <Forward className="h-3 w-3" /> Forwarded
+                      </p>
+                    )}
                     <p className="whitespace-pre-wrap break-words">{m.text}</p>
                     <p className={cn('mt-0.5 flex items-center justify-end gap-1 text-[10px]', mine ? 'text-primary-foreground/75' : 'text-muted-foreground')}>
                       {format(new Date(m.createdAt), 'HH:mm')}
                       {mine && m.id === lastMine?.id && otherReadAt && otherReadAt >= m.createdAt && <><CheckCheck className="h-3 w-3" /> Seen</>}
+                      {/* Only what travels safely: the text, an item, an order (see the server's forward route). */}
+                      {!m.deleted && (m.text || m.productId || m.orderId) && (
+                        <button
+                          type="button"
+                          onClick={() => setForwardingMessage(m)}
+                          aria-label="Forward this message"
+                          title="Forward"
+                          className={cn('rounded-full p-0.5', mine ? 'hover:bg-white/25' : 'hover:bg-muted')}
+                        >
+                          <Forward className="h-3 w-3" />
+                        </button>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -222,6 +266,32 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
           {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
         </Button>
       </form>
+
+      {/* Forwarding: pick the chat the copy goes to. */}
+      {forwardingMessage && (
+        <Dialog open onOpenChange={(open) => !open && setForwardingMessage(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Forward to</DialogTitle>
+              <DialogDescription>The message, an item and an order travel with it. A photo or voice note stays where it was sent.</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {conversations.filter((x) => x.id !== id).length === 0 && <p className="p-2 text-sm text-muted-foreground">No other conversation to forward to yet.</p>}
+              {conversations
+                .filter((x) => x.id !== id)
+                .map((x) => (
+                  <button key={x.id} type="button" onClick={() => void doForward(x)} className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-muted">
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarImage src={mediaUrl(x.other.avatar ?? undefined)} alt="" className="object-cover" />
+                      <AvatarFallback className="text-xs font-semibold">{initials(x.other.name)}</AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{x.other.name}</span>
+                  </button>
+                ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -239,11 +309,25 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
   const openId = params.get('c');
   const { conversations, isInitialized } = useInbox();
   const [query, setQuery] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
   const shown = useMemo(
     () => conversations.filter((c) => !query.trim() || c.other.name.toLowerCase().includes(query.trim().toLowerCase())),
     [conversations, query]
   );
   const open = (id: string | null) => router.replace(id ? `${base}?c=${id}` : base, { scroll: false });
+  const active = shown.filter((c) => !c.archived);
+  const archived = shown.filter((c) => c.archived);
+
+  // Putting a chat away (or bringing it back): nothing is deleted and the other person is not told.
+  const archive = async (c: Conversation) => {
+    try {
+      await setArchived(c.id, !c.archived);
+      if (!c.archived && openId === c.id) open(null);
+      toast({ title: c.archived ? t('Chat brought back') : t('Chat archived') });
+    } catch (e) {
+      toast({ variant: 'destructive', title: t('Could not archive this chat'), description: friendlyError(e) });
+    }
+  };
 
   // Clearing asks first: it is one tap away by accident and there is no undo in the app.
   const clear = async (c: Conversation) => {
@@ -315,7 +399,28 @@ export function Inbox({ base = '/messages', embedded = false }: { base?: string;
                 )}
               </div>
             ) : (
-              shown.map((c) => <ConversationRow key={c.id} c={c} active={c.id === openId} onOpen={() => open(c.id)} onClear={() => void clear(c)} />)
+              <>
+                {active.map((c) => (
+                  <ConversationRow key={c.id} c={c} active={c.id === openId} onOpen={() => open(c.id)} onClear={() => void clear(c)} onArchive={() => void archive(c)} />
+                ))}
+                {/* Chats put away: out of the list until this is opened, and only on this account. */}
+                {archived.length > 0 && (
+                  <div className="mt-2 border-t pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowArchive((v) => !v)}
+                      aria-expanded={showArchive}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted"
+                    >
+                      <Archive className="h-4 w-4" /> {t('Archived')} <span className="text-xs font-normal">({archived.length})</span>
+                    </button>
+                    {showArchive &&
+                      archived.map((c) => (
+                        <ConversationRow key={c.id} c={c} active={c.id === openId} onOpen={() => open(c.id)} onClear={() => void clear(c)} onArchive={() => void archive(c)} />
+                      ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </aside>

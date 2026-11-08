@@ -497,6 +497,25 @@ db.exec(`
     primary key (story_id, user_id)
   );
 
+  -- Close friends: the people a status can be shared with instead of everyone who follows you. Only someone this
+  -- account is connected to (one follows the other, the same rule as a direct chat) can be put on it.
+  create table if not exists close_friends (
+    user_id text not null references users(id) on delete cascade,   -- whose list this is
+    friend_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (user_id, friend_id)
+  );
+  create index if not exists close_friends_friend on close_friends(friend_id);
+
+  -- Someone whose statuses this account would rather not see in the ring bar. They are not told, and nothing else
+  -- changes: their items, chats and profile stay exactly as they are.
+  create table if not exists story_mutes (
+    user_id text not null references users(id) on delete cascade,
+    muted_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (user_id, muted_id)
+  );
+
   -- Saligue Ads: sellers promote an item for a budget; shown as "Sponsored" and billed per 1,000 views (ads.mjs).
   create table if not exists ad_campaigns (
     id text primary key,
@@ -844,6 +863,12 @@ for (const [table, column, type] of [
   ['live_claims', 'order_id', 'text'],
   // How long a voice status runs (the status itself is in the stories table, under "Stories" further down).
   ['stories', 'seconds', 'integer'],
+  // Who a status is for: everyone who follows you, or only the people on your close friends list.
+  ['stories', 'audience', "text not null default 'everyone'"],
+  // Chats put away for later, each side for itself: the other person's list is never touched by it.
+  ['conversations', 'buyer_archived', 'integer not null default 0'], ['conversations', 'seller_archived', 'integer not null default 0'],
+  // A message passed on from another chat says so, the way paper mail shows it was forwarded.
+  ['messages', 'forwarded', 'integer not null default 0'],
 ]) {
   const exists = db.prepare(`select 1 from pragma_table_info('${table}') where name = ?`).get(column);
   if (!exists) db.exec(`alter table ${table} add column ${column} ${type}`);
@@ -867,11 +892,12 @@ if (storiesDdl && !storiesDdl.includes("'voice'")) {
         background text not null default '#111111',
         product_id text references products(id) on delete set null,
         seconds integer,
+        audience text not null default 'everyone',
         created_at text not null,
         expires_at text not null
       );
-      insert into stories_rebuilt (id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at)
-        select id, user_id, kind, media, caption, background, product_id, seconds, created_at, expires_at from stories;
+      insert into stories_rebuilt (id, user_id, kind, media, caption, background, product_id, seconds, audience, created_at, expires_at)
+        select id, user_id, kind, media, caption, background, product_id, seconds, audience, created_at, expires_at from stories;
       drop table stories;
       alter table stories_rebuilt rename to stories;
       create index if not exists stories_expiry on stories(expires_at);
