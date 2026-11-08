@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
 import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
@@ -5658,7 +5658,33 @@ function sharePreview(pathname, params) {
   return null;
 }
 
+// The files a phone or a store looks for by fixed name, kept in the repository (public/.well-known) rather than in
+// the built site. Android reads assetlinks.json, the iPhone reads apple-app-site-association: each one decides
+// whether a Saligue link opens the app or a browser tab (scripts/assetlinks.mjs, scripts/apple-association.mjs).
+const WELL_KNOWN = fileURLToPath(new URL('../public/.well-known', import.meta.url));
+
+// iPhone Universal Links: the file is named without an extension and Apple only accepts it as JSON — a generic
+// type is read as "this site has no app", so the shared link opens Safari and nothing says why.
+const WELL_KNOWN_TYPES = { 'apple-app-site-association': 'application/json' };
+
+function serveWellKnown(req, res, pathname) {
+  const file = normalize(join(WELL_KNOWN, decodeURIComponent(pathname.slice('/.well-known/'.length))));
+  if (!file.startsWith(WELL_KNOWN + sep) || !existsSync(file) || !statSync(file).isFile()) return send(res, 404, 'Not found');
+  const body = readFileSync(file);
+  res.writeHead(200, {
+    'Content-Type': WELL_KNOWN_TYPES[basename(file)] || TYPES[extname(file)] || 'application/octet-stream',
+    'Content-Length': body.length,
+    'Cache-Control': 'no-cache',
+  });
+  if (req.method === 'HEAD') return res.end();
+  return res.end(body);
+}
+
 function serveStatic(req, res, pathname) {
+  // Android App Links: /.well-known/assetlinks.json (the file that lets a shared Saligue link open the app) is read
+  // from public/, the copy in the repository, so it can never be published from an out/ built before the signing
+  // key or the address changed.
+  if (pathname.startsWith('/.well-known/')) return serveWellKnown(req, res, pathname);
   // Next.js page data (…/index.txt) opened as a page: after a deploy, a tab that was already open reloads the data
   // file's address instead of the page (a Next.js quirk with static sites). Send the browser to the page itself.
   if (pathname.endsWith('/index.txt') && !req.headers.rsc && /text\/html/.test(req.headers.accept ?? '')) {

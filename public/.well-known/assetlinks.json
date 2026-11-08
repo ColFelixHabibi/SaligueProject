@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.indeciana.saligue",
+      "sha256_cert_fingerprints": [
+        "E4:9B:D9:DE:8A:7C:2B:2A:1C:79:51:A9:CA:E5:4A:7F:02:25:68:EB:EE:FC:BA:E9:C1:BB:49:30:7F:75:8A:2F"
+      ]
+    }
+  }
+]

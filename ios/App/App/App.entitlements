@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Universal Links: a Saligue link sent on WhatsApp opens Saligue on that page, the way Android App Links do
+	     (public/.well-known/assetlinks.json). The host here must be the address the site is served on — it is checked
+	     by tests/universallinks.test.mjs — and the file that completes the pair is
+	     public/.well-known/apple-app-site-association (scripts/apple-association.mjs). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:78-47-151-100.sslip.io</string>
+	</array>
+</dict>
+</plist>

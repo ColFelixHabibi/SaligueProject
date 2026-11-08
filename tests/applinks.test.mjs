@@ -1,0 +1,48 @@
+// Shared Saligue links open the app only when three things agree: the app's package name, the key it is signed
+// with, and the address it claims. They live in three different files, so this keeps them from drifting apart —
+// which would fail silently (links simply open a browser, with nothing broken enough to notice).
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+import { ASSETLINKS, PACKAGE_NAME, published, signingFingerprint } from '../scripts/assetlinks.mjs';
+import { FIRST_ADDRESS } from '../scripts/site-url.mjs';
+
+const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
+const gradle = readFileSync('android/app/build.gradle', 'utf8');
+const host = new URL(FIRST_ADDRESS).host;
+
+test('the app is published as the app that owns Saligue links', () => {
+  const list = JSON.parse(readFileSync(ASSETLINKS, 'utf8'));
+  assert.equal(list.length, 1);
+  assert.deepEqual(list[0].relation, ['delegate_permission/common.handle_all_urls']);
+  assert.equal(list[0].target.namespace, 'android_app');
+  assert.equal(list[0].target.package_name, PACKAGE_NAME);
+  // The package named in the file must be the one the APK is built as, or Android matches nothing.
+  assert.equal(PACKAGE_NAME, /applicationId\s+"([^"]+)"/.exec(gradle)?.[1]);
+});
+
+test('every published key is a SHA-256 Android can compare', () => {
+  const keys = published();
+  assert.ok(keys.length >= 1, `${ASSETLINKS} lists no signing key`);
+  // Android ignores the whole file if one entry is malformed (lowercase, missing colons, a SHA-1).
+  for (const key of keys) assert.match(key, /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+});
+
+test('Android is asked to verify Saligue links, for the address the site is served on', () => {
+  assert.match(manifest, /android:autoVerify="true"/);
+  assert.match(manifest, /android\.intent\.action\.VIEW/);
+  assert.match(manifest, /android\.intent\.category\.BROWSABLE/);
+  assert.ok(manifest.includes(`android:scheme="https" android:host="${host}"`), `AndroidManifest.xml must own https://${host}/`);
+});
+
+test('the address matches the one the site is built for', () => {
+  // A new address must be added to the manifest, not replaced: phones already installed were built with the old one
+  // (deploy/switch-domain.sh changes the server, this filter is the app's side of the same move).
+  assert.equal(host, '78-47-151-100.sslip.io');
+});
+
+// Only meaningful on the machine that holds the release key; anywhere else (CI, a laptop) there is nothing to compare.
+test('the published key is the release signing key', { skip: signingFingerprint() ? false : 'no signing key on this machine' }, () => {
+  assert.ok(published().includes(signingFingerprint()), 'the APK is signed with a key that is not published: links would open in a browser');
+});

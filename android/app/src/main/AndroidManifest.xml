@@ -21,6 +21,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Links to Saligue sent in WhatsApp, messages or anywhere else open the app on the page they point
+                 at, like every other social app, instead of a browser tab. Android checks that this app really owns
+                 the address by reading https://<host>/.well-known/assetlinks.json and comparing it with the key this
+                 build is signed with; if that check ever fails, links simply open in a browser as they do now. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="78-47-151-100.sslip.io" />
+            </intent-filter>
         </activity>
 
         <provider

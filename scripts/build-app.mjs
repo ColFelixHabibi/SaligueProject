@@ -9,6 +9,8 @@ import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { siteUrl } from './site-url.mjs';
+import { refreshAssetLinks } from './assetlinks.mjs';
+import { refreshAppleAssociation } from './apple-association.mjs';
 
 const aab = process.argv.includes('--aab');
 // A Play Store bundle is built like the APK: models load from the server, so the app stays small.
@@ -42,6 +44,12 @@ if (existsSync(stale)) {
   else renameSync(stale, 'public/models');
 }
 if (apk && existsSync('public/models')) renameSync('public/models', parked);
+// A link to Saligue sent in WhatsApp opens the app only when this build's signing key is published in
+// public/.well-known/assetlinks.json, so the key is read back from the keystore before the web parts are built.
+refreshAssetLinks();
+// The iPhone's half of the same promise: published once an Apple Team ID is known, taken down while it is not, so
+// the app store release and the file that lets its links open Saligue can never disagree.
+refreshAppleAssociation();
 try {
   run('npx next build');
   // `cap sync` copies public/ wholesale into the app's assets, so clear any model files an older or

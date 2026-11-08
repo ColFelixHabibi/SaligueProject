@@ -286,6 +286,37 @@ describe('site', () => {
     const r = await call('/push');
     assert.ok(r.json.webKey.length > 40);
   });
+  // What lets a Saligue link sent on WhatsApp open the app instead of a browser tab (Android App Links). It is read
+  // from public/, so it answers even before the site is built, and it must be JSON — Android ignores anything else.
+  test('the phone is told which app owns a Saligue link', async () => {
+    const r = await fetch(`${base}/.well-known/assetlinks.json`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') ?? '', /application\/json/);
+    const [link] = await r.json();
+    assert.deepEqual(link.relation, ['delegate_permission/common.handle_all_urls']);
+    assert.equal(link.target.package_name, 'com.indeciana.saligue');
+    assert.match(link.target.sha256_cert_fingerprints[0], /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+  });
+  // The iPhone's half of the same promise (scripts/apple-association.mjs). It is published only once an Apple Team ID
+  // is known, so before that a 404 is the right answer — Apple reads it as "this site has no app". Once published it
+  // must be JSON: Apple ignores the file when it arrives as a generic download.
+  test('the iPhone is told which app owns a Saligue link, once a Team ID is published', async () => {
+    const r = await fetch(`${base}/.well-known/apple-app-site-association`);
+    if (!existsSync('public/.well-known/apple-app-site-association')) {
+      assert.equal(r.status, 404);
+      return;
+    }
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') ?? '', /application\/json/);
+    const [detail] = (await r.json()).applinks.details;
+    assert.match(detail.appID, /^[A-Z0-9]{10}\.com\.indeciana\.saligue$/);
+    assert.deepEqual(detail.paths, ['*']);
+  });
+  test('nothing else under .well-known is served', async () => {
+    // Encoded, or fetch would tidy the .. away before the server ever sees it.
+    const r = await fetch(`${base}/.well-known/%2e%2e/package.json`);
+    assert.equal(r.status, 404);
+  });
 });
 
 describe('safety and privacy', () => {

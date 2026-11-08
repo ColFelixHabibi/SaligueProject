@@ -15,12 +15,19 @@ Play takes a **bundle**, not an APK. The release script already produces one, si
 
 ```bash
 node scripts/build-app.mjs --aab
-# → dist/saligue-2.31-42.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
+# → dist/saligue-2.32-43.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
 ```
 
 **Upload that `.aab`. Never the `.apk`.** The bundle goes to `dist/`, deliberately never to `data/downloads/`
 (see the comment in `scripts/build-app.mjs`): phones download the APK from the site, the bundle is for the Play
 Console only.
+
+**Always build through that script, never `./gradlew bundleRelease` directly.** The script parks the on-device AI
+models (`public/models`, 216 MB) so they are not copied into the app — the app loads them from the server. A bundle
+assembled by hand picks up whatever the previous sync left in `android/app/src/main/assets/public`, and a stray
+`node scripts/build-app.mjs` run (the offline variant, no flag) leaves the models there: the bundle then comes out at
+**158 MB instead of ~34 MB**. A sane `.aab` is 33–35 MB, roughly the same as the APK; anything near 100 MB means the
+models leaked in, so re-run the script before uploading.
 
 ### Enrol your existing key in Play App Signing
 
@@ -30,8 +37,35 @@ your key as the upload key). If you let Google make a *different* app signing ke
 `saligue.apk` from the site gets "App not installed" when it tries to update from Play. Keep one key.
 
 After the first upload, **every later upload must have a higher `versionCode`** in `android/app/build.gradle`
-(currently `versionCode 42`). `/api/app/version` reads the same number, so the in-app "update available" banner and
+(currently `versionCode 43`). `/api/app/version` reads the same number, so the in-app "update available" banner and
 the Play update arrive from one source.
+
+### Links in WhatsApp must open the app
+
+A Saligue link sent in WhatsApp (a product, a look, a live, a lesson) opens **the app on that page**, not a browser
+tab. Android grants that only when the site publishes the SHA-256 of the key the installed app is signed with, at:
+
+```
+https://78-47-151-100.sslip.io/.well-known/assetlinks.json
+```
+
+- The file is `public/.well-known/assetlinks.json`, served straight from the repository by the server (so a stale
+  `out/` can never publish an old key). The app side is the `autoVerify` filter in
+  `android/app/src/main/AndroidManifest.xml`; `src/components/app-links.tsx` turns the incoming link into the page.
+- `scripts/build-app.mjs` reads the key back from `/etc/saligue/android-signing.properties` before every app build
+  and publishes its fingerprint (`scripts/assetlinks.mjs`), so **a rotated key cannot leave this file stale**.
+  It prints `App links: signing key published (E4:9B:D9:DE…)` — commit the file if it changed.
+- **If Play signs your app with Google's key** (Play App Signing, which is the default and keeps the upload key
+  above as a separate key), Play re-signs the APK, so Android compares against **Google's** certificate. Copy it
+  from Play Console → *Test and release → App integrity → App signing key certificate → SHA-256 certificate
+  fingerprint* and add it as a second entry in `sha256_cert_fingerprints`. Without it, links open a browser on
+  installs that came from Play, while the APK from the site keeps working — an easy thing to miss.
+- Check it on a phone: **Settings → Apps → Saligue → Open by default → Add links** should list the address as
+  verified, or run
+  `adb shell pm get-app-links com.indeciana.saligue` (look for `verified`) and
+  `adb shell am start -a android.intent.action.VIEW -d "https://78-47-151-100.sslip.io/product/?id=<id>"`.
+- Nothing here needs a domain of its own; `deploy/switch-domain.sh` moves the address, and the new host must then be
+  **added** (not substituted) in the manifest, because phones already installed were built with the old one.
 
 ---
 

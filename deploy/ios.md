@@ -35,6 +35,22 @@ npm run build:app
 Confirm the copy happened: `ios/App/App/public/_next/static/chunks/` should hold the full set of chunks for this
 build, not a couple of leftovers from an old one.
 
+### Links in WhatsApp (not done yet — it needs the Apple Team ID)
+
+On Android a shared Saligue link opens the app, because the site publishes `/.well-known/assetlinks.json` with the
+signing key (`deploy/play-store.md` §1). The iPhone equivalent is *Universal Links*: an
+`apple-app-site-association` file served at the site root naming the app's **Team ID** and bundle id
+(`com.indeciana.saligue`), plus the Associated Domains capability in Xcode. That Team ID only exists once you have a
+paid Apple Developer account, so it cannot be filled in from here.
+
+To finish it, on the Mac: Xcode → the target → *Signing & Capabilities* → **+ Capability → Associated Domains** →
+`applinks:78-47-151-100.sslip.io`; then send me the Team ID and the two lines get served exactly like the Android
+file (`server/index.mjs` → `serveWellKnown`). Until then an iPhone opens shared links in Safari, and "Add to Home
+Screen" still gives the full app.
+
+The app-side routing is already in place and shared by both platforms: `src/components/app-links.tsx` listens for
+the link the operating system hands over and opens the page inside the app.
+
 ## 2. Build it on a Mac (App Store / TestFlight)
 
 Install Xcode 16 or newer, signed in with the Apple Developer account for INDECIANA.

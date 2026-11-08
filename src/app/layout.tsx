@@ -17,6 +17,7 @@ import { ShareHost } from '@/components/share-sheet';
 import { LookPickerHost } from '@/components/look-picker';
 import { Welcome } from '@/components/welcome';
 import { NativeLinks } from '@/components/native-links';
+import { AppLinks } from '@/components/app-links';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 // The site's own address, so a shared card's picture is a link WhatsApp and Facebook can fetch instead of a
@@ -111,6 +112,7 @@ export default function RootLayout({
           <LookPickerHost />
           <Welcome />
           <NativeLinks />
+          <AppLinks />
         </AuthProvider>
       </body>
     </html>
