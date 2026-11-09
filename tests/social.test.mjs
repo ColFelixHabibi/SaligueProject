@@ -3,6 +3,9 @@
 // and the "Forwarded" mark on a copy of someone else's message.
 // These are the parts that would fail silently, so they are checked here: a column that never got added, a bar that
 // never filtered, a forward that could carry a file another message owns.
+// What the four features *do* — who sees a close status, what a mute hides, what an archive leaves, what a forward
+// carries — is exercised against a running server at the end of tests/api.test.mjs, so this file stays the shape
+// guard and that one is the behaviour.
 //   npm test
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';

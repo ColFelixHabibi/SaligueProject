@@ -35,7 +35,10 @@ that one account until something new is written in it.
 **Forwarding** copies a message into another chat of the same account, marked "Forwarded". The text, the item and the
 order travel with it; a photo, video or voice note never does — that file belongs to the message it was sent with, and
 unsending that message deletes the file outright (`removeChatFiles` in `server/chat-media.mjs`), so a second reference
-would break the original. `tests/social.test.mjs` pins that rule so it cannot be "improved" into data loss later.
+would break the original. `tests/social.test.mjs` pins that rule so it cannot be "improved" into data loss later, and the
+end-to-end cases in `tests/api.test.mjs` prove the four features over HTTP: a close status reaches the list and nobody
+else, a mute hides one account's ring only, an archive is per side and deletes nothing, and a forward outlives the
+message it was copied from.
 
 The screens are `src/components/social/story-bar.tsx` (composer and audience), `story-viewer.tsx` (mute, remove) and
 `src/components/messages/inbox.tsx` (archive, forward), over `src/lib/stories.ts` and `src/lib/messages.ts`. All copy

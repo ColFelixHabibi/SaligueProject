@@ -1,7 +1,8 @@
 // Saligue's main paths, tested against a separate server with its own empty database (never the real one):
 //   npm test
 // It starts server/index.mjs on a free port with SALIGUE_DATA in a temporary folder, adds the sample catalogue
-// (server/seed.mjs), and checks accounts, the catalogue, comments, looks, questions, orders and fees.
+// (server/seed.mjs), and checks accounts, the catalogue, comments, looks, questions, orders, fees, statuses,
+// chats — and, at the end, close friends, muted rings, archives and forwarding, over HTTP rather than out of the source.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -1571,5 +1572,134 @@ describe('live replays', () => {
     // Everything that is not a name this server writes is still refused.
     assert.equal((await fetch(`${base}/media/other-file.mp4`)).status, 404);
     assert.equal((await fetch(`${base}/media/..%2Fsaligue.db`)).status, 404, 'a link can never reach another folder');
+  });
+});
+
+// The four additions borrowed from chat apps, exercised over HTTP rather than read out of the source: a list that is
+// not read when the bar is drawn, a mute that only hides one screen, an archive that quietly deletes, or a forward
+// that makes two messages share a file, would each look fine on screen and lose something real.
+describe('close friends, muted rings, archived chats and forwarded messages', () => {
+  /** A file put into a chat the way the app uploads one (a PUT of the bytes, not JSON). */
+  const attach = async (token, conversationId, kind, type, bytes) => {
+    const r = await fetch(`${base}/api/conversations/${conversationId}/attachments/${kind}`, { method: 'PUT', headers: { 'Content-Type': type, Authorization: `Bearer ${token}` }, body: bytes });
+    return { status: r.status, json: await r.json().catch(() => null) };
+  };
+  /** Is this author's ring in that account's bar at all? */
+  const shows = async (who, authorId) => (await call('/stories', { token: who.token })).json.groups.some((g) => g.user.id === authorId);
+
+  test('a status kept to close friends reaches that list and nobody else, and a muted ring leaves the bar', async () => {
+    const author = await register('Close Author');
+    const onList = await register('Close Onlist');
+    const outside = await register('Close Outside');
+    const stranger = await register('Close Stranger');
+    for (const fan of [onList, outside]) assert.equal((await call(`/follow/${author.id}`, { token: fan.token, body: {} })).json.following, true);
+
+    // Who may be put on the list: someone this account is connected to, and never itself.
+    assert.equal((await call('/close-friends')).status, 401, 'a list needs an account');
+    const candidates = (await call('/close-friends', { token: author.token })).json;
+    assert.deepEqual(candidates.people.map((p) => p.id).sort(), [onList.id, outside.id].sort(), 'only connected people can be picked');
+    assert.deepEqual(candidates.friends, [], 'nobody is on the list to begin with');
+    const foreign = await call(`/close-friends/${stranger.id}`, { token: author.token, body: { in: true } });
+    assert.equal(foreign.status, 403, 'a stranger cannot be put on the list');
+    assert.equal(foreign.json.error.code, 'not_connected');
+    assert.equal((await call(`/close-friends/${author.id}`, { token: author.token, body: { in: true } })).status, 400, 'and neither can the account itself');
+    assert.deepEqual((await call(`/close-friends/${onList.id}`, { token: author.token, body: { in: true } })).json, { ok: true, in: true });
+    assert.deepEqual((await call('/close-friends', { token: author.token })).json.friends.map((p) => p.id), [onList.id]);
+
+    // The status itself: the list sees it, another follower does not, and the author always does.
+    const kept = await call('/stories', { token: author.token, body: { kind: 'text', caption: 'just a few of you', audience: 'close' } });
+    assert.equal(kept.status, 200, JSON.stringify(kept.json));
+    assert.equal(kept.json.story.audience, 'close', 'who it is for travels back to the app');
+    assert.equal(await shows(onList, author.id), true);
+    assert.equal(await shows(outside, author.id), false, 'a follower who is not on the list never sees it');
+    assert.equal(await shows(author, author.id), true, 'the author always sees their own');
+
+    // The list is read every time the bar is drawn, not copied when the status is posted: taken off the list, the
+    // status goes with it.
+    assert.deepEqual((await call(`/close-friends/${onList.id}`, { token: author.token, body: { in: false } })).json, { ok: true, in: false });
+    assert.equal(await shows(onList, author.id), false);
+
+    // A status for everyone: any follower sees it.
+    const open = await call('/stories', { token: author.token, body: { kind: 'text', caption: 'for whoever follows me' } });
+    assert.equal(open.json.story.audience, 'everyone', 'a status is for everyone unless it says otherwise');
+    assert.equal(await shows(outside, author.id), true);
+
+    // Muting: the whole ring leaves this account's bar, and it is this account alone that stops seeing it.
+    assert.deepEqual((await call(`/stories/mute/${author.id}`, { token: outside.token, body: {} })).json, { ok: true, muted: true });
+    assert.equal(await shows(outside, author.id), false);
+    assert.equal(await shows(author, author.id), true, 'muting hides the ring from the person who muted, not from the author');
+    // Nothing else changes: the statuses are still there, and the ring comes back marked unmuted when asked for again.
+    assert.deepEqual((await call(`/stories/mute/${author.id}`, { token: outside.token, body: { muted: false } })).json, { ok: true, muted: false });
+    const back = (await call('/stories', { token: outside.token })).json.groups.find((g) => g.user.id === author.id);
+    assert.ok(back, 'the ring is back');
+    assert.equal(back.user.muted, false);
+    assert.equal(back.stories.length, 1, 'the close-friends status stayed hidden, the open one is there');
+    assert.equal((await call(`/stories/mute/${author.id}`, { token: author.token, body: {} })).status, 400, 'a ring of one’s own cannot be muted');
+    assert.equal((await call('/stories/mute/no-such-account', { token: outside.token, body: {} })).status, 404);
+  });
+
+  test('archiving puts a chat away for one side only, and a forward copies words rather than files', async () => {
+    const a = await register('Archive One');
+    const b = await register('Archive Two');
+    const outsider = await register('Archive Outsider');
+    await call(`/follow/${a.id}`, { token: b.token, body: {} });
+    const chat = (await call('/conversations', { token: b.token, body: { userId: a.id, text: 'Hello from B' } })).json.id;
+    const reply = (await call(`/conversations/${chat}/messages`, { token: a.token, body: { text: 'Hello from A' } })).json;
+    assert.equal(reply.forwarded, false, 'an ordinary message is not marked');
+
+    // Archiving: out of this account's list, still readable, and the other side is not touched.
+    assert.deepEqual((await call(`/conversations/${chat}/archive`, { token: a.token, body: { archived: true } })).json, { ok: true, archived: true });
+    assert.equal((await call('/conversations', { token: a.token })).json.find((x) => x.id === chat).archived, true);
+    assert.equal((await call('/conversations', { token: b.token })).json.find((x) => x.id === chat).archived, false, 'the other person’s list does not change');
+    const readable = (await call(`/conversations/${chat}`, { token: a.token })).json.messages.map((m) => m.text).sort();
+    assert.deepEqual(readable, ['Hello from A', 'Hello from B'], 'archiving deletes nothing');
+    // Asking twice is harmless, and it comes back when it is asked for again.
+    assert.deepEqual((await call(`/conversations/${chat}/archive`, { token: a.token, body: { archived: true } })).json, { ok: true, archived: true });
+    assert.deepEqual((await call(`/conversations/${chat}/archive`, { token: a.token, body: { archived: false } })).json, { ok: true, archived: false });
+    assert.equal((await call('/conversations', { token: a.token })).json.find((x) => x.id === chat).archived, false);
+    assert.equal((await call(`/conversations/${chat}/archive`, { token: outsider.token, body: {} })).status, 404, 'a chat this account is not in cannot be put away');
+
+    // Forwarding needs somewhere to forward to: a second chat of the same account.
+    await call(`/follow/${a.id}`, { token: outsider.token, body: {} });
+    await call(`/follow/${outsider.id}`, { token: a.token, body: {} });
+    const other = (await call('/conversations', { token: a.token, body: { userId: outsider.id } })).json.id;
+    const copy = await call(`/conversations/${other}/forward`, { token: a.token, body: { messageId: reply.id } });
+    assert.equal(copy.status, 200, JSON.stringify(copy.json));
+    assert.equal(copy.json.forwarded, true, 'the copy says it was forwarded');
+    assert.equal(copy.json.text, 'Hello from A');
+    assert.equal(copy.json.attachment, null);
+    const thread = (await call(`/conversations/${other}`, { token: outsider.token })).json.messages;
+    assert.equal(thread.filter((m) => m.forwarded).length, 1, 'and the person receiving it sees the mark');
+    // Forwarding copies: the chat it came from still has both messages.
+    assert.equal((await call(`/conversations/${chat}`, { token: a.token })).json.messages.length, 2);
+
+    // An item travels with the copy as well, which is how a shop passes an item on.
+    const [item] = (await call('/products?limit=1')).json;
+    const about = (await call(`/conversations/${chat}/messages`, { token: b.token, body: { productId: item.id } })).json;
+    const itemCopy = await call(`/conversations/${chat}/forward`, { token: b.token, body: { messageId: about.id } });
+    assert.equal(itemCopy.status, 200, JSON.stringify(itemCopy.json));
+    assert.equal(itemCopy.json.productId, item.id, 'the item it was about goes with it');
+
+    // A message in a chat this account is not part of can never be forwarded — even though the chat it is being
+    // copied into is its own.
+    assert.equal((await call(`/conversations/${other}/forward`, { token: outsider.token, body: { messageId: reply.id } })).status, 404, 'an outsider cannot forward from a chat they are not in');
+
+    // A message that is only a file has nothing to carry, so it is refused instead of forwarded empty: the file
+    // belongs to the message it was sent with, and unsending that one deletes it outright.
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 20, height: 20, channels: 3, background: '#1a7f5a' } }).png().toBuffer();
+    const photo = await attach(b.token, chat, 'image', 'image/png', png);
+    assert.equal(photo.status, 200, JSON.stringify(photo.json));
+    const nothing = await call(`/conversations/${chat}/forward`, { token: b.token, body: { messageId: photo.json.id } });
+    assert.equal(nothing.status, 400);
+    assert.equal(nothing.json.error.code, 'nothing_to_forward');
+    assert.equal((await fetch(`${base}${photo.json.attachment.url}`)).status, 200, 'the photo stays where it was sent');
+
+    // Unsend the original: the copy already sent is untouched, because the two never shared a file.
+    assert.equal((await call(`/conversations/${chat}/messages/${reply.id}`, { method: 'DELETE', token: a.token })).status, 200);
+    const gone = await call(`/conversations/${other}/forward`, { token: a.token, body: { messageId: reply.id } });
+    assert.equal(gone.status, 400, 'an unsent message cannot be forwarded');
+    assert.equal(gone.json.error.code, 'gone');
+    assert.equal((await call(`/conversations/${other}`, { token: outsider.token })).json.messages.find((m) => m.forwarded).text, 'Hello from A', 'the copy outlives the message it was copied from');
   });
 });
