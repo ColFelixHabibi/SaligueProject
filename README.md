@@ -45,6 +45,38 @@ The screens are `src/components/social/story-bar.tsx` (composer and audience), `
 added with these features is translated into Kinyarwanda and French, and `tests/i18n.test.mjs` fails on any string
 handed to `t('…')` that is missing from the dictionary in `src/lib/i18n.ts`.
 
+## Accounts and security
+
+A **password** is stored as scrypt output with a salt of its own. Before a sign-in is checked, the stored string is
+matched against the shape this server writes, so a row edited by hand or damaged on disk is answered as a wrong
+password (401) instead of crashing the check into a 500.
+
+A **session** is a random token handed to the device; the database keeps only its SHA-256 (`sessionHash` in
+`server/index.mjs`), so a copy of `data/saligue.db` is not a set of logins. Rows written before that change keep
+working and are converted the first time they are used. The cookie is `HttpOnly`, `Secure` and `SameSite`, every
+JSON answer (tokens, own data, refusals) carries `nosniff` and `no-store`, and signing out deletes the row.
+
+Failed sign-ins are counted per key, and that map is bounded and pruned, so a flood of random addresses cannot grow
+it without limit. A **suspended** account is refused on both paths — email and Google — rather than only the first.
+Google's ID token is verified against Google's keys before an account is created or entered.
+
+Accounts on this server are not the only secret it keeps: a shopper's own AI key is sealed (as `enc2`) with the key
+in `/etc/saligue/seal.key`, outside the database, so a copy of the database alone opens nothing (`server/ai-keys.mjs`).
+Uploaded photos and voice notes live under `data/`. Nothing there is writable by any account but the server's
+(`755` directories, the database at `600`, media at `644`), and `.env.local` — which holds the Supabase keys — is
+`600` as well.
+
+The server itself runs sandboxed: `NoNewPrivileges`, `ProtectSystem=full`, `ProtectHome=read-only`, a private
+`/tmp` and address families limited to `AF_INET`, `AF_INET6` and `AF_UNIX`, with `UMask=0027` so the files it
+creates are never for everyone (`saligue.service`). It keeps root deliberately — Admin → Security reads the
+journal, `ufw` and `fail2ban` — and the nightly backup is its own unit with its own access.
+
+Pages carry a Content-Security-Policy built in `server/csp.mjs` (overridable with `SALIGUE_CSP` in
+`/etc/saligue.env`), and Caddy answers HTTPS with a Let's Encrypt certificate for the hostname, renewing it
+automatically, with HSTS. The bare address is a permanent redirect to that hostname and never the app itself:
+plain HTTP there would carry passwords and session tokens in the clear, and a certificate for the address cannot
+be issued on this box because its port 80 does not answer challenges.
+
 ## Supabase setup
 
 1. Create a Supabase project and run [`supabase/schema.sql`](supabase/schema.sql) in its SQL Editor.
