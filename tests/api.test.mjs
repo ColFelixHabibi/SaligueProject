@@ -1703,3 +1703,68 @@ describe('close friends, muted rings, archived chats and forwarded messages', ()
     assert.equal((await call(`/conversations/${other}`, { token: outsider.token })).json.messages.find((m) => m.forwarded).text, 'Hello from A', 'the copy outlives the message it was copied from');
   });
 });
+
+// Sessions, and what an answer is allowed to be kept as. The database holds only a hash of each session token, so
+// a copy of the database cannot be turned into someone's sign-in — the rule the password-reset links already
+// follow. Sessions made before that change keep working, and are stored as a hash the first time they are used.
+describe('sessions and answers', () => {
+  let database;
+  /** The same database the test server writes (read from this process: the file is in a temporary folder). */
+  const openDb = async () => {
+    if (!database) {
+      process.env.SALIGUE_DATA = data;
+      database = (await import('../server/db.mjs')).db;
+    }
+    return database;
+  };
+  const sha256 = async (value) => (await import('node:crypto')).createHash('sha256').update(value).digest('hex');
+  after(() => database?.close());
+
+  test('the sign-in token is not kept in the database as it is', async () => {
+    const person = await register('Session Hashed');
+    const db = await openDb();
+    const rows = db.prepare('select token from sessions where user_id = ?').all(person.id);
+    assert.equal(rows.length, 1, 'signing up made one session');
+    assert.notEqual(rows[0].token, person.token, 'the token itself is not in the database');
+    assert.equal(rows[0].token, await sha256(person.token), 'its SHA-256 is');
+    assert.equal((await call('/auth/me', { token: person.token })).status, 200, 'and the token still signs in');
+  });
+
+  test('a session stored the old way still works, and is stored as a hash from then on', async () => {
+    const person = await register('Session Older');
+    const db = await openDb();
+    const older = `older-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+    db.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(older, person.id, new Date().toISOString());
+    assert.equal((await call('/auth/me', { token: older })).status, 200, 'the old session signs in');
+    const stored = db.prepare('select token from sessions where user_id = ?').all(person.id).map((r) => r.token);
+    assert.equal(stored.includes(older), false, 'it is no longer kept as it was');
+    assert.ok(stored.includes(await sha256(older)), 'it is kept as a hash now');
+    assert.equal((await call('/auth/me', { token: older })).status, 200, 'and it keeps working');
+    // Signing out removes it, in whichever form it is held (signing up left its own session behind, so the
+    // account having no sessions at all is not what is being checked here).
+    assert.equal((await call('/auth/logout', { token: older, body: {} })).status, 200);
+    const left = db.prepare('select token from sessions where user_id = ?').all(person.id).map((r) => r.token);
+    assert.equal(left.includes(older), false, 'the row that held the token is gone');
+    assert.equal(left.includes(await sha256(older)), false, 'and so is the row that held its hash');
+  });
+
+  test('a stored password this server did not write is a refusal, not a server error', async () => {
+    const person = await register('Session Broken');
+    const db = await openDb();
+    db.prepare('update users set password_hash = ? where id = ?').run('not-a-hash', person.id);
+    const r = await call('/auth/login', { body: { email: person.user.email, password: 'Test12345!' } });
+    assert.equal(r.status, 401, JSON.stringify(r.json));
+    assert.equal(r.json.error.code, 'invalid_credentials');
+  });
+
+  test('an answer is not sniffed into another type, and cannot be kept by a cache', async () => {
+    const r = await call('/health');
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    // Also on the answer that carries a session token.
+    const signedIn = await call('/auth/login', { body: { email: (await register('Session Fresh')).user.email, password: 'Test12345!' } });
+    assert.equal(signedIn.status, 200, JSON.stringify(signedIn.json));
+    assert.equal(signedIn.headers.get('cache-control'), 'no-store');
+  });
+});

@@ -56,16 +56,24 @@ function hashPassword(password) {
 }
 
 function passwordMatches(password, stored) {
-  if (!stored) return false;
-  const [, saltHex, hashHex] = stored.split('$');
-  const expected = Buffer.from(hashHex, 'hex');
-  const actual = scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+  // No password (a guest, a deleted account) never matches. Neither does a hash this server did not write:
+  // a hand-edited row or an older format would hand scrypt a missing salt, and a wrong password would come
+  // back as "Something went wrong. Please try again." instead of "Email or password is incorrect."
+  const parts = /^scrypt[$]([a-f0-9]{32})[$]([a-f0-9]{128})$/.exec(String(stored ?? ''));
+  if (!parts) return false;
+  const expected = Buffer.from(parts[2], 'hex');
+  const actual = scryptSync(password, Buffer.from(parts[1], 'hex'), expected.length);
   return timingSafeEqual(actual, expected);
 }
 
+// What the person holds is the token; the database keeps only its SHA-256, so a copy of the database cannot be
+// used to sign in as anyone (the rule the password-reset links already follow). Sessions created before this
+// change hold the token itself and are adopted the next time they are used (see userOf).
+const sessionHash = (token) => createHash('sha256').update(String(token)).digest('hex');
+
 function createSession(userId) {
   const token = randomBytes(32).toString('base64url');
-  db.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(token, userId, now());
+  db.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(sessionHash(token), userId, now());
   return token;
 }
 
@@ -85,10 +93,18 @@ function tokenOf(req) {
 }
 
 function userOf(req, token = tokenOf(req)) {
-  if (!token) return null;
+  // A session token is 43 characters. Anything much longer is not one (a client echoing the whole link), and is
+  // refused before it reaches the database.
+  if (!token || typeof token !== 'string' || token.length > 200) return null;
   const since = new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString();
   // Suspended accounts (Admin → Accounts) can't use the app until an admin lifts it.
-  return db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ? and u.suspended = 0').get(token, since) ?? null;
+  const find = (value) => db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ? and u.suspended = 0').get(value, since) ?? null;
+  const found = find(sessionHash(token));
+  if (found) return found;
+  // Signed in before the database began holding hashes: let it work once, and keep only the hash from now on.
+  const older = find(token);
+  if (older) db.prepare('update sessions set token = ? where token = ?').run(sessionHash(token), token);
+  return older;
 }
 
 function isHttps(req) {
@@ -502,14 +518,29 @@ route('POST', '/api/auth/reset', ({ user, body }) => {
   return { token: createSession(reset.user_id), user: publicUser(db.prepare('select * from users where id = ?').get(reset.user_id)) };
 });
 
-// Password guessing: at most 10 failed attempts per email in 15 minutes.
+// Password guessing: at most 10 failed attempts per email in 15 minutes. The map is filled by anyone who can
+// reach the sign-in form, so it is kept small on purpose: a flood of made-up addresses must not be able to grow
+// it without limit (memory exhaustion), and no key is longer than an email can be.
 const failedLogins = new Map();
+const MAX_TRACKED_ATTEMPTS = 20_000;
+const attemptKey = (key) => String(key ?? '').slice(0, 200);
+const stillGuessing = (times) => (times ?? []).some((t) => t > Date.now() - 15 * 60_000);
 function tooManyAttempts(key) {
-  const recent = (failedLogins.get(key) ?? []).filter((t) => t > Date.now() - 15 * 60_000);
-  failedLogins.set(key, recent);
+  const k = attemptKey(key);
+  const recent = (failedLogins.get(k) ?? []).filter((t) => t > Date.now() - 15 * 60_000);
+  if (recent.length) failedLogins.set(k, recent);
+  else failedLogins.delete(k);
   return recent.length >= 10;
 }
-const noteFailedAttempt = (key) => failedLogins.set(key, [...(failedLogins.get(key) ?? []), Date.now()]);
+function noteFailedAttempt(key) {
+  const k = attemptKey(key);
+  if (!failedLogins.has(k) && failedLogins.size >= MAX_TRACKED_ATTEMPTS) {
+    for (const [other, times] of failedLogins) if (!stillGuessing(times)) failedLogins.delete(other);
+    // Still full: the oldest entry is the least useful one to keep.
+    if (failedLogins.size >= MAX_TRACKED_ATTEMPTS) failedLogins.delete(failedLogins.keys().next().value);
+  }
+  failedLogins.set(k, [...(failedLogins.get(k) ?? []), Date.now()]);
+}
 
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -520,7 +551,7 @@ route('POST', '/api/auth/login', ({ user, body }) => {
     noteFailedAttempt(email);
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
-  failedLogins.delete(email);
+  failedLogins.delete(attemptKey(email));
   // Logging in never changes what the account is (older apps send a "Log in as a Seller" switch).
   if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
   return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
@@ -548,6 +579,9 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
 
   const account = db.prepare('select * from users where email = ?').get(email);
   if (account) {
+    // The same refusal the password sign-in gives: an admin who suspended this account (Admin → Accounts) must
+    // not be told "signed in" here either.
+    if (account.suspended) fail(403, 'suspended', `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}. Contact Saligue support.`);
     if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
     return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
   }
@@ -568,7 +602,8 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
 
 route('POST', '/api/auth/logout', ({ req, res }) => {
   const token = tokenOf(req);
-  if (token) db.prepare('delete from sessions where token = ?').run(token);
+  // Both forms: a session made before the database stored hashes still holds the token itself.
+  if (token) db.prepare('delete from sessions where token = ? or token = ?').run(sessionHash(token), String(token));
   res.setHeader('Set-Cookie', sessionCookie(req, null));
   return { ok: true };
 });
@@ -5831,7 +5866,13 @@ function serveStatic(req, res, pathname) {
 
 function send(res, status, body) {
   const text = typeof body === 'string' ? body : JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json' });
+  res.writeHead(status, {
+    'Content-Type': typeof body === 'string' ? 'text/plain' : 'application/json',
+    // A browser must not guess a different type for what is sent, and an answer that may hold a session token or
+    // someone's own data must not be kept by a cache or a proxy in front of the server.
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+  });
   res.end(text);
 }
 
