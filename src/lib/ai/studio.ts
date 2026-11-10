@@ -210,7 +210,10 @@ export function getRealistic(): Promise<boolean> {
       } catch {
         return false;
       }
-      return !!(await getStudio());
+      // The switch is on, so the server can always draw: its own Studio when one is connected, else the paid model,
+      // else the free ones. A Studio address on this device is only a faster, direct way in, never a requirement:
+      // requiring it (Nov 4) left realistic try-on "not available" for everyone without a GPU of their own.
+      return true;
     })();
   }
   return cloud;

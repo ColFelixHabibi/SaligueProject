@@ -140,6 +140,21 @@ function userOf(req, token = tokenOf(req)) {
   return older;
 }
 
+/**
+ * Where this phone reached Saligue, for links it must follow next (the app update). While the provider's firewall
+ * drops web traffic, people come in through a Cloudflare tunnel, and SITE_URL is an address they cannot reach.
+ * Only addresses Saligue really answers on are believed; any other Host header gets SITE_URL, so a forged header
+ * can never send someone to another site's "update".
+ */
+function downloadOrigin(req) {
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim().toLowerCase();
+  const own = (() => { try { return new URL(siteUrl()).host.toLowerCase(); } catch { return ''; } })();
+  const trusted = host === own || /^[a-z0-9-]+\.trycloudflare\.com$/.test(host) || /^(localhost|127\.0\.0\.1|78\.47\.151\.100)(:\d+)?$/.test(host);
+  if (!trusted) return siteUrl();
+  const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
+  return `${isHttps(req) && !local ? 'https' : 'http'}://${host}`;
+}
+
 function isHttps(req) {
   return req.headers['x-forwarded-proto'] === 'https' || !!req.socket.encrypted || siteUrl().startsWith('https://');
 }
@@ -6160,7 +6175,7 @@ const server = http.createServer(async (req, res) => {
     } catch {
       // The APK is not on disk (the version file survived a move): the page just leaves the size out.
     }
-    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${siteUrl()}/download/saligue.apk`, ...(bytes ? { bytes } : {}) } : null);
+    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${downloadOrigin(req)}/download/saligue.apk`, ...(bytes ? { bytes } : {}) } : null);
   }
   // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
   if (url.pathname === '/download/saligue.apk') {
