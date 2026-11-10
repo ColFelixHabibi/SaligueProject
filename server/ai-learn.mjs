@@ -9,7 +9,7 @@
 // Three tables hold it (server/db.mjs): ai_feedback, ai_tryon_stats and ai_usage. The rules stay simple on purpose:
 // a few clear counters that cannot go wrong, instead of a model that could learn the wrong thing.
 import { randomUUID } from 'node:crypto';
-import { db, json, now } from './db.mjs';
+import { db, json, now, parse } from './db.mjs';
 
 // ---------------------------------------------------------------------------
 // Text: how close is what the AI wrote to what the seller actually kept?
@@ -61,33 +61,56 @@ export function noteWritten({ userId, input, output, model = null }) {
   return id;
 }
 
+/** The item a draft was written for, so the seller's answer can be matched to it ('' when the draft did not say). */
+function draftTitle(input) {
+  try {
+    return String(parse(input)?.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  } catch {
+    return '';
+  }
+}
+
 /**
- * The seller saved an item with this description: compare it with the newest AI description still waiting for an
- * answer. Kept word for word (score 1), lightly edited, or rewritten — all three teach the writer something.
+ * The seller saved an item with this description: compare it with the AI description still waiting for an answer.
+ * Kept word for word (score 1), lightly edited, or rewritten — all three teach the writer something.
  * Returns null when the seller wrote the words themselves, which is the common case and must cost nothing.
+ *
+ * `title` is the item being saved. A draft written for another item is never taken as the answer to this one: it
+ * stays waiting for its own item, so a shop listing several things in a row cannot swallow the wrong draft and
+ * teach the writer from it.
  */
-export function noteDescriptionUsed(userId, text) {
+export function noteDescriptionUsed(userId, text, title = '') {
   const kept = String(text ?? '').trim();
   if (!userId || kept.length < 20) return null;
+  const item = String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-  const waiting = db.prepare(`select id, output from ai_feedback
+  const waiting = db.prepare(`select id, input, output from ai_feedback
     where user_id = ? and kind = 'write' and final is null and created_at > ?
-    order by created_at desc limit 1`).get(userId, since);
-  if (!waiting) return null;
-  const score = Math.round(similarity(waiting.output, kept) * 1000) / 1000;
+    order by created_at desc limit 10`).all(userId, since);
+  const answered = waiting.find((row) => {
+    const written = draftTitle(row.input);
+    // Accepted when either side did not name the item, or when both name it and share a meaningful word.
+    return !item || !written || similarity(written, item) > 0;
+  });
+  if (!answered) return null;
+  const score = Math.round(similarity(answered.output, kept) * 1000) / 1000;
   const signal = score >= 0.85 ? 'kept' : score >= 0.5 ? 'edited' : 'rewritten';
-  db.prepare('update ai_feedback set final = ?, score = ?, signal = ? where id = ?').run(kept.slice(0, 1200), score, signal, waiting.id);
+  db.prepare('update ai_feedback set final = ?, score = ?, signal = ? where id = ?').run(kept.slice(0, 1200), score, signal, answered.id);
   return { signal, score };
 }
 
-/** One seller's kept descriptions, best first: the voice the writer should match for that shop. */
+/**
+ * One seller's kept descriptions, best first: the voice the writer should match for that shop. The words used are
+ * the ones the seller ended up with (final), not the AI's first draft, because those are the words that were
+ * actually good enough to publish — the AI's own draft only stands in when no final copy was recorded.
+ */
 function keptExamples(userId, limit) {
   const rows = userId
-    ? db.prepare(`select output from ai_feedback where user_id = ? and kind = 'write' and signal = 'kept'
+    ? db.prepare(`select coalesce(final, output) as output from ai_feedback where user_id = ? and kind = 'write' and signal = 'kept'
         order by score desc, created_at desc limit ?`).all(userId, limit)
     : [];
   if (rows.length < limit) {
-    rows.push(...db.prepare(`select output from ai_feedback where kind = 'write' and signal = 'kept'
+    rows.push(...db.prepare(`select coalesce(final, output) as output from ai_feedback where kind = 'write' and signal = 'kept'
       order by score desc, created_at desc limit ?`).all(limit));
   }
   const unique = new Set();
@@ -165,6 +188,49 @@ export function tryOnOrder(category) {
 }
 
 // ---------------------------------------------------------------------------
+// The stylist: what shoppers want to be dressed for, and whether the advice was followed
+// ---------------------------------------------------------------------------
+
+/** The shopper's own words, as data: short enough that a question cannot hide a new set of rules to follow. */
+const QUESTION_CHARS = 120;
+
+/**
+ * A shopper asked the stylist for an outfit. Kept so the next question has continuity ("last time it was a
+ * wedding"), and so INDECIANA can see, in people's own words, what they actually want to be dressed for.
+ */
+export function noteStyled({ userId, asked, picks = [], model = null }) {
+  const question = String(asked ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!userId || !question) return null;
+  const id = randomUUID();
+  db.prepare(`insert into ai_feedback (id, user_id, kind, signal, model, input, output, created_at)
+    values (?, ?, 'style', 'asked', ?, ?, ?, ?)`)
+    .run(id, userId, model, json({ asked: question }), json({ picks: picks.slice(0, 4) }), now());
+  return id;
+}
+
+/** What this shopper asked the stylist before, newest first: context for the next answer, never instructions. */
+export function styleHistory(userId, limit = 3) {
+  if (!userId) return [];
+  return db.prepare(`select input from ai_feedback where user_id = ? and kind = 'style' and signal = 'asked'
+      order by created_at desc limit ?`).all(userId, Math.max(1, Math.min(5, limit)))
+    .map((row) => String(parse(row.input)?.asked ?? '').replace(/\s+/g, ' ').trim().slice(0, QUESTION_CHARS))
+    .filter(Boolean);
+}
+
+/**
+ * A shopper opened an outfit the stylist chose. This is the only honest sign of whether its advice was worth the
+ * tokens: advice nobody follows is expensive words, and INDECIANA sees exactly that (aiLearningSummary).
+ */
+export function noteStyleFollowed({ userId, productId, category = null }) {
+  if (!userId || !productId) return null;
+  const id = randomUUID();
+  db.prepare(`insert into ai_feedback (id, user_id, kind, signal, category, detail, created_at)
+    values (?, ?, 'style', 'followed', ?, ?, ?)`)
+    .run(id, userId, String(category ?? '').slice(0, 20) || null, json({ productId: String(productId).slice(0, 60) }), now());
+  return id;
+}
+
+// ---------------------------------------------------------------------------
 // LLM cost
 // ---------------------------------------------------------------------------
 
@@ -183,6 +249,7 @@ export function aiLearningSummary(days = 30) {
   const since = new Date(Date.now() - Math.max(1, days) * 86_400_000).toISOString();
   const feedback = db.prepare(`select kind, signal, count(*) as n from ai_feedback where created_at > ? group by kind, signal`).all(since);
   const count = (kind, signal) => feedback.find((r) => r.kind === kind && (signal === undefined || r.signal === signal))?.n ?? 0;
+  const engines = db.prepare('select engine, category, made, failed, kept, rejected, ms_total from ai_tryon_stats order by category, engine').all();
   return {
     days,
     writing: {
@@ -195,7 +262,20 @@ export function aiLearningSummary(days = 30) {
     tryOn: {
       kept: count('tryon', 'kept'),
       rejected: count('tryon', 'rejected'),
-      engines: db.prepare('select engine, category, made, failed, kept, rejected, ms_total from ai_tryon_stats order by category, engine').all(),
+      engines,
+      // The order the chain will actually try next, per part of the body — asked of the same function the chain uses,
+      // so what INDECIANA reads can never drift from what shoppers get.
+      orders: [...new Set(engines.map((r) => r.category))].map((category) => ({ category, order: tryOnOrder(category) })),
+    },
+    styling: {
+      asked: count('style', 'asked'),
+      // Items opened after the stylist chose them: one question can lead to several, so this is what an answered
+      // question was worth, not a percentage of answers that can never be trusted on a handful of taps.
+      followed: count('style', 'followed'),
+      perAsk: (() => {
+        const asked = count('style', 'asked');
+        return asked ? Math.round((count('style', 'followed') / asked) * 100) / 100 : null;
+      })(),
     },
     usage: db.prepare(`select model, purpose, sum(calls) as calls, sum(tokens) as tokens from ai_usage
       where day >= ? group by model, purpose order by tokens desc`).all(since.slice(0, 10)),

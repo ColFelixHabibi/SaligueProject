@@ -18,6 +18,39 @@ type LookEngine = 'own' | 'fashn' | 'free';
 const QUALITIES = ['fast', 'high', 'ultra'] as const;
 export type TryOnQuality = (typeof QUALITIES)[number];
 
+// How much work the try-on AIs may do, as the shopper last chose it in the Fitting Room. It is remembered on the
+// device (like the Studio address) so the choice survives moving between pages, and 'high' is used until then.
+const QUALITY_KEY = 'saligue-tryon-quality';
+export function tryOnQuality(): TryOnQuality {
+  try {
+    const saved = localStorage.getItem(QUALITY_KEY);
+    if (QUALITIES.includes(saved as TryOnQuality)) return saved as TryOnQuality;
+  } catch {
+    // Storage unavailable: the default is used.
+  }
+  return 'high';
+}
+
+/**
+ * Remembers the shopper's choice. Looks already drawn at another quality are forgotten, so the next redraw really
+ * uses the new setting instead of handing back the picture made a moment ago at the old one.
+ */
+export function setTryOnQuality(quality: TryOnQuality) {
+  try {
+    localStorage.setItem(QUALITY_KEY, QUALITIES.includes(quality) ? quality : 'high');
+  } catch {
+    // Storage unavailable: this visit still uses the choice, through the in-memory value below.
+  }
+  chosen = QUALITIES.includes(quality) ? quality : 'high';
+  looks.clear();
+  attempts.clear();
+}
+
+// The choice of this visit, so it works even where localStorage is blocked.
+let chosen: TryOnQuality | null = null;
+/** The quality to use: the one chosen this visit, else the one saved on the device, else 'high'. */
+const qualityNow = (): TryOnQuality => chosen ?? tryOnQuality();
+
 function clean(url: string | null | undefined) {
   const trimmed = url?.trim().replace(/\/+$/, '');
   return trimmed && /^https?:\/\//.test(trimmed) ? trimmed : null;
@@ -232,10 +265,11 @@ export function keepLook(garmentUrl: string, category: string) {
  * Realistically redraws the garment on the person. Only the new garment is taken from the AI's picture; a
  * picture where the AI also changed other clothes is never shown: the AI is asked once more for another
  * variation, and if that one is wrong too, this fails so the shopper can tap Try again.
- * `quality` says how much work the AI may do ('high' unless a screen asks otherwise).
+ * `quality` says how much work the AI may do: the shopper's choice from the Fitting Room unless a screen asks for
+ * something else. It is part of what a look is kept under, so a quick look is never handed back as the best one.
  */
-export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = '', quality: TryOnQuality = 'high'): Promise<string> {
-  const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}`;
+export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = '', quality: TryOnQuality = qualityNow()): Promise<string> {
+  const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}|${quality}`;
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
@@ -297,9 +331,9 @@ async function expandLook(description: string): Promise<{ prompt: string; negati
 }
 
 /** Dresses the person as described (SDXL Inpainting), keeping face and body. Returns a JPEG data URL. */
-export async function dressAsDescribed(personUrl: string, prompt: string, coverage: 'full' | 'clothes' = 'full') {
+export async function dressAsDescribed(personUrl: string, prompt: string, coverage: 'full' | 'clothes' = 'full', quality: TryOnQuality = qualityNow()) {
   // The Studio is checked first, so a Studio that is down never costs an AI call.
   if (!(await getStudio())) throw new Error('Saligue AI Studio is not running right now.');
   const [person, written] = await Promise.all([toJpeg(personUrl), expandLook(prompt)]);
-  return call('/api/dress', { person, prompt: written.prompt, negative: written.negative, coverage, quality: 'high' });
+  return call('/api/dress', { person, prompt: written.prompt, negative: written.negative, coverage, quality });
 }

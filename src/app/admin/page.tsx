@@ -11,6 +11,7 @@ import { MonetizationAdmin } from '@/components/admin/monetization-admin';
 import { OrderProblemsAdmin, SettlementsAdmin } from '@/components/admin/settlements-admin';
 import { AccountsAdmin, AdminLog, AdminsAdmin, FeaturesAdmin, PoliciesAdmin, RulesAdmin, VerificationsAdmin } from '@/components/admin/control-admin';
 import { ComplianceAdmin } from '@/components/admin/compliance-admin';
+import { AiLearningAdmin } from '@/components/admin/ai-learning-admin';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldAlert, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
@@ -505,7 +506,7 @@ export default function AdminPage() {
     { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><ComplianceAdmin /><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
     { value: 'security', label: 'Security', icon: ShieldAlert, show: has('platform'), body: <SecurityAdmin /> },
-    { value: 'platform', label: 'Platform', icon: Server, show: has('platform'), body: <PlatformSettings /> },
+    { value: 'platform', label: 'Platform', icon: Server, show: has('platform'), body: <div className="space-y-6"><PlatformSettings /><AiLearningAdmin /></div> },
   ].filter((t) => t.show);
   const main = me.level === 1;
   const body = tabs.find((t) => t.value === tab)?.body ?? tabs[0]?.body;

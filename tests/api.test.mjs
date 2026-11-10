@@ -19,6 +19,9 @@ const base = `http://127.0.0.1:${port}`;
 // A stand-in for DeepSeek (DEEPSEEK_API_URL), so the AI key tests never touch the network: one key works and every
 // other key is refused, exactly like the real /user/balance and /chat/completions.
 const GOOD_KEY = `sk-${'a1b2c3d4'.repeat(4)}`;
+// Every question the app really asked, so a test can see which model each feature chose and what was put in front of
+// the AI (the kept descriptions, the rules) rather than only what came back.
+const asked = [];
 const deepseek = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (req.headers.authorization !== `Bearer ${GOOD_KEY}`) {
@@ -31,12 +34,46 @@ const deepseek = createServer((req, res) => {
     return;
   }
   if (req.url === '/chat/completions') {
-    req.resume();
-    req.on('end', () => res.end(JSON.stringify({
-      model: 'deepseek-chat',
-      usage: { total_tokens: 42 },
-      choices: [{ message: { content: 'A soft cotton jacket in like-new condition.' } }],
-    })));
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      // Three shapes are asked for, each answered the way the real API does: a description in plain words, the
+      // fitting room's picture prompt as JSON (response_format), and the stylist's outfit as JSON chosen from the
+      // items it was shown — plus one id that does not exist, so the app's own check is exercised rather than assumed.
+      let wantsJson = false;
+      let stylist = null;
+      try {
+        const sent = JSON.parse(raw);
+        const system = String(sent.messages?.[0]?.content ?? '');
+        const user = String(sent.messages?.[1]?.content ?? '');
+        wantsJson = Boolean(sent.response_format);
+        asked.push({ model: sent.model, system, user });
+        if (/stylist/i.test(system)) {
+          const payload = JSON.parse(user);
+          const first = Array.isArray(payload.items) && typeof payload.items[0] === 'string' ? payload.items[0].split(' | ')[0] : null;
+          stylist = {
+            reply: 'That jacket with those trousers reads smart without being formal. Both work with the shoes.',
+            picks: [
+              ...(first ? [{ id: first, why: 'The jacket sets the tone for the occasion', price: 1, name: 'Free jacket' }] : []),
+              { id: 'an-item-that-does-not-exist', why: 'Invented by a model that went past the list' },
+            ],
+            ask: 'Is it for the day or the evening?',
+          };
+        }
+      } catch { /* not JSON */ }
+      res.end(JSON.stringify({
+        model: 'deepseek-chat',
+        usage: { total_tokens: 42 },
+        choices: [{ message: { content: stylist
+          ? JSON.stringify(stylist)
+          : wantsJson
+            ? JSON.stringify({
+              prompt: 'A woman in a black denim jacket and cream trousers, full body, head to toe, standing naturally, soft even light, sharp fabric detail',
+              negative: 'blurry, distorted hands',
+            })
+            : 'A soft cotton jacket in like-new condition.' } }],
+      }));
+    });
     return;
   }
   res.statusCode = 404;
@@ -48,6 +85,9 @@ const deepseekUrl = `http://127.0.0.1:${deepseek.address().port}`;
 const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
   // The AI key tests ask the stand-in above, never DeepSeek; no platform key, so an account's own key is the only one.
   DEEPSEEK_API_URL: deepseekUrl, DEEPSEEK_API_KEY: '',
+  // Two different model names, so a test can tell which tier a feature asked for: the writing people read uses
+  // DEEPSEEK_MODEL, the fitting room's short prompt job asks for the cheaper DEEPSEEK_MODEL_FAST.
+  DEEPSEEK_MODEL: 'deepseek-chat', DEEPSEEK_MODEL_FAST: 'deepseek-chat-fast',
   // The sealing key for those AI keys, outside the database (never the server's real /etc/saligue/seal.key).
   SALIGUE_SEAL_KEY: 'a'.repeat(64), SALIGUE_SEAL_FILE: join(data, 'no-seal-file'),
   // Live works against a LiveKit that is not there; no server recorder answers, so hosts' phones record.
@@ -979,6 +1019,11 @@ describe('AI keys', () => {
     assert.equal(written.status, 200, JSON.stringify(written.json));
     assert.equal(written.json.source, 'yours');
     assert.match(written.json.text, /jacket/);
+    // What people read is written by the bigger model, and the rules travel in front of the details, on the server.
+    assert.equal(asked.at(-1).model, 'deepseek-chat', 'the writing people read uses the default model');
+    assert.match(asked.at(-1).system, /Never invent fabric/, 'the rules cannot be changed by the app');
+    assert.match(asked.at(-1).system, /Kinyarwanda/, 'in the seller’s own language');
+    assert.deepEqual(JSON.parse(asked.at(-1).user), { title: 'Vintage denim jacket', category: 'Jackets', type: '', brand: '', size: 'M', color: '', condition: 'Like new', note: '' }, 'the details go in as data, never as instructions');
   });
 
   test('the data download shows only the key’s hint, and deleting the account removes the key', async () => {
@@ -996,6 +1041,205 @@ describe('AI keys', () => {
     const left = db.prepare('select count(*) as n from user_ai_keys where user_id = ?').get(a.id).n;
     db.close();
     assert.equal(left, 0);
+  });
+});
+
+// What the AI learns from the people using it (server/ai-learn.mjs), over HTTP: the look a shopper keeps or throws away
+// moving the engine chain, the drafts the writer remembers, the fitting room's prompt, and the summary only INDECIANA
+// may read. Nothing here trains a model — these are counters that cannot quietly learn the wrong thing.
+describe('what the AI learns', () => {
+  const mainAdmin = async (name) => {
+    const a = await register(name);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(a.id);
+    db.close();
+    return a;
+  };
+
+  test('only INDECIANA reads what the AI has learned and what it costs', async () => {
+    const shopper = await register('Learning Shopper');
+    assert.equal((await call('/ai/learning', { token: shopper.token })).status, 403);
+    assert.equal((await call('/ai/learning')).status, 403, 'no session, no numbers');
+    const admin = await mainAdmin('Learning Admin');
+    const seen = await call('/ai/learning', { token: admin.token });
+    assert.equal(seen.status, 200, JSON.stringify(seen.json));
+    assert.equal(seen.json.days, 30);
+    for (const part of ['writing', 'tryOn', 'styling', 'usage']) assert.ok(seen.json[part], part);
+  });
+
+  test('a look shoppers keep, and one they throw away, are counted against the AI that drew it', async () => {
+    const shopper = await register('Look Shopper');
+    assert.equal((await call('/ai/tryon/feedback', { body: { engine: 'free', category: 'top', kept: true } })).status, 401, 'no session, nothing learned');
+    // An AI nobody knows, and a part of the body nobody dresses, teach nothing and are not stored.
+    await call('/ai/tryon/feedback', { token: shopper.token, body: { engine: 'nonsense', category: 'top', kept: true } });
+    await call('/ai/tryon/feedback', { token: shopper.token, body: { engine: 'free', category: 'not-a-part', kept: true } });
+    assert.equal((await call('/ai/tryon/feedback', { token: shopper.token, body: { engine: 'free', category: 'top', kept: true } })).json.ok, true);
+    assert.equal(
+      (await call('/ai/tryon/feedback', { token: shopper.token, body: { engine: 'fashn', category: 'top', kept: false, reason: 'it changed the jacket' } })).json.ok,
+      true,
+    );
+    const admin = await mainAdmin('Look Admin');
+    const seen = (await call('/ai/learning', { token: admin.token })).json;
+    const free = seen.tryOn.engines.find((e) => e.engine === 'free' && e.category === 'top');
+    const paid = seen.tryOn.engines.find((e) => e.engine === 'fashn' && e.category === 'top');
+    assert.equal(free.kept, 1, 'the look that was kept');
+    assert.equal(free.rejected, 0);
+    assert.equal(paid.kept, 0);
+    assert.equal(paid.rejected, 1, 'the look that was thrown away');
+    assert.equal(seen.tryOn.engines.some((e) => e.engine === 'nonsense' || e.category === 'not-a-part'), false);
+    // The order shoppers actually get is asked of the chain itself, never re-derived for the admin page.
+    assert.equal(seen.tryOn.orders.find((o) => o.category === 'top').order.length, 3);
+  });
+
+  test('a draft the writer made is remembered and counted, with the tokens it cost', async () => {
+    const seller = await register('Learning Seller', 'seller');
+    // No key of its own: nothing is written, and nothing is counted.
+    assert.equal((await call('/ai/write', { token: seller.token, body: { title: 'Denim jacket' } })).status, 503);
+    await call('/ai/keys/deepseek', { method: 'PUT', token: seller.token, body: { key: GOOD_KEY } });
+    const written = await call('/ai/write', { token: seller.token, body: { title: 'Vintage denim jacket', category: 'Jackets' } });
+    assert.equal(written.status, 200, JSON.stringify(written.json));
+    const admin = await mainAdmin('Writer Admin');
+    const seen = (await call('/ai/learning', { token: admin.token })).json;
+    assert.ok(seen.writing.written >= 1, 'the draft is kept until the seller answers it');
+    assert.ok(seen.usage.some((u) => u.purpose === 'write' && u.tokens >= 42), 'tokens are counted per purpose');
+  });
+
+  test('the look prompt is expanded by the AI, and is plain words when the account has no key', async () => {
+    const shopper = await register('Dressing Shopper');
+    const plain = await call('/ai/look', { token: shopper.token, body: { description: 'black denim jacket and cream trousers' } });
+    assert.equal(plain.status, 200, JSON.stringify(plain.json));
+    assert.equal(plain.json.source, 'plain', 'no key never means no look');
+    assert.match(plain.json.prompt, /jacket/i);
+    assert.ok(plain.json.negative, 'there is always something to avoid');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
+    const expanded = await call('/ai/look', { token: shopper.token, body: { description: 'black denim jacket and cream trousers' } });
+    assert.equal(expanded.status, 200, JSON.stringify(expanded.json));
+    assert.equal(expanded.json.source, 'yours');
+    assert.match(expanded.json.prompt, /full body/i, 'a real picture prompt, not the shopper’s own words');
+    assert.match(expanded.json.negative, /blurry/);
+    // Short, structured and on the shopper’s way to a picture: the fast model writes it (DEEPSEEK_MODEL_FAST).
+    assert.equal(asked.at(-1).model, 'deepseek-chat-fast', 'the look prompt asks for the fast model, not the writing one');
+    assert.match(asked.at(-1).system, /JSON only/, 'and is told exactly what shape to return');
+  });
+
+  // The whole point of the memory, and the one thing no unit test can prove: it crosses the writer, the item that was
+  // saved, the next prompt and the admin summary. If any of those four stops talking to the others, the self-learning
+  // is silently dead, so this walks the whole way round.
+  test('a description a seller keeps becomes the example the next draft follows', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && p.image);
+    const shop = await sampleShop(product.id);
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shop.token, body: { key: GOOD_KEY } });
+    const draft = await call('/ai/write', { token: shop.token, body: { title: product.name, category: product.category } });
+    assert.equal(draft.status, 200, JSON.stringify(draft.json));
+    assert.equal(asked.at(-1).system.includes(draft.json.text.slice(0, 60)), false, 'this shop has taught the writer nothing yet');
+    // The seller publishes the item with the AI's own words: that is the answer the draft was waiting for.
+    const saved = await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { name: product.name, description: draft.json.text } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    // The next draft is written with those kept words in front of it, as an example of this shop's voice.
+    const next = await call('/ai/write', { token: shop.token, body: { title: 'Cotton shirt', category: 'Tops' } });
+    assert.equal(next.status, 200, JSON.stringify(next.json));
+    assert.match(asked.at(-1).system, /Descriptions sellers kept before/, 'the writer is given the shop’s kept words');
+    assert.ok(asked.at(-1).system.includes(draft.json.text.slice(0, 60)), 'the words the seller kept are the example');
+    // And INDECIANA can see that it happened.
+    const admin = await mainAdmin('Loop Admin');
+    const seen = (await call('/ai/learning', { token: admin.token })).json;
+    assert.ok(seen.writing.kept >= 1, 'the kept description is counted');
+    assert.ok(seen.writing.examples >= 1, 'and it is in use as an example');
+  });
+});
+
+// What the stylist promises, over HTTP: it only ever names items Saligue really sells, the size and budget a shopper
+// gave are limits rather than hints, an account with no key still gets usable advice, and what a shopper opens
+// afterwards reaches INDECIANA as follow-through.
+describe('the AI stylist', () => {
+  const mainAdmin = async (name) => {
+    const a = await register(name);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(a.id);
+    db.close();
+    return a;
+  };
+  const catalogue = async () => (await call('/products')).json;
+  const byId = async () => new Map((await catalogue()).map((p) => [p.id, p]));
+
+  test('a shopper with no AI key still gets advice, from the catalogue itself', async () => {
+    const shopper = await register('Style No Key');
+    const answer = await call('/ai/stylist', { token: shopper.token, body: { message: 'Something for a wedding' } });
+    assert.equal(answer.status, 200, JSON.stringify(answer.json));
+    assert.equal(answer.json.source, 'plain', 'the app never pretends the AI answered');
+    assert.ok(answer.json.picks.length >= 1);
+    const real = await byId();
+    for (const pick of answer.json.picks) assert.ok(real.has(pick.id), 'only items Saligue really sells');
+  });
+
+  test('an empty question is refused before any AI is asked, and a stranger cannot ask at all', async () => {
+    const shopper = await register('Style Empty');
+    assert.equal((await call('/ai/stylist', { token: shopper.token, body: { message: ' ' } })).status, 400);
+    assert.equal((await call('/ai/stylist', { body: { message: 'a wedding next month' } })).status, 401, 'signed-in only');
+  });
+
+  test('with a key the outfit is reasoned, and an item the AI invented is thrown away', async () => {
+    const shopper = await register('Style Reasoner');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
+    const answer = await call('/ai/stylist', { token: shopper.token, body: { message: 'A wedding in Kigali next month' } });
+    assert.equal(answer.status, 200, JSON.stringify(answer.json));
+    assert.equal(answer.json.source, 'yours');
+    // Choosing from a list while keeping a budget and matching pieces together is a multi-step judgement.
+    assert.equal(asked.at(-1).model, 'deepseek-reasoner', 'the stylist reasons, it does not just autocomplete');
+    assert.match(asked.at(-1).system, /from the list you are given/i);
+    assert.match(asked.at(-1).system, /Never an id that is not in the list/);
+    // The stand-in answered with one real id and one it made up: only the real one survives.
+    assert.equal(answer.json.picks.some((p) => p.id === 'an-item-that-does-not-exist'), false, 'an invented item is never shown');
+    assert.equal(answer.json.picks.length, 1);
+    // A pick is an id and a line of reasoning only: a name or a price cannot come from the model.
+    assert.deepEqual(Object.keys(answer.json.picks[0]).sort(), ['id', 'why']);
+    const real = await byId();
+    assert.ok(real.has(answer.json.picks[0].id), 'a real item');
+    // The shopper's words travelled as data, and the list put in front of the AI was real items only.
+    const sent = JSON.parse(asked.at(-1).user);
+    assert.equal(sent.occasion, 'A wedding in Kigali next month');
+    assert.deepEqual(sent.askedBefore, [], 'this shopper has asked nothing before');
+    for (const line of sent.items) assert.ok(real.has(line.split(' | ')[0]), 'only real ids reach the model');
+    // The next question carries the last one, so the advice can build on it (ai-learn.mjs, styleHistory).
+    await call('/ai/stylist', { token: shopper.token, body: { message: 'And for church the day after?' } });
+    assert.deepEqual(JSON.parse(asked.at(-1).user).askedBefore, ['A wedding in Kigali next month']);
+  });
+
+  test('the size and the budget a shopper gave are limits, not hints', async () => {
+    const shopper = await register('Style Limits');
+    const real = await byId();
+    const sized = await call('/ai/stylist', { token: shopper.token, body: { message: 'Something to wear', size: 'M' } });
+    assert.equal(sized.status, 200, JSON.stringify(sized.json));
+    assert.ok(sized.json.picks.length >= 1, 'there are size M items in the catalogue');
+    for (const pick of sized.json.picks) assert.match(String(real.get(pick.id).size), /^m$/i, 'never another size');
+    // $12 is the cheapest thing Saligue sells in the sample catalogue: nothing over it may be suggested.
+    const cheap = await call('/ai/stylist', { token: shopper.token, body: { message: 'A white tee for every day', maxPrice: 12 } });
+    assert.equal(cheap.status, 200, JSON.stringify(cheap.json));
+    assert.ok(cheap.json.picks.length >= 1);
+    for (const pick of cheap.json.picks) assert.ok(Number(real.get(pick.id).price) <= 12, 'never over budget');
+  });
+
+  test('opening a pick is counted as follow-through, and INDECIANA sees it', async () => {
+    const shopper = await register('Style Follower');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
+    const product = (await catalogue()).find((p) => p.status === 'active');
+    assert.equal((await call('/ai/stylist/feedback', { body: { productId: product.id } })).status, 401, 'no session, nothing learned');
+    // An item that does not exist teaches nothing, and is not an error either.
+    assert.equal((await call('/ai/stylist/feedback', { token: shopper.token, body: { productId: 'not-a-product' } })).json.ok, true);
+    assert.equal((await call('/ai/stylist/feedback', { token: shopper.token, body: { productId: product.id } })).json.ok, true);
+    const admin = await mainAdmin('Stylist Admin');
+    const seen = (await call('/ai/learning', { token: admin.token })).json;
+    assert.ok(seen.styling.followed >= 1, 'the opened pick is counted');
+    // A question the AI answered is counted too, so what an answer was worth can be read next to what it cost.
+    const answered = await call('/ai/stylist', { token: shopper.token, body: { message: 'A party next Saturday' } });
+    assert.equal(answered.status, 200);
+    assert.equal(answered.json.source, 'yours');
+    const after = (await call('/ai/learning', { token: admin.token })).json;
+    assert.ok(after.styling.asked >= 1, 'the question is counted');
+    assert.equal(typeof after.styling.perAsk, 'number', 'items opened per answered question is a real number');
+    assert.ok(after.usage.some((u) => u.purpose === 'style'), 'and the tokens it cost are counted as styling');
   });
 });
 

@@ -2,9 +2,12 @@
 
 A fashion marketplace where shoppers can search for clothes, shoes, or accessories and preview items on a photo of themselves. Sellers list products, manage orders, and share shop contact details.
 
-AI features run on the user's device (browser or installed app). Shopper photos are not uploaded by the try-on flow.
+Most AI runs on the user's device (browser or installed app), and a shopper photo only leaves the phone for a
+*realistic* try-on — the one they confirm first, which goes to Saligue's own AI server.
 
 ## AI features
+
+**On the shopper's device** — the quick preview, nothing leaves the phone:
 
 | Step | Model | Code |
 |---|---|---|
@@ -13,6 +16,60 @@ AI features run on the user's device (browser or installed app). Shopper photos 
 | Detect body landmarks | MediaPipe Pose Landmarker lite | `src/lib/ai/pose.ts` |
 | Place garments on the body | Landmark geometry | `src/lib/ai/dress.ts` |
 | Search by text or photo | MobileCLIP-S0 / Transformers.js | `src/lib/ai/embed.ts`, `src/lib/search.ts` |
+
+**On Saligue's side** — the realistic look and the words:
+
+| Step | What runs | Code |
+|---|---|---|
+| Turn the shopper's words into a real picture prompt | DeepSeek, fast model | `server/index.mjs` (`/api/ai/look`), `server/ai-keys.mjs` |
+| Redraw the garment on the shopper's photo | Saligue's own AI Studio (Leffa + SDXL inpainting), then FASHN on fal.ai, then free public models | `server/tryon.mjs`, `ai-server/server.py` |
+| Check that only that garment changed, before the look is shown | the app | `src/lib/ai/composite.ts` |
+| Write a seller's item description from the details they typed | DeepSeek | `server/index.mjs` (`/api/ai/write`), `src/components/write-with-ai.tsx` |
+| Pick an outfit for where a shopper is going, from what Saligue really sells | DeepSeek, reasoner tier | `server/stylist.mjs` (`/api/ai/stylist`), `src/app/stylist/page.tsx` |
+
+A shopper photo leaves the phone only when they ask for a realistic look, and only after confirming it is them
+(`src/lib/ai/consent.ts`). Our own Studio is always tried first; the free public models are the fallback that finishes
+the job when it and the paid one cannot, never the first choice. **Look quality** in the Fitting Room (`fast`, `high`,
+`ultra`) says how much work each AI may do: it becomes steps for the free models, FASHN's performance or quality mode,
+and the Studio's own presets, and it is part of what a look is kept under, so a quick look is never handed back as the
+best one.
+
+The **AI Stylist** (`/stylist`, the front door of the Fitting Room) is the friendlier half of the same work: a shopper
+says where they are going, size and budget, and one to four pieces come back with a line each, ready to be tried on. It
+is built to be trusted rather than clever — it may only choose ids from a shortlist of items that are in stock and
+already ranked by that shopper's own behaviour (`server/recommend.mjs`), so it cannot invent a product, a shop, a size
+or a price, and the size and budget it is given are hard limits. With no AI key, a busy model, a guest account (whose
+questions never spend Saligue's key) or twenty questions in an hour, it answers from that same ranking and the card
+says so plainly instead of pretending the AI said it. It answers in the shopper's own language, Kinyarwanda and French
+included; that answer is kept in `DICT` (`src/lib/i18n.ts`) as well, so the no-AI reply is translated too rather than
+leaving a Kinyarwanda shopper reading English.
+
+### What the AI learns
+
+Nothing is trained. A few counters around the models are what makes them better every week — three tables in
+`server/db.mjs`, the rules in `server/ai-learn.mjs`:
+
+- a **description the seller keeps** is compared word for word with the AI's draft; kept ones become the examples the
+  next draft for that shop follows (their own voice first, the rest of the marketplace after), and a rewritten draft
+  never becomes a model of good writing;
+- every **realistic look** is counted against the AI that drew it and the part of the body. When shoppers clearly keep
+  the free models' looks (70% or more, at least 8 answers) and clearly throw the paid one's away (45% or less), the
+  chain tries the free ones first; otherwise the honest order stands: our own Studio, then the paid model, then the
+  free ones;
+- **tokens** are counted per account, model and purpose, so a cut-off key or a prompt that grew shows up early;
+- every **stylist question** is kept in the shopper's own words, so the next answer carries on from the last one ("last
+  time it was a wedding"), and an item opened afterwards is counted as follow-through
+  (`/api/ai/stylist/feedback`). Only questions the AI actually answered are counted, so a quiet fallback cannot flatter
+  the numbers.
+
+INDECIANA reads all of it in **Admin → Platform → What the AI has learned**
+(`src/components/admin/ai-learning-admin.tsx`, `GET /api/ai/learning`): the writer's counts and the examples in use,
+each try-on engine's kept rate and seconds per look, and what the stylist was asked and how often its advice was
+followed. Saligue's own Studio is told what shoppers keep too, and nudges its guidance for that part of the body a
+little (`ai-server/server.py`, `POST /api/feedback`). `tests/ai-learn.test.mjs` pins the rules, and the "what the AI
+learns" cases in `tests/api.test.mjs` walk each loop all the way round — a draft written, published and put in front of
+the writer as an example; a kept look voting for the engine that drew it; an outfit chosen and opened afterwards —
+because a loop that stops half-way is the one bug nobody would notice.
 
 Models are downloaded on first use and cached by the browser. Product photos and their cut-outs are stored with the product in Supabase; try-on photos remain on the shopper's device.
 

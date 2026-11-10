@@ -26,8 +26,9 @@ import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFi
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { controller, dpia, paidThisMonth, payoutRefused, payoutRules, payoutState, processingRecord, saveController, savePayoutRules } from './compliance.mjs';
 import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
-import { aiComplete, aiKeySummary, checkAiKey, recheckAiKey, removeAiKey, resealAiKeys, saveAiKey } from './ai-keys.mjs';
-import { aiLearningSummary, noteDescriptionUsed, noteLookFeedback, noteWritten, writeExamples } from './ai-learn.mjs';
+import { aiComplete, aiKeySummary, checkAiKey, jsonObject, recheckAiKey, removeAiKey, resealAiKeys, saveAiKey } from './ai-keys.mjs';
+import { aiLearningSummary, noteDescriptionUsed, noteLookFeedback, noteStyleFollowed, noteWritten, writeExamples } from './ai-learn.mjs';
+import { style } from './stylist.mjs';
 import { contentSecurityPolicy, cspHeaderName, cspMode } from './csp.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
@@ -932,7 +933,7 @@ route('POST', '/api/products', async ({ user, body }) => {
   );
   broadcast('products');
   // If these words came from AI writing, this is where it finds out whether the seller kept them (ai-learn.mjs).
-  if (fields.description) noteDescriptionUsed(user.id, fields.description);
+  if (fields.description) noteDescriptionUsed(user.id, fields.description, fields.name);
   return { id };
 });
 
@@ -954,7 +955,7 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
     db.prepare(`update products set ${keys.map((k) => `${k} = ?`).join(', ')} where id = ?`).run(...keys.map((k) => fields[k]), params[0]);
     broadcast('products');
     alertInterested(before, db.prepare('select * from products where id = ?').get(params[0]));
-    if (fields.description) noteDescriptionUsed(user.id, fields.description);
+    if (fields.description) noteDescriptionUsed(user.id, fields.description, fields.name);
   }
   return { ok: true };
 });
@@ -5747,19 +5748,6 @@ const LOOK_NEGATIVE = 'deformed, extra limbs, extra fingers, bad hands, blurry, 
 const LOOK_TAIL = 'full body, head to toe, standing naturally, correct fit, realistic fabric, soft even light, fashion photograph, sharp detail';
 const plainLook = (description) => `${description}, ${LOOK_TAIL}`;
 
-/** Reads a JSON object out of a model's answer, fences and chatter included. Null when there is nothing to read. */
-function jsonObject(text) {
-  const raw = String(text ?? '').replace(/^```(?:json)?/i, '').replace(/```\s*$/, '').trim();
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try {
-    return JSON.parse(raw.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
-
 route('POST', '/api/ai/look', async ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const description = String(body.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -5783,7 +5771,9 @@ route('POST', '/api/ai/look', async ({ user, body }) => {
         ].join('\n'),
       },
       { role: 'user', content: JSON.stringify({ outfit: description, app: 'Saligue Fitting Room' }) },
-    ], { json: true, maxTokens: 220, temperature: 0.4, purpose: 'look' });
+      // This is a short, structured job on the shopper's critical path (look at the clothes, wait for the picture), so
+      // it asks for the fast model; the descriptions a seller publishes keep the bigger one (DEEPSEEK_MODEL_FAST).
+    ], { json: true, maxTokens: 220, temperature: 0.4, tier: 'fast', purpose: 'look' });
     const parsed = jsonObject(written.text);
     const prompt = String(parsed?.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!prompt) throw new Error('The AI sent no prompt.');
@@ -5794,6 +5784,45 @@ route('POST', '/api/ai/look', async ({ user, body }) => {
     if (error.code !== 'no_key') console.error('AI look prompt fell back to plain words:', error.message);
     return { prompt: plainLook(description), negative: LOOK_NEGATIVE, source: 'plain' };
   }
+});
+
+// The stylist: a shopper says where they are going, and one to four real items come back, chosen and explained by
+// the AI (server/stylist.mjs). It may only pick from items it is shown and the prices are the shops' own, so it can
+// never invent something to buy; with no key, a busy AI or too many questions it answers from the catalogue itself.
+const styleRuns = new Map();
+const STYLE_PER_HOUR = 20;
+
+route('POST', '/api/ai/stylist', async ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  const hour = Date.now() - 3_600_000;
+  const recent = (styleRuns.get(user.id) ?? []).filter((t) => t > hour);
+  // Too many questions this hour: the shopper still gets an answer, from the ranking instead of the AI.
+  const over = recent.length >= STYLE_PER_HOUR;
+  if (!over) styleRuns.set(user.id, [...recent, Date.now()]);
+  try {
+    return await style({
+      userId: user.id,
+      message: body.message,
+      size: body.size,
+      maxPrice: body.maxPrice,
+      lang: body.lang,
+      // A guest has no key of its own, so its questions are answered from the catalogue, never from Saligue's key.
+      ai: !over && !user.is_guest,
+    });
+  } catch (error) {
+    fail(error.status ?? 502, error.code ?? 'ai_failed', error.message);
+  }
+});
+
+// A shopper opened an outfit the stylist chose: the only honest sign that its advice was worth the tokens, and
+// what INDECIANA reads as the stylist's follow-through (ai-learn.mjs).
+route('POST', '/api/ai/stylist/feedback', ({ user, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  // An item that is gone (or never was) teaches nothing: the shopper's tap is simply acknowledged.
+  const product = db.prepare('select id, category from products where id = ?').get(String(body.productId ?? '').slice(0, 60));
+  if (!product) return { ok: true };
+  noteStyleFollowed({ userId: user.id, productId: product.id, category: product.category });
+  return { ok: true };
 });
 
 // What the AI has learned and what it costs, for INDECIANA only: kept descriptions (the writer's examples), each

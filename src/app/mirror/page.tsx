@@ -5,10 +5,11 @@ import { SaveImageButton } from '@/components/save-image-button';
 import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Check, Download, Loader2, RefreshCw, Search, Wand2, X } from 'lucide-react';
+import { Check, Download, Loader2, RefreshCw, Search, Sparkles, Wand2, X } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
-import { dressAsDescribed, getRealistic, getStudio, isUnlimited } from '@/lib/ai/studio';
+import { dressAsDescribed, getRealistic, getStudio, isUnlimited, setTryOnQuality, tryOnQuality, type TryOnQuality } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -38,6 +39,14 @@ const checkerboard =
 // try-on (no limit), otherwise the first few (the free AI has a daily limit).
 const autoRealistic = () => (isUnlimited() ? Infinity : 4);
 const PAGE = 10;
+// The three settings of the try-on AIs, named the way a shopper thinks of them. Each one means something concrete
+// in every engine (server/tryon.mjs, ai-server/server.py): the free models take it as steps, FASHN as its
+// performance or quality mode, and Saligue's own Studio as its presets.
+const QUALITY_CHOICES: { value: TryOnQuality; label: string; hint: string }[] = [
+  { value: 'fast', label: 'Fast', hint: 'Quickest look, drawn with fewer steps' },
+  { value: 'high', label: 'High', hint: 'Balanced: the usual quality' },
+  { value: 'ultra', label: 'Best', hint: 'Most detail, a little slower' },
+];
 /** Keeps the ranking but alternates shops: the best item of each shop first, then each shop's second best… */
 function byShops(list: Product[]) {
   const queues = new Map<string, Product[]>();
@@ -78,6 +87,15 @@ function Mirror() {
     getStudio().then((url) => setStudio(!!url));
     getRealistic().then(setRealistic);
   }, []);
+
+  // How much work the try-on AI may do. It is remembered on this device (studio.ts), so a shopper who asked for the
+  // best keeps getting it, and every look drawn after a change really uses the new setting.
+  const [quality, setQuality] = useState<TryOnQuality>('high');
+  useEffect(() => setQuality(tryOnQuality()), []);
+  const chooseQuality = (next: TryOnQuality) => {
+    setTryOnQuality(next);
+    setQuality(next);
+  };
 
   const [outfitForm, setOutfitForm] = useState<WearForm>({});
   const outfitText = describeForm(outfitForm);
@@ -236,6 +254,38 @@ function Mirror() {
       <PageIntro icon={Wand2} title="Fitting Room" subtitle="See yourself wearing it before you buy." className="mb-6" />
 
       <div className="space-y-6">
+          {/* The stylist is this room's front door: it picks the outfit from real listings, then the shopper tries
+              it on here. */}
+          <Link href="/stylist" className="flex items-center gap-3 rounded-2xl border bg-primary/5 p-3 transition-colors hover:bg-primary/10">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Sparkles className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold min-[360px]:text-base">Not sure what to wear?</span>
+              <span className="block text-xs leading-snug text-muted-foreground min-[360px]:text-sm">Say where you are going. The AI stylist picks real items from Saligue.</span>
+            </span>
+            <span className="shrink-0 text-sm font-bold text-primary">Style me</span>
+          </Link>
+
+          {/* How good the looks should be. Shown only where a realistic AI is available, since on-device dressing
+              has no such setting. */}
+          {realistic && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">Look quality</span>
+              {QUALITY_CHOICES.map(({ value, label, hint }) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={quality === value ? 'default' : 'outline'}
+                  onClick={() => chooseQuality(value)}
+                  aria-pressed={quality === value}
+                  title={hint}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
+
           {/* Step 1: a standing photo, so the AI can dress the person as they really are. Once it is ready it shrinks
               to a small strip (the photo and two icons), so the page is about what to wear. */}
           {personUrl && photoUrl && !personBusy ? (

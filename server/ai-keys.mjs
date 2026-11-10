@@ -211,6 +211,23 @@ export async function recheckAiKey(userId, provider = 'deepseek') {
 const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
 const pause = (attempt) => new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
 
+/**
+ * Reads a JSON object out of a model's answer, fences and chatter included. Null when there is nothing to read.
+ * Every AI feature that asks for JSON reads it back with this (the fitting room's picture prompt, the stylist's
+ * outfit), so one shape of answer is understood in one place.
+ */
+export function jsonObject(text) {
+  const raw = String(text ?? '').replace(/^```(?:json)?/i, '').replace(/```\s*$/, '').trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
 function modelFor(tier) {
   if (tier === 'reasoner') return process.env.DEEPSEEK_MODEL_REASONER?.trim() || 'deepseek-reasoner';
   if (tier === 'fast') return process.env.DEEPSEEK_MODEL_FAST?.trim() || process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat';

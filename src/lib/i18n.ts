@@ -511,6 +511,43 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Wearing it': ['Biracyambarwa', 'Essayage en cours'],
   'You now': ['Wowe ubu', 'Vous maintenant'],
   'Open it': ['Fungura', 'Ouvrir'],
+  // The AI stylist (src/app/stylist/page.tsx) and the quality setting in the Fitting Room. PageTranslator swaps
+  // whole texts against DICT too, so the answer a shopper gets with no AI (server/stylist.mjs) is listed here as
+  // well: a guest, or a shopper past the hourly limit, is answered from the catalogue in their own language.
+  'AI Stylist': ['Umujyanama w’imyambaro AI', 'Styliste IA'],
+  'Not sure what to wear?': ['Ntuzi icyo kwambara?', 'Vous ne savez pas quoi porter ?'],
+  'Say where you are going. The AI stylist picks real items from Saligue.': ['Vuga aho ujya. AI ihitamo ibicuruzwa nyabyo bya Saligue.', 'Dites où vous allez. Le styliste IA choisit de vrais articles de Saligue.'],
+  'Say where you are going. Every piece is real, in stock, and from a Saligue shop.': ['Vuga aho ujya. Buri gicuruzwa ni icy’ukuri, kiri mu bubiko, kandi gituruka mu iduka rya Saligue.', 'Dites où vous allez. Chaque pièce est réelle, en stock, et vient d’une boutique Saligue.'],
+  'Style me': ['Nyambika', 'Habillez-moi'],
+  'Where are you going?': ['Ujya he?', 'Où allez-vous ?'],
+  'A wedding in Kigali next month — smart, but not too formal': ['Ubukwe i Kigali ukwezi gutaha — ndashaka kwambara neza, ariko bitarenze urugero.', 'Un mariage à Kigali le mois prochain — élégant, mais pas trop habillé.'],
+  Church: ['Itorero', 'Église'],
+  Work: ['Akazi', 'Travail'],
+  Wedding: ['Ubukwe', 'Mariage'],
+  Party: ['Ibirori', 'Fête'],
+  School: ['Ishuri', 'École'],
+  Everyday: ['Buri munsi', 'Tous les jours'],
+  'Your size': ['Saizi yawe', 'Votre taille'],
+  'Most you would spend ($)': ['Amafaranga ntarengwa ($)', 'Dépense maximale ($)'],
+  'Find my outfit': ['Shakisha imyambaro yanjye', 'Trouver ma tenue'],
+  'Ask again': ['Ongera ubaze', 'Redemander'],
+  'Choosing from what Saligue sells…': ['Turimo guhitamo mu bicuruzwa bya Saligue…', 'Choix parmi ce que vend Saligue…'],
+  'The stylist could not answer': ['Umujyanama ntiyashoboye gusubiza', 'Le styliste n’a pas pu répondre'],
+  'Chosen from Saligue’s catalogue, best match first.': ['Byahiswemo mu rutonde rwa Saligue, ibibereye imbere.', 'Choisi dans le catalogue Saligue, les meilleures correspondances d’abord.'],
+  'Every item is real, in stock, and priced by its own shop.': ['Buri gicuruzwa ni icy’ukuri, kiri mu bubiko, kandi igiciro cyacyo gituruka mu iduka ryacyo.', 'Chaque article est réel, en stock, et vendu au prix de sa propre boutique.'],
+  'Try them on': ['Bigerageze', 'Les essayer'],
+  'The stylist chooses only from items Saligue really sells, and keeps to your size and budget. Open a piece to see it on you.': ['Umujyanama ahitamo gusa ibicuruzwa Saligue icuruza, kandi yubahiriza saizi n’ingengo y’imari yawe. Fungura igicuruzwa ukirebe.', 'Le styliste ne choisit que parmi les articles réellement vendus par Saligue, et respecte votre taille et votre budget. Ouvrez une pièce pour la voir sur vous.'],
+  // What server/stylist.mjs answers when there is no AI to ask: the shopper is never left in English.
+  'These are the pieces from Saligue that fit closest to what you asked for. Open one to see it on you.': ['Ibi ni ibicuruzwa bya Saligue bireba cyane ibyo wasabye. Fungura kimwe ukirebe.', 'Voici les pièces de Saligue qui correspondent le mieux à votre demande. Ouvrez-en une pour la voir sur vous.'],
+  'Saligue has nothing that fits that yet. Try another size or a higher budget, and I will look again.': ['Saligue nta gicuruzwa kibireba kugeza ubu. Gerageza indi saizi cyangwa ingengo y’imari nini, nongere nshakishe.', 'Saligue n’a encore rien qui corresponde. Essayez une autre taille ou un budget plus élevé, et je regarderai à nouveau.'],
+  // How good the realistic look should be (src/app/mirror/page.tsx, server/tryon.mjs).
+  'Look quality': ['Ubwiza bw’ifoto', 'Qualité du rendu'],
+  Fast: ['Byihuse', 'Rapide'],
+  'Quickest look, drawn with fewer steps': ['Ifoto yihuse, ikorwa n’intambwe nkeya', 'Rendu le plus rapide, avec moins d’étapes'],
+  High: ['Biringaniye', 'Élevée'],
+  'Balanced: the usual quality': ['Biringaniye: ubwiza busanzwe', 'Équilibrée : la qualité habituelle'],
+  Best: ['Byiza cyane', 'Maximale'],
+  'Most detail, a little slower': ['Amakuru menshi, bitinda gato', 'Plus de détails, un peu plus lent'],
 };
 
 const KEY = 'saligue-lang';
