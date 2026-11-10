@@ -10,6 +10,7 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const root = new URL('..', import.meta.url).pathname;
 const data = mkdtempSync(join(tmpdir(), 'saligue-test-'));
@@ -47,7 +48,7 @@ const deepseek = createServer((req, res) => {
         const system = String(sent.messages?.[0]?.content ?? '');
         const user = String(sent.messages?.[1]?.content ?? '');
         wantsJson = Boolean(sent.response_format);
-        asked.push({ model: sent.model, system, user });
+        asked.push({ model: sent.model, system, user, json: sent.response_format?.type === 'json_object' });
         if (/stylist/i.test(system)) {
           const payload = JSON.parse(user);
           const first = Array.isArray(payload.items) && typeof payload.items[0] === 'string' ? payload.items[0].split(' | ')[0] : null;
@@ -122,10 +123,19 @@ const dayAfter = (iso) => {
   return d.toISOString().slice(0, 10);
 };
 
+const LEGACY_TOKEN = 'Lg'.repeat(21) + 'x'; // 43 characters, the shape of a real token
+let legacyUserId = null;
+
 before(async () => {
   // The sample shops and items (no network needed).
   const seed = spawnSync(process.execPath, ['--no-warnings', 'server/seed.mjs'], { cwd: root, env, encoding: 'utf8' });
   assert.equal(seed.status, 0, seed.stderr);
+  // A session written before tokens were hashed: the token itself in the table, as the live database still had.
+  const legacy = new DatabaseSync(join(data, 'saligue.db'));
+  const someone = legacy.prepare('select id from users limit 1').get();
+  legacy.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(LEGACY_TOKEN, someone.id, new Date().toISOString());
+  legacyUserId = someone.id;
+  legacy.close();
   server = spawn(process.execPath, ['--no-warnings', 'server/index.mjs'], { cwd: root, env, stdio: 'ignore' });
   for (let i = 0; i < 100; i++) {
     try {
@@ -146,6 +156,19 @@ after(() => {
 });
 
 describe('accounts', () => {
+  test('a session stored before hashing still signs in, and only its hash is kept', async () => {
+    const me = await call('/auth/me', { token: LEGACY_TOKEN });
+    assert.equal(me.status, 200);
+    assert.equal(me.json.user.id, legacyUserId);
+    const look = new DatabaseSync(join(data, 'saligue.db'), { readOnly: true });
+    const plain = look.prepare('select count(*) as n from sessions where length(token) <> 64').get().n;
+    look.close();
+    assert.equal(plain, 0, 'no session token is left readable in the database');
+  });
+  test('a crash on a phone reaches the server log instead of failing', async () => {
+    const sent = await call('/client-errors', { body: { where: 'test', message: 'boom', stack: 'at test' } });
+    assert.equal(sent.status, 200, JSON.stringify(sent.json));
+  });
   test('register gives a token, a unique @username and the account', async () => {
     const a = await register('Amina Uwase');
     const b = await register('Amina Uwase');
@@ -1092,6 +1115,15 @@ describe('what the AI learns', () => {
     assert.equal(seen.tryOn.orders.find((o) => o.category === 'top').order.length, 3);
   });
 
+  test('a guest cannot vote an AI up the chain', async () => {
+    const guest = (await call('/auth/guest', { body: {} })).json;
+    assert.ok(guest.token);
+    assert.equal((await call('/ai/tryon/feedback', { token: guest.token, body: { engine: 'own', category: 'dress', kept: true } })).json.ok, true);
+    const admin = await mainAdmin('Guest Vote Admin');
+    const seen = (await call('/ai/learning', { token: admin.token })).json;
+    assert.equal(seen.tryOn.engines.some((e) => e.engine === 'own' && e.category === 'dress'), false, 'the scoreboard did not move');
+  });
+
   test('a draft the writer made is remembered and counted, with the tokens it cost', async () => {
     const seller = await register('Learning Seller', 'seller');
     // No key of its own: nothing is written, and nothing is counted.
@@ -1186,8 +1218,9 @@ describe('the AI stylist', () => {
     const answer = await call('/ai/stylist', { token: shopper.token, body: { message: 'A wedding in Kigali next month' } });
     assert.equal(answer.status, 200, JSON.stringify(answer.json));
     assert.equal(answer.json.source, 'yours');
-    // Choosing from a list while keeping a budget and matching pieces together is a multi-step judgement.
-    assert.equal(asked.at(-1).model, 'deepseek-reasoner', 'the stylist reasons, it does not just autocomplete');
+    // The chat model in JSON mode: the reasoner spent its tokens thinking and mostly ended in the fallback.
+    assert.equal(asked.at(-1).model, 'deepseek-chat', 'the stylist answers with the chat model');
+    assert.equal(asked.at(-1).json, true, 'and asks for JSON, so the outfit can be read back');
     assert.match(asked.at(-1).system, /from the list you are given/i);
     assert.match(asked.at(-1).system, /Never an id that is not in the list/);
     // The stand-in answered with one real id and one it made up: only the real one survives.

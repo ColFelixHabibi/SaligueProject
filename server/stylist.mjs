@@ -157,9 +157,10 @@ export async function style({ userId, message, size = '', maxPrice = null, lang 
           askedBefore: styleHistory(userId, 3),
         }),
       },
-      // Choosing an outfit from a list while respecting budget, stock and how pieces go together is a multi-step
-      // judgement, which is exactly what the reasoner tier is for (server/ai-keys.mjs).
-    ], { json: true, maxTokens: 800, temperature: 0.4, tier: 'reasoner', purpose: 'style', retries: 1, timeoutMs: 25_000 });
+      // The chat model in JSON mode, not the reasoner: the reasoner spends max_tokens on hidden reasoning before it
+      // writes a word, takes no JSON mode, and runs past the shopper's patience, so it mostly ended in the fallback.
+      // Picking from a short, pre-ranked list is well within the chat model, and realPicks checks every id anyway.
+    ], { json: true, maxTokens: 600, temperature: 0.4, tier: 'smart', purpose: 'style', retries: 1, timeoutMs: 25_000 });
     const answer = jsonObject(written.text);
     const picks = realPicks(answer, candidates);
     const reply = tidy(answer?.reply, 600);

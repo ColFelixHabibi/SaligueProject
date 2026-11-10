@@ -100,6 +100,21 @@ function tidySessions(userId, at) {
 const SESSION_DAYS = 60;
 const COOKIE = 'saligue_session';
 
+// Sessions from before hashing still hold the token itself until they are next used, and one that is never used
+// again would sit readable in saligue.db for the rest of its 60 days. Hash them all once at start: userOf looks a
+// token up by its hash first, so nobody is signed out. A stored hash is 64 hex characters; a token is 43.
+{
+  const plain = db.prepare("select token from sessions where length(token) <> 64 or token glob '*[^0-9a-f]*'").all();
+  if (plain.length) {
+    transaction(() => {
+      const adopt = db.prepare('update or ignore sessions set token = ? where token = ?');
+      for (const { token } of plain) adopt.run(sessionHash(token), token);
+      db.prepare("delete from sessions where length(token) <> 64 or token glob '*[^0-9a-f]*'").run();
+    });
+    console.log(`Sessions: ${plain.length} stored before hashing are now kept as a hash only.`);
+  }
+}
+
 function cookieToken(req) {
   const match = /(?:^|;\s*)saligue_session=([\w-]+)/.exec(req.headers.cookie || '');
   return match ? match[1] : null;
@@ -5621,16 +5636,13 @@ route('POST', '/api/ai/tryon/feedback', ({ user, body }) => {
   lookFeedbackRuns.set(user.id, [...recent, Date.now()]);
   const category = REALISTIC_CATEGORIES.includes(body.category) ? body.category : null;
   const reason = String(body.reason ?? '').slice(0, 120) || null;
-  noteLookFeedback({
-    userId: user.id,
-    engine: ['own', 'fashn', 'free'].includes(body.engine) ? body.engine : null,
-    category,
-    kept: body.kept === true,
-    reason,
-  });
+  // A guest account costs nothing to make, so a script could make hundreds and vote one AI up the chain. A guest's
+  // answer is still kept (ai_feedback), but only signed-up accounts move the scoreboard and teach the Studio.
+  const engine = !user.is_guest && ['own', 'fashn', 'free'].includes(body.engine) ? body.engine : null;
+  noteLookFeedback({ userId: user.id, engine, category, kept: body.kept === true, reason });
   // A look our own Studio drew teaches the Studio too, not only Saligue: it counts what people keep per part of the
   // body and nudges its own guidance (ai-server/server.py). Fire and forget, so a sleeping GPU server is harmless.
-  if (body.engine === 'own' && category) tellStudio({ category, kept: body.kept === true, reason });
+  if (engine === 'own' && category) tellStudio({ category, kept: body.kept === true, reason });
   return { ok: true };
 });
 
@@ -5816,8 +5828,16 @@ route('POST', '/api/ai/stylist', async ({ user, body }) => {
 
 // A shopper opened an outfit the stylist chose: the only honest sign that its advice was worth the tokens, and
 // what INDECIANA reads as the stylist's follow-through (ai-learn.mjs).
+const styleFollowRuns = new Map();
 route('POST', '/api/ai/stylist/feedback', ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  // Each tap is a row: a loop (or a script) must not be able to fill the database, so past a generous hourly
+  // allowance taps are acknowledged and not stored.
+  const hour = Date.now() - 3_600_000;
+  const recent = (styleFollowRuns.get(user.id) ?? []).filter((t) => t > hour);
+  if (recent.length >= 120) return { ok: true };
+  if (styleFollowRuns.size > 50_000) styleFollowRuns.clear();
+  styleFollowRuns.set(user.id, [...recent, Date.now()]);
   // An item that is gone (or never was) teaches nothing: the shopper's tap is simply acknowledged.
   const product = db.prepare('select id, category from products where id = ?').get(String(body.productId ?? '').slice(0, 60));
   if (!product) return { ok: true };
@@ -5832,6 +5852,9 @@ route('GET', '/api/ai/learning', ({ user }) => {
   return aiLearningSummary();
 });
 
+// Crashes on shoppers' phones and browsers (src/lib/report-error.ts), written to the server log. At most ten a
+// minute from one address, so a crash loop cannot flood the journal.
+const clientErrors = new Map();
 route('POST', '/api/client-errors', ({ req, user, body }) => {
   const ip = clientIp(req);
   const minute = Date.now() - 60_000;
