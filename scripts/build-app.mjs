@@ -88,9 +88,13 @@ if (apk) {
   if (!existsSync(built)) throw new Error('No signed APK: create the signing key first (see android/app/build.gradle).');
   const target = join(DATA, 'downloads');
   mkdirSync(target, { recursive: true });
-  copyFileSync(built, join(target, 'saligue.apk'));
+  // Copied beside the live file, then swapped in with one rename: a phone downloading while the app is rebuilt
+  // finishes with the whole old file instead of half of each, which Android rejects as "package appears to be invalid".
+  copyFileSync(built, join(target, 'saligue.apk.part'));
+  renameSync(join(target, 'saligue.apk.part'), join(target, 'saligue.apk'));
   // Installed apps compare this with their own version and offer the update.
-  writeFileSync(join(target, 'saligue.json'), JSON.stringify({ versionCode, versionName, builtAt: new Date().toISOString() }));
+  writeFileSync(join(target, 'saligue.json.part'), JSON.stringify({ versionCode, versionName, builtAt: new Date().toISOString() }));
+  renameSync(join(target, 'saligue.json.part'), join(target, 'saligue.json'));
   // The Play Store takes a bundle, not an APK. Same code, same version, same signing key: enrol it in Play App
   // Signing with this existing key (not a key Google makes), or phones that installed the APK cannot update from Play.
   // It goes to dist/, never to data/downloads: the bundle is for the Play Console, not for phones.

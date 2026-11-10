@@ -6183,9 +6183,21 @@ const server = http.createServer(async (req, res) => {
     if (!existsSync(apk)) return send(res, 404, 'The Android app has not been built yet.');
     // Resumable: on a slow or patchy mobile connection the phone's download manager asks for the rest
     // (Range: bytes=N-) instead of starting the 35 MB over each time the connection drops.
-    const size = statSync(apk).size;
-    const headers = { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="Saligue.apk"', 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes', 'Last-Modified': statSync(apk).mtime.toUTCString() };
-    const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    const stat = statSync(apk);
+    const size = stat.size;
+    // Each build is its own file: a resumed download may only continue the build it started with. Stitching half
+    // of an older build to half of a newer one is what Android calls "package appears to be invalid".
+    const etag = `"${size.toString(36)}-${Math.floor(stat.mtimeMs).toString(36)}"`;
+    const lastModified = stat.mtime.toUTCString();
+    const headers = { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Disposition': 'attachment; filename="Saligue.apk"', 'Cache-Control': 'no-cache', 'Accept-Ranges': 'bytes', 'Last-Modified': lastModified, ETag: etag };
+    const ifMatch = req.headers['if-match'];
+    if (ifMatch && ifMatch !== '*' && !String(ifMatch).split(',').map((t) => t.trim()).includes(etag)) {
+      res.writeHead(412, { ETag: etag });
+      return res.end();
+    }
+    const ifRange = req.headers['if-range'];
+    const sameBuild = !ifRange || ifRange === etag || ifRange === lastModified;
+    const range = sameBuild ? /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? '')) : null;
     if (range && (range[1] || range[2])) {
       const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
       const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;

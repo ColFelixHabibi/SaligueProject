@@ -7,7 +7,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -2082,5 +2082,28 @@ describe('sessions and answers', () => {
     const signedIn = await call('/auth/login', { body: { email: (await register('Session Fresh')).user.email, password: 'Test12345!' } });
     assert.equal(signedIn.status, 200, JSON.stringify(signedIn.json));
     assert.equal(signedIn.headers.get('cache-control'), 'no-store');
+  });
+});
+
+describe('the Android app download', () => {
+  test('a resumed download only continues the same build', async () => {
+    mkdirSync(join(data, 'downloads'), { recursive: true });
+    writeFileSync(join(data, 'downloads', 'saligue.apk'), Buffer.from('0123456789'.repeat(10)));
+    const full = await fetch(`${base}/download/saligue.apk`);
+    assert.equal(full.status, 200);
+    const etag = full.headers.get('etag');
+    assert.ok(etag, 'each build carries a tag');
+    await full.arrayBuffer();
+    // The same build: the rest is sent.
+    const resumed = await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=40-', 'If-Range': etag } });
+    assert.equal(resumed.status, 206);
+    assert.equal((await resumed.arrayBuffer()).byteLength, 60);
+    // A newer build since: the whole file again, never the tail of another build.
+    const stale = await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=40-', 'If-Range': '"old-build"' } });
+    assert.equal(stale.status, 200);
+    assert.equal((await stale.arrayBuffer()).byteLength, 100);
+    const refused = await fetch(`${base}/download/saligue.apk`, { headers: { Range: 'bytes=40-', 'If-Match': '"old-build"' } });
+    assert.equal(refused.status, 412, 'a download manager resuming another build is told to start over');
+    await refused.arrayBuffer();
   });
 });
