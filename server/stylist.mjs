@@ -34,6 +34,12 @@ const words = (text) => String(text ?? '').toLowerCase().normalize('NFKD').split
 /** The sizes this item is sold in ("M", "M, L", "38/40"): one item, several ways of writing it. */
 const sizesOf = (p) => String(p.size ?? '').toLowerCase().split(/[\s,/]+/).filter(Boolean);
 
+/** No size given, or one size for everyone: never filtered out by the shopper's size. */
+const fitsEveryone = (p) => {
+  const size = String(p.size ?? '').trim().toLowerCase();
+  return !size || /^(one|free|os|o\/s|universal|unique|taille unique|one[ -]size|free[ -]size)$/.test(size) || /one[ -]?size|free[ -]?size|taille unique/.test(size);
+};
+
 /** How many of the shopper's words this item answers: its name, kind, brand, colour and description. */
 function named(product, wanted) {
   if (!wanted.length) return 0;
@@ -60,7 +66,8 @@ export function stylistCandidates(userId, { message = '', size = '', maxPrice = 
     const product = byId.get(id);
     // A sold-out or archived item is never advice: it cannot be delivered.
     if (!product || product.status !== 'active' || product.hidden || product.stock === 0) continue;
-    if (sizeWanted && !sizesOf(product).includes(sizeWanted)) continue;
+    // An item with no size given, or sold as one size (bags, jewellery, wraps), fits everyone.
+    if (sizeWanted && !fitsEveryone(product) && !sizesOf(product).includes(sizeWanted)) continue;
     if (budget !== null && Number(product.price) > budget) continue;
     scored.push({ hits: named(product, wanted), product, reason });
   }

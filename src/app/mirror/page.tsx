@@ -59,7 +59,8 @@ function byShops(list: Product[]) {
 function Mirror() {
   const { toast } = useToast();
   const params = useSearchParams();
-  const itemId = params.get('item');
+  // One item ("Wear it": ?item=) or a whole outfit (the AI Stylist: ?items=a,b,c).
+  const wantedKey = (params.get('items') ?? params.get('item') ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6).join(',');
   const { products, isInitialized } = useProductStore();
   const { personUrl, photoUrl, landmarks: normalizedLandmarks, restore, setPerson, clear } = useMirrorStore();
 
@@ -69,14 +70,24 @@ function Mirror() {
   const { slots, restore: restoreOutfit, wear } = useOutfitStore();
   useEffect(() => restoreOutfit(), [restoreOutfit]);
   const wornFrom = useRef<string | null>(null);
+  // Items fetched once already: one that is gone must not hold the rest of the outfit back.
+  const fetched = useRef(new Set<string>());
+  const [fetchedRound, setFetchedRound] = useState(0);
   useEffect(() => {
-    if (!itemId || wornFrom.current === itemId || !isInitialized) return;
-    const product = products.find((p) => p.id === itemId && p.status === 'active');
-    if (!product) return void ensureProduct(itemId);
-    wornFrom.current = itemId;
+    if (!wantedKey || wornFrom.current === wantedKey || !isInitialized) return;
+    const ids = wantedKey.split(',');
+    const missing = ids.filter((id) => !products.some((p) => p.id === id) && !fetched.current.has(id));
+    if (missing.length) {
+      missing.forEach((id) => fetched.current.add(id));
+      void Promise.all(missing.map((id) => ensureProduct(id))).then(() => setFetchedRound((n) => n + 1));
+      return;
+    }
+    const wearable = ids.flatMap((id) => products.filter((p) => p.id === id && p.status === 'active'));
+    if (!wearable.length) return;
+    wornFrom.current = wantedKey;
     restoreOutfit();
-    wear(product);
-  }, [itemId, products, isInitialized, wear, restoreOutfit]);
+    wearable.forEach((product) => wear(product));
+  }, [wantedKey, products, isInitialized, wear, restoreOutfit, fetchedRound]);
   const wornIds = useMemo(() => new Set(Object.values(slots)), [slots]);
 
   // Saligue AI Studio (realistic redraw) is optional: on-device dressing works without it.

@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
@@ -39,6 +39,9 @@ export default function StylistPage() {
   const [busy, setBusy] = useState(false);
   const [advice, setAdvice] = useState<Advice | null>(null);
   const [asked, setAsked] = useState('');
+  // The stylist's own question, shown in the empty box so the shopper answers it instead of re-sending it.
+  const [hint, setHint] = useState('');
+  const box = useRef<HTMLTextAreaElement>(null);
 
   const ask = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -55,6 +58,7 @@ export default function StylistPage() {
       setAdvice(answer);
       setAsked(question);
       setMessage('');
+      setHint('');
       // A shop that listed something a minute ago may not be on this phone yet.
       answer.picks.forEach((pick) => void ensureProduct(pick.id));
     } catch (error) {
@@ -88,11 +92,12 @@ export default function StylistPage() {
                 <label htmlFor="occasion" className="text-sm font-semibold">Where are you going?</label>
                 <Textarea
                   id="occasion"
+                  ref={box}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   rows={2}
                   maxLength={300}
-                  placeholder="A wedding in Kigali next month — smart, but not too formal"
+                  placeholder={hint || 'A wedding in Kigali next month — smart, but not too formal'}
                   className="resize-none"
                 />
               </div>
@@ -185,7 +190,13 @@ export default function StylistPage() {
               {advice.ask && (
                 <button
                   type="button"
-                  onClick={() => setMessage(advice.ask ?? '')}
+                  onClick={() => {
+                    // The AI asked the shopper something: keep their occasion and let them answer, never send the
+                    // AI its own question back as if the shopper had asked it.
+                    setHint(advice.ask ?? '');
+                    setMessage(asked ? `${asked} — ` : '');
+                    box.current?.focus();
+                  }}
                   className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1.5 text-left text-sm font-medium text-primary transition hover:bg-primary/10"
                 >
                   {advice.ask}
@@ -199,7 +210,7 @@ export default function StylistPage() {
                       ? 'Chosen from Saligue’s catalogue, best match first.'
                       : 'Every item is real, in stock, and priced by its own shop.'}
                   </p>
-                  <Link href="/mirror" className="ml-auto flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
+                  <Link href={`/mirror?items=${picks.map((p) => p.id).join(',')}`} className="ml-auto flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
                     <Wand2 className="h-4 w-4" /> Try them on
                   </Link>
                 </div>

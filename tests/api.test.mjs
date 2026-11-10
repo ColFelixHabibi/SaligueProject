@@ -1246,7 +1246,12 @@ describe('the AI stylist', () => {
     const sized = await call('/ai/stylist', { token: shopper.token, body: { message: 'Something to wear', size: 'M' } });
     assert.equal(sized.status, 200, JSON.stringify(sized.json));
     assert.ok(sized.json.picks.length >= 1, 'there are size M items in the catalogue');
-    for (const pick of sized.json.picks) assert.match(String(real.get(pick.id).size), /^m$/i, 'never another size');
+    for (const pick of sized.json.picks) assert.match(String(real.get(pick.id).size ?? ''), /^(m|)$/i, 'never another size');
+    // Nothing in the sample is sold in XL, but a cap with no size fits everyone: the shopper still gets an answer.
+    const xl = await call('/ai/stylist', { token: shopper.token, body: { message: 'A cap', size: 'XL' } });
+    assert.equal(xl.status, 200, JSON.stringify(xl.json));
+    assert.ok(xl.json.picks.length >= 1, 'items without a size are not hidden by the size filter');
+    for (const pick of xl.json.picks) assert.equal(String(real.get(pick.id).size ?? ''), '', 'only size-free items fit XL here');
     // $12 is the cheapest thing Saligue sells in the sample catalogue: nothing over it may be suggested.
     const cheap = await call('/ai/stylist', { token: shopper.token, body: { message: 'A white tee for every day', maxPrice: 12 } });
     assert.equal(cheap.status, 200, JSON.stringify(cheap.json));
