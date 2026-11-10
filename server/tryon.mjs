@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync,
 import { join } from 'node:path';
 import { Client, handle_file } from '@gradio/client';
 import { DATA_DIR, db, parse } from './db.mjs';
+import { noteTryOn, tryOnOrder } from './ai-learn.mjs';
 
 const SPACE = process.env.TRYON_SPACE || 'franciszzj/Leffa';
 const FALLBACK_SPACE = process.env.TRYON_FALLBACK_SPACE || 'yisol/IDM-VTON';
@@ -70,6 +71,15 @@ const GARMENT = {
 };
 export const REALISTIC_CATEGORIES = Object.keys(GARMENT);
 
+// How much work each AI is allowed to do on a look. 'high' is the Fitting Room's default, 'fast' is for a quick
+// look on a slow connection, 'ultra' when the shopper asks for the best. The free public models take the same
+// setting as extra steps (they have no other knob), Saligue's own Studio uses it for its own presets, and FASHN
+// switches between its performance and quality modes. Anything unknown means 'high'.
+const QUALITIES = ['fast', 'high', 'ultra'];
+export const REALISTIC_QUALITIES = QUALITIES;
+const qualityOf = (quality) => (QUALITIES.includes(quality) ? quality : 'high');
+const freeSteps = (quality) => ({ fast: 20, high: 30, ultra: 40 })[qualityOf(quality)];
+
 function toBlob(dataUrl) {
   const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(String(dataUrl ?? ''));
   if (!match) throw Object.assign(new Error('Invalid image.'), { status: 400 });
@@ -77,14 +87,14 @@ function toBlob(dataUrl) {
   return new Blob([bytes], { type: match[1] || 'image/jpeg' });
 }
 
-async function leffa(person, garment, category, variant = 0) {
+async function leffa(person, garment, category, variant = 0, quality = 'high') {
   const [model, kind] = GARMENT[category] ?? GARMENT.top;
   const app = await connect(SPACE);
   const result = await app.predict('/leffa_predict_vt', {
     src_image_path: handle_file(toBlob(person)),
     ref_image_path: handle_file(toBlob(garment)),
     ref_acceleration: false,
-    step: 30,
+    step: freeSteps(quality),
     scale: 2.5,
     seed: 42 + variant * 1009,
     vt_model_type: model,
@@ -97,7 +107,7 @@ async function leffa(person, garment, category, variant = 0) {
 }
 
 // IDM-VTON dresses the upper body only (tops and jackets).
-async function idmVton(person, garment, description, variant = 0) {
+async function idmVton(person, garment, description, variant = 0, quality = 'high') {
   const app = await connect(FALLBACK_SPACE);
   const result = await app.predict('/tryon', {
     dict: { background: handle_file(toBlob(person)), layers: [], composite: null },
@@ -105,7 +115,7 @@ async function idmVton(person, garment, description, variant = 0) {
     garment_des: description || 'garment',
     is_checked: true,
     is_checked_crop: false,
-    denoise_steps: 30,
+    denoise_steps: freeSteps(quality),
     seed: 42 + variant * 1009,
   });
   const url = result?.data?.[0]?.url;
@@ -139,17 +149,36 @@ export async function checkOwnAi(url, key) {
   return { ok: true, gpu: health.gpu, memoryGb: health.memoryGb, ready: health.ready, busy: health.busy };
 }
 
-async function ownAiTryOn(person, garment, category, variant = 0) {
+async function ownAiTryOn(person, garment, category, variant = 0, description = '', quality = 'high') {
   const { url, key } = ownAi();
   const response = await fetch(`${url}/api/tryon`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Saligue-Key': key },
-    body: JSON.stringify({ person, garment, category, variant }),
+    // The garment's own words and the quality the shopper chose go along: the Studio uses them for its prompt
+    // and its presets (ai-server/server.py), so the same photo can be tried on fast or at the best quality.
+    body: JSON.stringify({ person, garment, category, variant, quality: qualityOf(quality), description: String(description ?? '').slice(0, 200) }),
     signal: AbortSignal.timeout(180_000),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.image) throw new Error(`Own AI server: ${data?.detail ?? response.status}`);
   return data.image;
+}
+
+/**
+ * Tells Saligue's own AI Studio what a shopper did with a look it drew: kept it or threw it away. The Studio counts
+ * those per part of the body and nudges its own guidance a little (ai-server/server.py → studio-learning.json).
+ * Best effort and never awaited: a sleeping GPU server or a slow link must never cost the shopper their answer, and
+ * Saligue's own learning (ai-learn.mjs) already has the same signal for the engine chain.
+ */
+export function tellStudio({ category, kept, reason = null }) {
+  const own = ownAi();
+  if (!own || !category) return;
+  fetch(`${own.url}/api/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Saligue-Key': own.key },
+    body: JSON.stringify({ category, kept: kept === true, engine: 'own', reason: reason ?? null }),
+    signal: AbortSignal.timeout(5000),
+  }).catch((error) => console.error('Could not tell the AI Studio what the shopper kept:', String(error?.message ?? error).slice(0, 160)));
 }
 
 export function falKey() {
@@ -177,7 +206,7 @@ export const unlimitedTryOn = () => paidUp() || !!ownAi();
 const FAL_CATEGORY = { top: 'tops', outerwear: 'tops', bottom: 'bottoms', dress: 'one-pieces' };
 const FAL_QUEUE = (process.env.FAL_QUEUE_URL || 'https://queue.fal.run').replace(/\/+$/, '');
 
-async function fashn(person, garment, category, variant = 0) {
+async function fashn(person, garment, category, variant = 0, quality = 'high') {
   const headers = { Authorization: `Key ${falKey()}`, 'Content-Type': 'application/json' };
   const submit = await fetch(`${FAL_QUEUE}/fal-ai/fashn/tryon/v1.6`, {
     method: 'POST',
@@ -187,7 +216,8 @@ async function fashn(person, garment, category, variant = 0) {
       garment_image: garment,
       category: FAL_CATEGORY[category] ?? 'auto',
       // The Fitting Room is Saligue's signature: the best quality FASHN offers (a few seconds slower).
-      mode: 'quality',
+      // A shopper who asked for a quick look gets FASHN's performance mode instead.
+      mode: qualityOf(quality) === 'fast' ? 'performance' : 'quality',
       garment_photo_type: 'auto',
       output_format: 'jpeg',
       num_samples: 1,
@@ -226,7 +256,7 @@ const expired = (file) => Date.now() - statSync(file).mtimeMs > CACHE_HOURS * 3_
 mkdirSync(CACHE_DIR, { recursive: true });
 // Which AI makes the looks now: a look made by the free models is never reused once a better one is connected.
 const engine = () => (ownAi() ? 'own' : paidUp() ? 'fashn' : 'free');
-const cacheKey = (person, garment, category, variant, by = engine()) => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}|${by}`).digest('hex').slice(0, 40);
+const cacheKey = (person, garment, category, variant, by = engine(), quality = 'high') => createHash('sha256').update(person).update('|').update(garment).update('|').update(category).update(`|${variant}|${by}|${qualityOf(quality)}`).digest('hex').slice(0, 40);
 
 // Each kept look starts with the AI that made it ("fashn\n data:…"); older ones are only the picture.
 function fromCache(key) {
@@ -284,11 +314,13 @@ async function kolors(person, garment, variant = 0) {
 /**
  * Returns the person wearing the garment (a JPEG/PNG data URL) and which AI made it: 'fashn' or 'own' give a
  * finished photo; 'free' models sometimes change other clothes too, so the app checks those pictures.
+ * `quality` ('fast' | 'high' | 'ultra') says how much work each AI may do; unknown values mean 'high'.
+ * Every attempt is counted (server/ai-learn.mjs), which is how the chain learns which AI people are happiest with.
  */
-export async function tryOn(person, garment, category, description = '', variant = 0) {
+export async function tryOn(person, garment, category, description = '', variant = 0, quality = 'high') {
   toBlob(person);
   toBlob(garment);
-  const key = cacheKey(person, garment, category, variant);
+  const key = cacheKey(person, garment, category, variant, undefined, quality);
   const cached = fromCache(key);
   if (cached) {
     console.log(`Try-on ${category}: reused a look already made`);
@@ -297,9 +329,9 @@ export async function tryOn(person, garment, category, description = '', variant
   // One line per try-on (never the photos), so failures can be explained later: journalctl -u saligue | grep Try-on
   const started = Date.now();
   try {
-    const look = await makeLook(person, garment, category, description, variant);
+    const look = await makeLook(person, garment, category, description, variant, quality);
     // Kept under the AI that really made it (a free model's look is never passed off as the paid one's).
-    toCache(cacheKey(person, garment, category, variant, look.by), look);
+    toCache(cacheKey(person, garment, category, variant, look.by, quality), look);
     console.log(`Try-on ${category}: done by ${look.by} in ${Math.round((Date.now() - started) / 1000)} s`);
     return look;
   } catch (error) {
@@ -308,38 +340,25 @@ export async function tryOn(person, garment, category, description = '', variant
   }
 }
 
-async function makeLook(person, garment, category, description, variant) {
-  if (ownAi()) {
-    try {
-      return { image: await ownAiTryOn(person, garment, category, variant), by: 'own' };
-    } catch (error) {
-      console.error('Own AI server failed, trying the backups:', String(error?.message ?? error).slice(0, 200));
-    }
-  }
-  let paidError = null;
-  if (paidUp()) {
-    try {
-      return { image: await fashn(person, garment, category, variant), by: 'fashn' };
-    } catch (error) {
-      paidError = error;
-      paidRefused(error);
-      console.error('FASHN try-on failed, trying the free models:', error.message);
-    }
-  }
-  let first;
+// The free public models, in the order they are tried: Leffa (best), IDM-VTON for tops, then Kolors only when asked.
+// Returns the picture, or null when none of them could make it; the first failure is kept for the shopper's message.
+async function freeLook(person, garment, category, description, variant, quality, remember) {
+  const started = Date.now();
+  let image = null;
+  let first = null;
   if (available(SPACE)) {
     try {
-      return { image: await leffa(person, garment, category, variant), by: 'free' };
+      image = await leffa(person, garment, category, variant, quality);
     } catch (error) {
       first = error;
       rest(SPACE, error);
       clients.delete(SPACE);
     }
   } else first = new Error('quota: resting');
-  if (category === 'top' || category === 'outerwear') {
+  if (!image && (category === 'top' || category === 'outerwear')) {
     if (available(FALLBACK_SPACE)) {
       try {
-        return { image: await idmVton(person, garment, description, variant), by: 'free' };
+        image = await idmVton(person, garment, description, variant, quality);
       } catch (error) {
         rest(FALLBACK_SPACE, error);
         clients.delete(FALLBACK_SPACE);
@@ -348,15 +367,56 @@ async function makeLook(person, garment, category, description, variant) {
     }
     // Kolors (kolors() above) is not used: in tests it drew wrong sleeves and smudges and changed other clothes.
     // Turn it on with TRYON_USE_KOLORS=1 only to experiment; the app's look check still guards every picture.
-    if (process.env.TRYON_USE_KOLORS === '1') {
+    if (!image && process.env.TRYON_USE_KOLORS === '1') {
       try {
-        return { image: await kolors(person, garment, variant), by: 'free' };
+        image = await kolors(person, garment, variant);
       } catch (error) {
         clients.delete(LAST_SPACE);
         console.error('Realistic try-on last fallback failed:', error?.message ?? error);
       }
     }
   }
+  noteTryOn({ engine: 'free', category, ok: !!image, ms: Date.now() - started });
+  remember.first = first;
+  return image;
+}
+
+async function makeLook(person, garment, category, description, variant, quality) {
+  // The AIs are tried in the order people have been happiest with (server/ai-learn.mjs): own server, paid model,
+  // free models — unless shoppers have clearly kept the free models' looks and refused the paid one's.
+  const status = { first: null };
+  let paidError = null;
+  for (const step of tryOnOrder(category)) {
+    if (step === 'own' && ownAi()) {
+      const started = Date.now();
+      try {
+        const image = await ownAiTryOn(person, garment, category, variant, description, quality);
+        noteTryOn({ engine: 'own', category, ok: true, ms: Date.now() - started });
+        return { image, by: 'own' };
+      } catch (error) {
+        noteTryOn({ engine: 'own', category, ok: false, ms: Date.now() - started });
+        console.error('Own AI server failed, trying the backups:', String(error?.message ?? error).slice(0, 200));
+      }
+    }
+    if (step === 'fashn' && paidUp()) {
+      const started = Date.now();
+      try {
+        const image = await fashn(person, garment, category, variant, quality);
+        noteTryOn({ engine: 'fashn', category, ok: true, ms: Date.now() - started });
+        return { image, by: 'fashn' };
+      } catch (error) {
+        noteTryOn({ engine: 'fashn', category, ok: false, ms: Date.now() - started });
+        paidError = error;
+        paidRefused(error);
+        console.error('FASHN try-on failed, trying the free models:', error.message);
+      }
+    }
+    if (step === 'free') {
+      const image = await freeLook(person, garment, category, description, variant, quality, status);
+      if (image) return { image, by: 'free' };
+    }
+  }
+  const first = status.first;
   const message = String(first?.message ?? first);
   // With fal.ai connected, "daily limit" would be misleading: the paid try-on itself failed (reason in the log).
   if (paidError) throw Object.assign(new Error('The try-on AI is busy right now. Try again in a minute.'), { status: 503, cause: paidError });

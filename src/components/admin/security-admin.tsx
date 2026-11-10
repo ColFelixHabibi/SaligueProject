@@ -21,6 +21,7 @@ const KIND: Record<string, string> = {
   login_failed: 'Wrong password', account_locked: 'Account locked', admin_login: 'Admin signed in', admin_denied: 'Admin function refused',
   probe: 'Scan for weak spots', injection: 'Attack text', flood: 'Request flood', webhook_forged: 'Fake payment call',
   signup_burst: 'Many new accounts', reset: 'Password reset asked', admin_change: 'Admin change', ssh_login: 'Server sign-in (SSH)', ssh_failed: 'Server password guesses (SSH)', chat_spam: 'Messaging many people',
+  guest: 'Guest account', guest_burst: 'Many guest accounts',
 };
 // The worrying ones are shown in red.
 const SERIOUS = new Set(['chat_spam', 'webhook_forged', 'admin_change', 'ssh_login', 'injection', 'account_locked', 'flood']);

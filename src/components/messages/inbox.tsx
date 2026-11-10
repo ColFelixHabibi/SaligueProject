@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format, isToday, isYesterday } from 'date-fns';
-import { Archive, ArchiveRestore, ArrowLeft, BadgeCheck, CheckCheck, Forward, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, User, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, BadgeCheck, CheckCheck, Forward, ImagePlus, Loader2, MessageCircle, Package, Search, Send, Store, Trash2, User, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,7 @@ import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
 import { clearConversation, forwardMessage, setArchived, useConversation, useInbox } from '@/lib/messages';
 import { formatPrice, shortOrderId } from '@/lib/orders';
-import type { Conversation, Message } from '@/lib/types';
+import type { ChatAttachment, Conversation, Message } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
@@ -59,14 +59,14 @@ function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Convers
               {c.other.official && <BadgeCheck className="h-4 w-4 shrink-0 text-primary" />}
               {/* Shop or customer, as an icon: the avatar may be a photo, so this tells them apart. */}
               {c.role === 'buyer'
-                ? <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Shop" />
-                : <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Customer" />}
+                ? <Store className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('Shop')} />
+                : <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('Customer')} />}
             </span>
             {c.lastMessage && <span className={cn('shrink-0 text-xs', c.unread ? 'font-semibold text-primary' : 'text-muted-foreground')}>{when(c.lastMessage.createdAt)}</span>}
           </span>
           <span className="flex items-center justify-between gap-2">
             <span className={cn('truncate text-sm', c.unread ? 'text-foreground' : 'text-muted-foreground')}>
-              {c.lastMessage ? `${c.lastMessage.fromMe ? 'You: ' : ''}${c.lastMessage.text}` : 'No messages yet'}
+              {c.lastMessage ? `${c.lastMessage.fromMe ? t('You: ') : ''}${c.lastMessage.text}` : t('No messages yet')}
             </span>
             {c.unread > 0 && (
               <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">{c.unread}</span>
@@ -113,14 +113,39 @@ function ItemCard({ productId }: { productId: string }) {
   );
 }
 
+/**
+ * A photo, video or voice note in a chat, shown where it was sent. The address is the signed link the server made
+ * for the people in this conversation (a few hours): mediaUrl() turns it into a full address, which is what makes
+ * it open inside the phone app too, where the pages come from the phone itself.
+ */
+function Attachment({ a }: { a: ChatAttachment }) {
+  const url = mediaUrl(a.url);
+  if (a.kind === 'image') {
+    return <img src={url} alt="" loading="lazy" width={a.width ?? undefined} height={a.height ?? undefined} className="mb-1 max-h-72 w-full rounded-xl object-cover" />;
+  }
+  if (a.kind === 'video') {
+    return <video src={url} poster={mediaUrl(a.poster ?? undefined)} controls playsInline preload="metadata" className="mb-1 max-h-72 w-full rounded-xl bg-black" />;
+  }
+  // A voice note: the sound itself, with how long it runs beside it.
+  return (
+    <span className="mb-1 flex items-center gap-2">
+      <audio src={url} controls preload="metadata" className="w-56 max-w-full" />
+      {a.duration ? <span className="shrink-0 text-[10px] opacity-75">{Math.floor(a.duration / 60)}:{String(a.duration % 60).padStart(2, '0')}</span> : null}
+    </span>
+  );
+}
+
 // onClear gets the thread's own conversation: one opened from a link may not be in the loaded list.
 function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onClear: (c: Conversation) => void }) {
   const { authUid } = useAuth();
   const { toast } = useToast();
   const t = useT();
-  const { data, error, send } = useConversation(id);
+  const { data, error, send, sendFile } = useConversation(id);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // 0–1 while a photo or video uploads, null otherwise. The upload is the slow part, so it is shown on the button.
+  const [upload, setUpload] = useState<number | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   // The other chats, offered when a message is forwarded.
   const conversations = useInbox((s) => s.conversations);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
@@ -138,9 +163,21 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
       await send(message);
       setText('');
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Message not sent', description: friendlyError(e) });
+      toast({ variant: 'destructive', title: t('Message not sent'), description: friendlyError(e) });
     } finally {
       setSending(false);
+    }
+  };
+
+  /** Sends a photo or a video. The server re-makes every file it is given, so what is kept is always a clean one. */
+  const attach = async (file: File) => {
+    setUpload(0);
+    try {
+      await sendFile(file.type.startsWith('video/') ? 'video' : 'image', file, (p) => setUpload(p));
+    } catch (e) {
+      toast({ variant: 'destructive', title: t('Message not sent'), description: friendlyError(e) });
+    } finally {
+      setUpload(null);
     }
   };
 
@@ -172,7 +209,7 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b px-3 py-2.5">
-        <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack} aria-label="Back to conversations">
+        <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack} aria-label={t('Back to conversations')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <Avatar className="h-10 w-10">
@@ -183,13 +220,13 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1 truncate font-semibold">{c.other.name}{c.other.official && <BadgeCheck className="h-4 w-4 text-primary" />}</p>
-          <p className="text-xs text-muted-foreground">{c.role === 'buyer' ? 'Shop · usually replies in Saligue and by email' : c.other.isGuest ? 'Customer (guest, sees replies in the app)' : 'Customer'}</p>
+          <p className="text-xs text-muted-foreground">{c.role === 'buyer' ? t('Shop · usually replies in Saligue and by email') : c.other.isGuest ? t('Customer (guest, sees replies in the app)') : t('Customer')}</p>
         </div>
         <button
           type="button"
           onClick={() => onClear(c)}
-          aria-label="Clear this chat"
-          title="Clear chat"
+          aria-label={t('Clear this chat')}
+          title={t('Clear chat')}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="h-5 w-5" />
@@ -197,7 +234,7 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-muted/30 px-3 py-4">
-        {messages.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Say hello 👋</p>}
+        {messages.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">{t('Say hello 👋')}</p>}
         {groups.map((g) => (
           <div key={g.day} className="space-y-2">
             <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{g.day}</p>
@@ -217,10 +254,11 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
                         <Forward className="h-3 w-3" /> {t('Forwarded')}
                       </p>
                     )}
-                    <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                    {m.attachment && <Attachment a={m.attachment} />}
+                    {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
                     <p className={cn('mt-0.5 flex items-center justify-end gap-1 text-[10px]', mine ? 'text-primary-foreground/75' : 'text-muted-foreground')}>
                       {format(new Date(m.createdAt), 'HH:mm')}
-                      {mine && m.id === lastMine?.id && otherReadAt && otherReadAt >= m.createdAt && <><CheckCheck className="h-3 w-3" /> Seen</>}
+                      {mine && m.id === lastMine?.id && otherReadAt && otherReadAt >= m.createdAt && <><CheckCheck className="h-3 w-3" /> {t('Seen')}</>}
                       {/* Only what travels safely: the text, an item, an order (see the server's forward route). */}
                       {!m.deleted && (m.text || m.productId || m.orderId) && (
                         <button
@@ -250,6 +288,30 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
           void submit();
         }}
       >
+        {/* A photo or a video: the file picker stays out of the way until the button asks for it. */}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = ''; // so the same photo can be sent twice
+            if (file) void attach(file);
+          }}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-11 w-11 shrink-0 rounded-full"
+          onClick={() => picker.current?.click()}
+          disabled={upload !== null}
+          aria-label={t('Photo or video')}
+          title={t('Photo or video')}
+        >
+          {upload === null ? <ImagePlus className="h-5 w-5" /> : <span className="text-[10px] font-semibold">{Math.round(upload * 100)}%</span>}
+        </Button>
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -259,12 +321,12 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
               void submit();
             }
           }}
-          placeholder="Write a message…"
+          placeholder={t('Write a message…')}
           maxLength={3000}
           rows={1}
           className="max-h-32 min-h-11 resize-none rounded-2xl"
         />
-        <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-full" disabled={sending || !text.trim()} aria-label="Send">
+        <Button type="submit" size="icon" className="h-11 w-11 shrink-0 rounded-full" disabled={sending || upload !== null || !text.trim()} aria-label={t('Send')}>
           {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
         </Button>
       </form>

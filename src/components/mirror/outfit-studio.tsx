@@ -23,7 +23,7 @@ import type { Parsing } from '@/lib/ai/parse';
 import { categoryLabel } from '@/lib/categories';
 import { enqueue, itemCutout } from '@/lib/ai/cutout';
 import { context2d, createCanvas, loadImage } from '@/lib/ai/canvas';
-import { REALISTIC_CATEGORIES, realisticTryOn } from '@/lib/ai/studio';
+import { REALISTIC_CATEGORIES, keepLook, realisticTryOn } from '@/lib/ai/studio';
 import { ensureTryOnConsent } from '@/lib/ai/consent';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
@@ -254,6 +254,9 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
   const addOutfitToCart = async () => {
     try {
       for (const item of outfit) await addToCart(item);
+      // Each piece the AI actually drew and the shopper is buying is a vote for the AI that drew it
+      // (src/lib/ai/studio.ts → keepLook): the try-on chain learns which engine people trust.
+      for (const item of redrawable) keepLook(item.image, outfitSlot(item));
       toast({ title: 'Outfit added to your bag', description: `${outfit.length} items · ${formatPrice(total)}` });
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Could not add to bag', description: friendlyError(error) });

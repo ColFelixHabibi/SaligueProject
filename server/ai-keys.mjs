@@ -7,9 +7,12 @@
 //   SALIGUE_SEAL_KEY   64 hex characters (openssl rand -hex 32); or SALIGUE_SEAL_FILE, a file holding them
 //   DEEPSEEK_API_KEY   the platform's own key, used by accounts that did not add one
 //   DEEPSEEK_API_URL   only for a proxy or a test server (default https://api.deepseek.com)
-//   DEEPSEEK_MODEL     the model AI writing uses (default deepseek-chat)
+//   DEEPSEEK_MODEL          the model AI writing uses (default deepseek-chat)
+//   DEEPSEEK_MODEL_FAST     a cheaper model for short jobs (default: the same as DEEPSEEK_MODEL)
+//   DEEPSEEK_MODEL_REASONER a model for hard, multi-step jobs (default deepseek-reasoner)
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { db, json, now, parse } from './db.mjs';
+import { noteAiUsage } from './ai-learn.mjs';
 import { outsideKey } from './secrets.mjs';
 
 const API = (process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
@@ -199,44 +202,81 @@ export async function recheckAiKey(userId, provider = 'deepseek') {
  * This is what makes a saved key do something: every AI feature that writes text calls this with the
  * signed-in account's id, so two accounts genuinely never spend the same key.
  * Throws an error with .status/.code so the route can answer with a clear message.
+ *
+ * `tier` picks the model: 'smart' (the default, the one people read), 'fast' (short cheap jobs) or 'reasoner'
+ * (hard, multi-step jobs). `json` asks for a JSON object back (DeepSeek needs the word "json" in the prompt).
+ * A busy or broken connection is retried twice before the shopper is told, and every answered call is counted
+ * per account and purpose (server/ai-learn.mjs) so the AI's cost stays visible.
  */
-export async function aiComplete(userId, messages, { maxTokens = 400, temperature = 0.6, provider = 'deepseek' } = {}) {
+const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
+const pause = (attempt) => new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+
+function modelFor(tier) {
+  if (tier === 'reasoner') return process.env.DEEPSEEK_MODEL_REASONER?.trim() || 'deepseek-reasoner';
+  if (tier === 'fast') return process.env.DEEPSEEK_MODEL_FAST?.trim() || process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat';
+  return process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat';
+}
+
+export async function aiComplete(userId, messages, {
+  maxTokens = 400, temperature = 0.6, provider = 'deepseek',
+  tier = 'smart', json = false, purpose = 'other', retries = 2, timeoutMs = 30_000,
+} = {}) {
   const { key: secret, source } = aiKeyOf(userId, provider);
   if (!secret) {
     throw Object.assign(new Error('This account has no AI key yet. Add your DeepSeek key in Settings, or ask Saligue for one.'), { code: 'no_key', status: 503 });
   }
-  const response = await fetch(`${API}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL?.trim() || 'deepseek-chat',
-      messages,
-      max_tokens: maxTokens,
-      temperature,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  }).catch(() => null);
-  if (!response) {
-    throw Object.assign(new Error('DeepSeek did not answer. Check your connection and try again.'), { code: 'unreachable', status: 504 });
+  const model = modelFor(tier);
+  const payload = { model, messages, max_tokens: maxTokens, temperature, stream: false };
+  if (json && tier !== 'reasoner') payload.response_format = { type: 'json_object' };
+  for (let attempt = 0; ; attempt++) {
+    const again = attempt < Math.max(0, retries);
+    let response = null;
+    try {
+      response = await fetch(`${API}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      if (again) {
+        await pause(attempt);
+        continue;
+      }
+      throw Object.assign(new Error('DeepSeek did not answer. Check your connection and try again.'), { code: 'unreachable', status: 504 });
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw Object.assign(new Error(source === 'yours'
+        ? 'DeepSeek refused this account’s key. Add it again in Settings.'
+        : 'Saligue’s AI key was refused. Please tell INDECIANA.'), { code: 'key_refused', status: 502 });
+    }
+    if (response.status === 402) {
+      throw Object.assign(new Error(source === 'yours'
+        ? 'This DeepSeek account has no credit left. Top it up, or use Saligue’s key.'
+        : 'Saligue’s AI key has no credit left.'), { code: 'no_credit', status: 402 });
+    }
+    if (!response.ok) {
+      if (again && RETRYABLE.has(response.status)) {
+        await pause(attempt);
+        continue;
+      }
+      throw Object.assign(new Error(`DeepSeek answered ${response.status}. Try again in a moment.`), { code: 'ai_failed', status: 502 });
+    }
+    const data = await response.json().catch(() => null);
+    const text = String(data?.choices?.[0]?.message?.content ?? '').trim();
+    if (!text) {
+      if (again) {
+        await pause(attempt);
+        continue;
+      }
+      throw Object.assign(new Error('DeepSeek sent nothing back. Try again.'), { code: 'empty', status: 502 });
+    }
+    try {
+      noteAiUsage({ userId, provider, model: data?.model ?? model, purpose, tokens: data?.usage?.total_tokens ?? 0 });
+    } catch (error) {
+      // Counting is a nicety: a database hiccup must never lose the words the shopper asked for.
+      console.error('Could not count the AI call:', error.message);
+    }
+    return { text, source, model: data?.model ?? model, tokens: data?.usage?.total_tokens ?? null };
   }
-  if (response.status === 401 || response.status === 403) {
-    throw Object.assign(new Error(source === 'yours'
-      ? 'DeepSeek refused this account’s key. Add it again in Settings.'
-      : 'Saligue’s AI key was refused. Please tell INDECIANA.'), { code: 'key_refused', status: 502 });
-  }
-  if (response.status === 402) {
-    throw Object.assign(new Error(source === 'yours'
-      ? 'This DeepSeek account has no credit left. Top it up, or use Saligue’s key.'
-      : 'Saligue’s AI key has no credit left.'), { code: 'no_credit', status: 402 });
-  }
-  if (!response.ok) {
-    throw Object.assign(new Error(`DeepSeek answered ${response.status}. Try again in a moment.`), { code: 'ai_failed', status: 502 });
-  }
-  const data = await response.json().catch(() => null);
-  const text = String(data?.choices?.[0]?.message?.content ?? '').trim();
-  if (!text) {
-    throw Object.assign(new Error('DeepSeek sent nothing back. Try again.'), { code: 'empty', status: 502 });
-  }
-  return { text, source, model: data?.model ?? null, tokens: data?.usage?.total_tokens ?? null };
 }

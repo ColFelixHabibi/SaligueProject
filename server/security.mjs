@@ -224,6 +224,16 @@ export function signedUp(ip) {
   }
 }
 
+/** A guest account needs no email, so one address can make them quietly; a burst is still worth seeing. */
+export function guestStarted(ip) {
+  const n = db.prepare("select count(*) as n from security_events where kind = 'guest' and ip = ? and created_at > ?").get(ip, new Date(Date.now() - HOUR).toISOString()).n;
+  securityEvent('guest', { ip });
+  if (n + 1 === 40) {
+    securityEvent('guest_burst', { ip, detail: '40 guest accounts in an hour' });
+    alert('guest_burst', ip, 'Security: many guest accounts from one address', `40 guest accounts were created in an hour${where(ip)}. A phone network can look like this on its own; it is worth a look if it keeps happening.`);
+  }
+}
+
 /** Someone starts chats with many people in a short time: how spam and scams look. */
 export function chatSpam(ip, userId, n) {
   securityEvent('chat_spam', { ip, userId, detail: `${n} new chats in an hour` });

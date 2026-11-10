@@ -321,6 +321,16 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'Share an item': ['Sangiza igicuruzwa', 'Partager un article'],
   'Your saved and liked items': ['Ibyo wabitse n’ibyo wakunze', 'Vos articles enregistrés et aimés'],
   'Write a message…': ['Andika ubutumwa…', 'Écrire un message…'],
+  'Message not sent': ['Ubutumwa ntibwoherejwe', 'Message non envoyé'],
+  'No messages yet': ['Nta butumwa burabaho', 'Aucun message pour l’instant'],
+  'You: ': ['Wowe: ', 'Vous : '],
+  Seen: ['Byarebwe', 'Vu'],
+  Send: ['Ohereza', 'Envoyer'],
+  'Say hello 👋': ['Vuga muraho 👋', 'Dites bonjour 👋'],
+  'Back to conversations': ['Subira ku biganiro', 'Retour aux discussions'],
+  'Clear this chat': ['Siba iki kiganiro', 'Effacer cette discussion'],
+  'Shop · usually replies in Saligue and by email': ['Iduka · gisubiza muri Saligue no kuri imeyili', 'Boutique · répond dans Saligue et par e-mail'],
+  'Customer (guest, sees replies in the app)': ['Umukiriya (umushyitsi, abona ibisubizo muri porogaramu)', 'Client (invité, voit les réponses dans l’app)'],
   'Not done': ['Ntibyakunze', 'Pas fait'],
   // Added 2026-11-06 (comments, notifications, chat clearing, live drops, app update). The Kinyarwanda was written
   // without a native speaker: have one read it, and fix any line here.

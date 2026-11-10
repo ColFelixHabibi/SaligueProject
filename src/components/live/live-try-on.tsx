@@ -9,7 +9,7 @@ import { BeforeAfter } from '@/components/mirror/before-after';
 import { PhotoInputs } from '@/components/mirror/outfit-studio';
 import { useMirrorStore } from '@/hooks/use-mirror-store';
 import { fileToImage, fitWithin } from '@/lib/ai/canvas';
-import { REALISTIC_CATEGORIES, getRealistic, realisticTryOn } from '@/lib/ai/studio';
+import { REALISTIC_CATEGORIES, getRealistic, keepLook, realisticTryOn } from '@/lib/ai/studio';
 import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { formatPrice } from '@/lib/orders';
@@ -95,7 +95,12 @@ export function LiveTryOn({ product, price, onClose, onBuy }: { product: Product
               </div>
             ) : null}
             <div className="grid grid-cols-[1fr_auto] gap-2">
-              <Button className="h-12" disabled={product.stock === 0} onClick={() => { onBuy(product.id); onClose(); }}><ShoppingBag className="mr-2 h-5 w-5" /> {t('Buy')}</Button>
+              <Button className="h-12" disabled={product.stock === 0} onClick={() => {
+                // Buying what the AI drew is the strongest vote for the AI that drew it (src/lib/ai/studio.ts).
+                if (result && slot) keepLook(product.image, slot);
+                onBuy(product.id);
+                onClose();
+              }}><ShoppingBag className="mr-2 h-5 w-5" /> {t('Buy')}</Button>
               {photo && <PhotoInputs onFile={(f) => void usePhoto(f)} compact />}
             </div>
           </div>

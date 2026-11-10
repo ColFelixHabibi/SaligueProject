@@ -21,7 +21,7 @@ delete process.env.AI_SERVER_KEY;
 delete process.env.FAL_KEY;
 delete process.env.HF_TOKEN;
 
-const { tryOn, checkOwnAi, ownAi, unlimitedTryOn, REALISTIC_CATEGORIES } = await import('../server/tryon.mjs');
+const { tryOn, checkOwnAi, ownAi, unlimitedTryOn, tellStudio, REALISTIC_CATEGORIES, REALISTIC_QUALITIES } = await import('../server/tryon.mjs');
 
 const QUEUE = 'https://queue.test';
 const OWN_AI = 'https://ai.test';
@@ -135,16 +135,18 @@ describe('realistic try-on: which AI dresses the shopper', () => {
     const person = img('person-4');
     const garment = img('garment-4');
     const free = img('free-look');
-    const key = createHash('sha256').update(person).update('|').update(garment).update('|').update('top').update('|0|free').digest('hex').slice(0, 40);
+    // A kept look is filed under the AI that drew it and the quality it was asked for ("…|free|high").
+    const key = createHash('sha256').update(person).update('|').update(garment).update('|').update('top').update('|0|free|high').digest('hex').slice(0, 40);
     writeFileSync(join(CACHE, `${key}.txt`), `free\n${free}`);
 
     const better = img('better-look');
-    intercept(falQueue(better));
+    const sent = intercept(falQueue(better));
 
     const made = await tryOn(person, garment, 'top');
 
     assert.equal(made.by, 'fashn');
     assert.equal(made.image, better, 'the free look must not be handed back as the paid one');
+    assert.ok(sent.some((c) => c.url.endsWith('/fal-ai/fashn/tryon/v1.6')), 'the paid model is asked instead of handing back the free look');
   });
 
   test('the same photo and garment are only ever made once', async () => {
@@ -197,6 +199,91 @@ describe('realistic try-on: what the shopper is told about the AI server', () =>
   });
 });
 
+describe('realistic try-on: how much work each AI is allowed', () => {
+  test("our own server is told the chosen quality and the item's own words", async () => {
+    own(true);
+    paid(true);
+    const sent = intercept(() => json({ image: img('ultra-look') }));
+
+    const made = await tryOn(img('person-q1'), img('garment-q1'), 'top', 'a silk blouse', 0, 'ultra');
+
+    assert.equal(made.by, 'own');
+    const body = JSON.parse(sent[0].options.body);
+    assert.equal(body.quality, 'ultra', 'the Studio uses the quality for its own presets');
+    assert.equal(body.description, 'a silk blouse', 'the garment words become the prompt');
+  });
+
+  test('a quality nobody knows means the best care, never nothing', async () => {
+    own(true);
+    paid(true);
+    const sent = intercept(() => json({ image: img('high-look') }));
+
+    const made = await tryOn(img('person-q2'), img('garment-q2'), 'bottom', '', 0, 'wobble');
+
+    assert.equal(made.by, 'own');
+    assert.equal(JSON.parse(sent[0].options.body).quality, 'high');
+  });
+
+  test('the paid model is swift for "fast" and careful otherwise, and each look is its own', async () => {
+    own(false);
+    paid(true);
+    const person = img('person-q3');
+    const garment = img('garment-q3');
+    const sent = intercept(falQueue(img('paid-look')));
+
+    await tryOn(person, garment, 'top', '', 0, 'fast');
+    await tryOn(person, garment, 'top', '', 0, 'ultra');
+
+    const submits = sent.filter((c) => c.url.endsWith('/fal-ai/fashn/tryon/v1.6'));
+    assert.equal(submits.length, 2, 'a quick look and a best look are different pictures, so both are made');
+    assert.equal(JSON.parse(submits[0].options.body).mode, 'performance');
+    assert.equal(JSON.parse(submits[1].options.body).mode, 'quality');
+  });
+
+  test('a best look is never served the quick one already made', async () => {
+    own(false);
+    paid(true);
+    const person = img('person-q4');
+    const garment = img('garment-q4');
+    const sent = intercept(falQueue(img('quick-look')));
+
+    await tryOn(person, garment, 'dress', '', 0, 'fast');
+    await tryOn(person, garment, 'dress', '', 0, 'ultra');
+
+    assert.equal(sent.filter((c) => c.url.endsWith('/fal-ai/fashn/tryon/v1.6')).length, 2, 'the quality is part of the key a look is kept under');
+  });
+});
+
+describe('realistic try-on: what our own AI Studio is told', () => {
+  test('a look it drew, kept or thrown away, is reported to it with its key', () => {
+    own(true);
+    const sent = intercept(() => json({ ok: true }));
+
+    tellStudio({ category: 'top', kept: true, reason: 'bought it' });
+
+    assert.equal(sent.length, 1, 'the Studio learns from its own looks too');
+    assert.equal(sent[0].url, `${OWN_AI}/api/feedback`);
+    assert.equal(sent[0].options.headers['X-Saligue-Key'], 'own-key');
+    const body = JSON.parse(sent[0].options.body);
+    assert.deepEqual(
+      { category: body.category, kept: body.kept, engine: body.engine, reason: body.reason },
+      { category: 'top', kept: true, engine: 'own', reason: 'bought it' }
+    );
+  });
+
+  test('with no Studio connected, and for an item we cannot place, nothing is sent', () => {
+    own(false);
+    const sent = intercept(() => json({ ok: true }));
+
+    tellStudio({ category: 'top', kept: true });
+    own(true);
+    tellStudio({ category: null, kept: true });
+
+    assert.equal(sent.length, 0, 'nothing is guessed and nothing is sent to an address we do not have');
+    own(false);
+  });
+});
+
 describe('realistic try-on: settings', () => {
   test('no AI server is used until both an address and a key are set', () => {
     own(false);
@@ -222,5 +309,9 @@ describe('realistic try-on: settings', () => {
 
   test('the models can dress exactly these categories', () => {
     assert.deepEqual(REALISTIC_CATEGORIES, ['top', 'outerwear', 'bottom', 'dress']);
+  });
+
+  test('a look can be asked for at exactly these qualities', () => {
+    assert.deepEqual(REALISTIC_QUALITIES, ['fast', 'high', 'ultra']);
   });
 });

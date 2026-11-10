@@ -38,9 +38,12 @@ export function deadline(ms: number) {
   return { signal: controller.signal, timedOut: () => timedOut, clear: () => clearTimeout(timer) };
 }
 
-/** Full address of a picture stored on the Saligue server ("/media/…"), also when the website is hosted elsewhere. */
+/** Full address of a file stored on the Saligue server — a picture ("/media/…") or a chat photo, video or voice
+ *  note ("/api/chat-files/…?e=…&s=…", signed): also inside the phone app, where the pages come from the phone
+ *  itself, and when the website is hosted elsewhere. Anything else (a data: URL, another site) is left as it is. */
 export function mediaUrl<T extends string | undefined>(path: T): T {
-  return (path?.startsWith('/media/') ? `${apiOrigin()}${path}` : path) as T;
+  const onServer = path?.startsWith('/media/') || path?.startsWith('/api/chat-files/');
+  return (onServer ? `${apiOrigin()}${path}` : path) as T;
 }
 
 /** Full address of a server API path ("/products/…"), also inside the phone app. */

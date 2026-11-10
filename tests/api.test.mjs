@@ -1748,6 +1748,40 @@ describe('sessions and answers', () => {
     assert.equal(left.includes(await sha256(older)), false, 'and so is the row that held its hash');
   });
 
+  test('asking for a guest account again keeps the same account, with a session of its own', async () => {
+    const first = await call('/auth/guest', { body: {} });
+    assert.equal(first.status, 200);
+    assert.equal(first.json.created, true, 'the first ask makes the account');
+
+    // Re-opening the app must not leave an empty account (and a session) behind every time.
+    const again = await call('/auth/guest', { token: first.json.token, body: {} });
+    assert.equal(again.status, 200);
+    assert.equal(again.json.created, false, 'nothing was created the second time');
+    assert.equal(again.json.user.id, first.json.user.id, 'the same guest account comes back');
+    assert.notEqual(again.json.token, first.json.token, 'with a session of its own');
+    assert.equal((await call('/auth/me', { token: again.json.token })).status, 200);
+    assert.equal((await call('/auth/me', { token: first.json.token })).status, 200, 'and the session it had still works');
+    // Still a guest: browsing works, posting does not.
+    assert.equal((await call('/stories', { token: again.json.token, body: { kind: 'text', caption: 'Hi' } })).status, 401);
+  });
+
+  test('sessions are swept by age, and one account keeps only the newest few', async () => {
+    const person = await register('Session Many');
+    const db = await openDb();
+    // One from 70 days ago: past the 60 the app keeps, so it must not sit in the table for ever.
+    const stale = 'session-past-its-time';
+    db.prepare('insert into sessions (token, user_id, created_at) values (?, ?, ?)').run(stale, person.id, new Date(Date.now() - 70 * 86_400_000).toISOString());
+
+    // Signing in on one device after another: each makes a session, and the table must not grow with every visit.
+    let last;
+    for (let i = 0; i < 21; i++) last = await call('/auth/login', { body: { email: person.user.email, password: 'Test12345!' } });
+    const kept = db.prepare('select token from sessions where user_id = ?').all(person.id).map((r) => r.token);
+    assert.equal(kept.includes(stale), false, 'a session past its 60 days is swept when the next one is made');
+    assert.equal(kept.length, 20, 'one account keeps the newest twenty sessions, no more');
+    // The cap drops the oldest, never the one just made.
+    assert.equal((await call('/auth/me', { token: last.json.token })).status, 200, 'the session just made still signs in');
+  });
+
   test('a stored password this server did not write is a refusal, not a server error', async () => {
     const person = await register('Session Broken');
     const db = await openDb();

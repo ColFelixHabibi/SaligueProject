@@ -127,4 +127,29 @@ describe('the app uses them', () => {
     // The archived chats are kept out of the main list, never dropped.
     assert.match(inbox, /shown\.filter\(\(c\) => c\.archived\)/);
   });
+
+  test('a chat shows the photo, video or voice note it carries', () => {
+    const inbox = source('src/components/messages/inbox.tsx');
+    // The bubble draws the attachment. Before this, a photo or voice note was uploaded, stored and never seen.
+    assert.match(inbox, /\{m\.attachment && <Attachment a=\{m\.attachment\} \/>\}/);
+    assert.match(inbox, /a\.kind === 'image'/);
+    assert.match(inbox, /a\.kind === 'video'/);
+    assert.match(inbox, /<audio src=\{url\}/);
+    // A signed chat file is not under /media/, so mediaUrl() has to recognise it too — otherwise the phone app,
+    // whose pages come from https://localhost, asks itself for a file it does not have and shows nothing.
+    assert.match(source('src/lib/api.ts'), /path\?\.startsWith\('\/api\/chat-files\/'\)/);
+  });
+
+  test('the composer can send a photo or a video', () => {
+    const inbox = source('src/components/messages/inbox.tsx');
+    assert.match(inbox, /sendFile\(file\.type\.startsWith\('video\/'\) \? 'video' : 'image', file, \(p\) => setUpload\(p\)\)/);
+    assert.match(inbox, /accept="image\/\*,video\/\*"/);
+  });
+
+  test('a chat file is private: a signed link, no wildcard CORS, no referrer', () => {
+    const media = source('server/chat-media.mjs');
+    assert.doesNotMatch(media, /Access-Control-Allow-Origin/, 'no other site\'s script may read a private chat file');
+    assert.match(media, /'Referrer-Policy': 'no-referrer'/);
+    assert.match(media, /timingSafeEqual/, 'the signature is compared without leaking it through timing');
+  });
 });

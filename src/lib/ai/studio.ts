@@ -13,6 +13,11 @@ const STORAGE_KEY = 'saligue-ai-studio-url';
 // Categories the realistic try-on model supports; others use on-device dressing only.
 export const REALISTIC_CATEGORIES = ['top', 'outerwear', 'dress', 'bottom'];
 
+// Which AI really drew a look, as the server reports it: Saligue's own Studio, the paid model, or a free one.
+type LookEngine = 'own' | 'fashn' | 'free';
+const QUALITIES = ['fast', 'high', 'ultra'] as const;
+export type TryOnQuality = (typeof QUALITIES)[number];
+
 function clean(url: string | null | undefined) {
   const trimmed = url?.trim().replace(/\/+$/, '');
   return trimmed && /^https?:\/\//.test(trimmed) ? trimmed : null;
@@ -196,35 +201,73 @@ let lane: Promise<unknown> = Promise.resolve();
 // Each failed attempt asks the AI for a different variation next time (not the cached picture).
 const attempts = new Map<string, number>();
 
+// Which AI drew the latest look of each garment in this visit. When the shopper keeps an outfit, the app tells
+// Saligue which AI made it (see keepLook): that is the signal the engine chain learns from (server/ai-learn.mjs),
+// so a model whose looks people keep is the one tried first next time.
+const DRAWN_KEPT = 60;
+const drawnBy = new Map<string, LookEngine>();
+const drawnKey = (garmentUrl: string, category: string) => `${fingerprint(garmentUrl)}|${category}`;
+
+function rememberEngine(garmentUrl: string, category: string, engine: LookEngine) {
+  drawnBy.delete(drawnKey(garmentUrl, category));
+  drawnBy.set(drawnKey(garmentUrl, category), engine);
+  while (drawnBy.size > DRAWN_KEPT) drawnBy.delete(drawnBy.keys().next().value as string);
+}
+
+/** Tells Saligue what happened to a look. Never waits, never fails the shopper: a lost note is not a lost look. */
+function reportLook(engine: LookEngine, category: string, kept: boolean, reason: string) {
+  void api('/ai/tryon/feedback', { body: { engine, category, kept, reason }, timeoutMs: 15_000 }).catch(() => {});
+}
+
+/** The shopper kept this look (wore it, bought it, saved it, carried on with the outfit): a vote for that AI. */
+export function keepLook(garmentUrl: string, category: string) {
+  const key = drawnKey(garmentUrl, category);
+  const engine = drawnBy.get(key);
+  if (!engine) return;
+  drawnBy.delete(key);
+  reportLook(engine, category, true, 'kept');
+}
+
 /**
  * Realistically redraws the garment on the person. Only the new garment is taken from the AI's picture; a
  * picture where the AI also changed other clothes is never shown: the AI is asked once more for another
  * variation, and if that one is wrong too, this fails so the shopper can tap Try again.
+ * `quality` says how much work the AI may do ('high' unless a screen asks otherwise).
  */
-export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = ''): Promise<string> {
+export function realisticTryOn(personUrl: string, garmentUrl: string, category: string, description = '', quality: TryOnQuality = 'high'): Promise<string> {
   const key = `${fingerprint(personUrl)}|${fingerprint(garmentUrl)}|${category}`;
   let look = looks.get(key);
   if (!look) {
     const run = async () => {
       if (!(await ensureTryOnConsent())) throw new Error('Realistic try-on needs a photo of you. Confirm it is you to continue.');
       const padded = await padToShape(await toJpeg(personUrl), isUnlimited() ? 2 / 3 : 3 / 4);
-      const body = { person: padded.url, garment: await toJpeg(garmentUrl), category, description };
+      const body = { person: padded.url, garment: await toJpeg(garmentUrl), category, description, quality };
       for (let tries = 0; tries < 2; tries++) {
         const variant = attempts.get(key) ?? 0;
-        const look = (await getStudio()) ? { image: await call('/api/tryon', { ...body, variant }), finished: false } : await api<{ image: string; finished?: boolean }>('/ai/tryon', { body: { ...body, variant, consent: 'self' }, timeoutMs: SERVER_CALL_TIMEOUT });
-        const image = look.image;
+        const made = (await getStudio())
+          ? { image: await call('/api/tryon', { ...body, variant }), finished: false, engine: 'own' as LookEngine }
+          : await api<{ image: string; finished?: boolean; engine?: string }>('/ai/tryon', { body: { ...body, variant, consent: 'self' }, timeoutMs: SERVER_CALL_TIMEOUT });
+        const engine: LookEngine = made.engine === 'fashn' ? 'fashn' : made.engine === 'free' ? 'free' : 'own';
+        const image = made.image;
         // The paid try-on (fal.ai FASHN) returns a finished, clean photo: shown as it is. Cutting out "only what
         // changed" was made for the free models, and on a good picture it leaves halos around the garment.
         // The server says which AI really drew it: when the paid one is down, a free model's picture is checked.
-        if (look.finished) return cropBack(image, padded);
+        if (made.finished) {
+          rememberEngine(garmentUrl, category, engine);
+          return cropBack(image, padded);
+        }
         try {
-          return await cropBack(await keepOnlyChanged(body.person, image, category), padded);
+          const clean = await cropBack(await keepOnlyChanged(body.person, image, category), padded);
+          rememberEngine(garmentUrl, category, engine);
+          return clean;
         } catch (error) {
           attempts.set(key, variant + 1);
           if (!(error instanceof LookRejected)) {
             console.error('Could not check the look:', error);
             throw new Error('This look could not be finished cleanly. Tap Try again.');
           }
+          // The AI changed more than this item: a vote against it, so the chain learns which AI to trust.
+          reportLook(engine, category, false, 'changed_more_than_the_item');
         }
       }
       throw new Error('The AI changed more than this item, so the look was not shown. Tap Try again.');
@@ -239,7 +282,24 @@ export function realisticTryOn(personUrl: string, garmentUrl: string, category: 
   return look;
 }
 
+/**
+ * The words the shopper typed, turned into the prompt the picture model needs (server/index.mjs → ai-keys.mjs),
+ * which is most of the difference between a plain try-on and a good one: fabric, fit, pose and light. Falls back
+ * to the shopper's own words when there is no AI key or the writer is unreachable, so dressing never waits on it.
+ */
+async function expandLook(description: string): Promise<{ prompt: string; negative?: string }> {
+  try {
+    const look = await api<{ prompt?: string; negative?: string }>('/ai/look', { body: { description }, timeoutMs: 20_000 });
+    return look?.prompt ? { prompt: look.prompt, negative: look.negative } : { prompt: description };
+  } catch {
+    return { prompt: description };
+  }
+}
+
 /** Dresses the person as described (SDXL Inpainting), keeping face and body. Returns a JPEG data URL. */
 export async function dressAsDescribed(personUrl: string, prompt: string, coverage: 'full' | 'clothes' = 'full') {
-  return call('/api/dress', { person: await toJpeg(personUrl), prompt, coverage });
+  // The Studio is checked first, so a Studio that is down never costs an AI call.
+  if (!(await getStudio())) throw new Error('Saligue AI Studio is not running right now.');
+  const [person, written] = await Promise.all([toJpeg(personUrl), expandLook(prompt)]);
+  return call('/api/dress', { person, prompt: written.prompt, negative: written.negative, coverage, quality: 'high' });
 }

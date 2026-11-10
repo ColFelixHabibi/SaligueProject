@@ -60,7 +60,10 @@ export function serveChatFile(req, res, url) {
   }
   const type = TYPES[name.split('.').pop()];
   const size = statSync(file).size;
-  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': '*' };
+  // No wildcard CORS: these files are private, and the app shows them with <img>, <video> and <audio>, which read
+  // them across origins without asking. Without the header no page's script can copy the bytes somewhere else.
+  // `no-referrer` keeps the signed link itself from travelling to whatever is opened from here.
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
   if (range && type !== 'image/jpeg') {
     const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));

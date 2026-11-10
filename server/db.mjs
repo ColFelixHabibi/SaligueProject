@@ -29,6 +29,10 @@ db.exec(`
     user_id text not null references users(id) on delete cascade,
     created_at text not null
   );
+  -- Sessions are swept by age when a new one is made (index.mjs, tidySessions): the first index keeps the sweep
+  -- from reading every session each time, the second keeps one account's own list to the newest few.
+  create index if not exists sessions_created on sessions(created_at);
+  create index if not exists sessions_user on sessions(user_id, created_at desc);
 
   create table if not exists products (
     id text primary key,
@@ -197,6 +201,54 @@ db.exec(`
     created_at text not null,
     checked_at text,                    -- last time the company accepted this key
     primary key (user_id, provider)
+  );
+
+  -- What the AI learns from people using it (server/ai-learn.mjs): a description a seller kept (or rewrote), a look a
+  -- shopper kept (or threw away), so the writing has examples to follow and the try-on knows which AI pleases people.
+  -- A row is one piece of work: what was asked (input), what the AI gave (output), and what the person really kept.
+  create table if not exists ai_feedback (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    kind text not null,                 -- write | look | tryon
+    signal text not null,               -- written | kept | edited | rewritten | rejected
+    engine text,                        -- tryon only: own | fashn | free
+    category text,                      -- tryon only: top | outerwear | bottom | dress
+    model text,                         -- the LLM that wrote it, when known
+    input text,                         -- JSON of the facts the AI was given
+    output text,                        -- what the AI gave
+    final text,                         -- what the person kept, after their own changes
+    score real,                         -- 1 = kept exactly, 0 = completely rewritten
+    detail text,                        -- JSON: why a look was refused, tokens, …
+    created_at text not null
+  );
+  create index if not exists ai_feedback_recent on ai_feedback(kind, created_at desc);
+  create index if not exists ai_feedback_user on ai_feedback(user_id, created_at desc);
+
+  -- A small scoreboard per try-on AI and category: how many looks it made, how many shoppers kept or refused.
+  -- server/tryon.mjs reads it to try the AI that has been pleasing people first, and writes to it after every look.
+  create table if not exists ai_tryon_stats (
+    engine text not null,               -- own | fashn | free
+    category text not null,
+    made integer not null default 0,
+    failed integer not null default 0,
+    kept integer not null default 0,
+    rejected integer not null default 0,
+    ms_total integer not null default 0,
+    updated_at text not null,
+    primary key (engine, category)
+  );
+
+  -- Tokens spent per account, day, model and purpose, so the AI's cost is visible (and a wrong key is noticed).
+  create table if not exists ai_usage (
+    user_id text not null references users(id) on delete cascade,
+    day text not null,                  -- YYYY-MM-DD
+    provider text not null,             -- deepseek
+    model text not null,
+    purpose text not null,              -- write | look | other
+    calls integer not null default 0,
+    tokens integer not null default 0,
+    updated_at text not null,
+    primary key (user_id, day, provider, model, purpose)
   );
 
   -- Direct chat between a buyer and a seller: one conversation per pair, messages may point at an item or order.
