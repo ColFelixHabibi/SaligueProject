@@ -175,7 +175,9 @@ function placementsFor(category: Category, lm: Point[], item: HTMLCanvasElement)
       const head = headOf(lm, shoulderW);
       if (!head) return 'Your face needs to be visible in the photo.';
       // The brim is a little wider than the head; it sits on the forehead, above the eyebrows.
-      return [{ x: head.center.x, y: head.eyes.y - head.width * 0.28, width: head.width * 1.3, angle: head.angle, anchor: 'bottom' }];
+      // The brim's lower edge is about a fifth of a head-width above the eyes: mid-forehead, so the crown covers the
+      // top of the head instead of resting on the hair like a sticker.
+      return [{ x: head.center.x, y: head.eyes.y - head.width * 0.2, width: head.width * 1.3, angle: head.angle, anchor: 'bottom' }];
     }
     case 'eyewear': {
       const head = headOf(lm, shoulderW);
@@ -222,7 +224,12 @@ function headOf(lm: Point[], shoulderW: number) {
   if (!visible(le, re)) return null;
   const eyes = mid(le, re);
   const earsSeen = visible(lear, rear);
-  const width = Math.max(earsSeen ? dist(lear, rear) * 1.15 : 0, dist(le, re) * 2.6, shoulderW * 0.42);
+  // The face decides the head's size. Shoulders only help when the ears are hidden, and never past what the eyes
+  // allow: in a close-up the shoulders run off the photo, their landmarks are guessed far outside it, and a head
+  // measured from them came out ~40% too wide, so hats floated above the head and glasses were too big.
+  const eyeGap = dist(le, re);
+  const fromFace = earsSeen ? Math.max(dist(lear, rear) * 1.15, eyeGap * 2.4) : Math.max(eyeGap * 2.6, shoulderW * 0.42);
+  const width = Math.min(fromFace, eyeGap * 3.4);
   return {
     eyes,
     center: earsSeen ? mid(lear, rear) : eyes,
