@@ -174,10 +174,15 @@ function placementsFor(category: Category, lm: Point[], item: HTMLCanvasElement)
     case 'hat': {
       const head = headOf(lm, shoulderW);
       if (!head) return 'Your face needs to be visible in the photo.';
-      // The brim is a little wider than the head; it sits on the forehead, above the eyebrows.
-      // The brim's lower edge is about a fifth of a head-width above the eyes: mid-forehead, so the crown covers the
-      // top of the head instead of resting on the hair like a sticker.
-      return [{ x: head.center.x, y: head.eyes.y - head.width * 0.2, width: head.width * 1.3, angle: head.angle, anchor: 'bottom' }];
+      // Fit the hat by its crown, the part the head goes into: a sun hat's crown is under half its picture, a cap's
+      // is nearly all of it. Scaling the whole picture to the head made wide hats perch on top of the head.
+      const shape = hatShape(item);
+      // The crown a little narrower than the head (it sits on it), and never a brim wider than ~2.3 heads.
+      const width = Math.min((head.width * 0.9) / shape.crown, head.width * 2.3);
+      const height = width * aspect;
+      // The middle of the brim sits on the upper forehead: the crown covers the top of the head, the eyes stay clear.
+      const brimLine = head.eyes.y - head.width * 0.3;
+      return [{ x: head.center.x, y: brimLine - shape.band * height, width, angle: head.angle, anchor: 'top' }];
     }
     case 'eyewear': {
       const head = headOf(lm, shoulderW);
@@ -219,6 +224,44 @@ function footOf(heel: Point, toe: Point, ankle: Point, knee: Point, centerX: num
 }
 
 // Head size, eye line and tilt from the face landmarks; falls back to shoulder width for the size.
+/**
+ * The shape of a hat picture: how wide its crown is (share of the picture's width) and where the band is (share of
+ * its height from the top). A brim shows up as rows much wider than the crown; a beanie or a cap seen from the front
+ * has no such step, so its crown is the whole width and its band is the bottom edge.
+ */
+function hatShape(item: HTMLCanvasElement): { crown: number; band: number } {
+  const scale = Math.min(1, 160 / Math.max(item.width, item.height));
+  const w = Math.max(1, Math.round(item.width * scale));
+  const h = Math.max(1, Math.round(item.height * scale));
+  const small = createCanvas(w, h);
+  const ctx = context2d(small);
+  ctx.drawImage(item, 0, 0, w, h);
+  const { data } = ctx.getImageData(0, 0, w, h);
+  const spans: number[] = [];
+  for (let y = 0; y < h; y++) {
+    let left = -1;
+    let right = -1;
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] > 64) {
+        if (left < 0) left = x;
+        right = x;
+      }
+    }
+    spans.push(left < 0 ? 0 : right - left + 1);
+  }
+  const rows = spans.map((span, y) => ({ span, y })).filter((r) => r.span > 0);
+  const widest = Math.max(1, ...rows.map((r) => r.span));
+  if (!rows.length) return { crown: 1, band: 1 };
+  const brimAt = rows.find((r) => r.span >= widest * 0.8)?.y ?? rows[rows.length - 1].y;
+  const crownRows = rows.filter((r) => r.y < brimAt).map((r) => r.span).sort((a, b) => a - b);
+  const crown = crownRows.length ? crownRows[Math.floor(crownRows.length / 2)] / widest : 1;
+  // No distinct brim (beanie, a cap facing the camera): fit the whole width, band at the bottom.
+  if (crown > 0.75 || crownRows.length < rows.length * 0.25) return { crown: 1, band: 1 };
+  // `band` is the middle of the brim: a brim seen from the front is an ellipse around the head, half of it in front.
+  const lastRow = rows[rows.length - 1].y + 1;
+  return { crown: Math.max(0.3, crown), band: (brimAt + lastRow) / 2 / h };
+}
+
 function headOf(lm: Point[], shoulderW: number) {
   const le = lm[LM.leftEye], re = lm[LM.rightEye], lear = lm[LM.leftEar], rear = lm[LM.rightEar];
   if (!visible(le, re)) return null;
