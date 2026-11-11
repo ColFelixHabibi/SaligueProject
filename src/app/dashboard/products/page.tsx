@@ -227,7 +227,12 @@ function ProductsTable() {
                         <Badge variant="outline" className={cn('capitalize', STATUS_STYLE[p.status])}>{p.status}</Badge>
                         {p.hidden && <><Badge variant="destructive" className="ml-1">Hidden after reports</Badge><span className="mt-1 block"><AppealButton kind="product" targetId={p.id} title={p.name} /></span></>}
                       </TableCell>
-                      <TableCell><InlineNumber value={p.price} prefix="$" onSave={(v) => patch(p.id, { price: v ?? 0 })} /></TableCell>
+                      <TableCell>
+                        {/* The shop always edits its own usual price; a sale is spelled out underneath, so the
+                            lower price shoppers see can never be written back in as the usual price. */}
+                        <InlineNumber value={p.discount?.was ?? p.deal?.was ?? p.price} prefix="$" onSave={(v) => patch(p.id, { price: v ?? 0 })} />
+                        {p.discount && <span className="mt-0.5 block text-[11px] font-semibold text-rose-600">−{p.discount.percent}% · shoppers pay {formatPrice(p.price)}</span>}
+                      </TableCell>
                       <TableCell>
                         <InlineNumber value={p.stock} integer placeholder="∞" onSave={(v) => patch(p.id, { stock: v })} />
                         {p.stock === 0 && <span className="mt-0.5 block text-[11px] font-semibold text-destructive">Sold out</span>}

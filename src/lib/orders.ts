@@ -15,8 +15,20 @@ export const ORDER_STATUSES: { value: OrderStatus; label: string }[] = [
   { value: 'shipped', label: 'On the way' }, { value: 'delivered', label: 'Delivered' }, { value: 'cancelled', label: 'Cancelled' },
 ];
 
-export const formatPrice = (amount: number) => `$${amount.toFixed(2)}`;
+// The dollar sign is built from its character code: an edit tool here rewrites a literal "$" (dollar + template
+// start) into a single one, which once silently dropped it from every price in the app.
+const DOLLAR = String.fromCharCode(36);
+export const formatPrice = (amount: number) => DOLLAR + amount.toFixed(2);
 export const shortOrderId = (id: string) => id.slice(0, 6).toUpperCase();
+
+/**
+ * What shoppers pay after a % off — the same rounding the server uses (server/index.mjs, priceOf), so the
+ * preview a shop sees while typing the discount is exactly the price that is charged.
+ */
+export function salePrice(price: number, percent: number) {
+  const off = Math.min(90, Math.max(0, Math.floor(Number(percent) || 0)));
+  return off ? Math.round(Number(price) * (1 - off / 100) * 100) / 100 : Number(price);
+}
 
 export async function placeOrders(items: (Product & { quantity: number })[], delivery: DeliveryAddress, paymentMethod: PaymentMethod): Promise<string[]> {
   const cleanDelivery = Object.fromEntries(Object.entries(delivery)

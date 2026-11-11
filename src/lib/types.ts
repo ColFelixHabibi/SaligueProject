@@ -7,6 +7,8 @@ export type Product = {
   price: number;
   // A live-only deal running now: the usual price, when it ends and the live it belongs to.
   deal?: { was: number; until: string; liveId: string | null };
+  // A % off the shop put on the post itself: the usual price (shown crossed out) and how much comes off.
+  discount?: { percent: number; was: number };
   // Original photo as uploaded by the seller (JPEG data URL).
   image: string;
   // The item with its background removed (transparent WebP/PNG data URL), used for dressing.
@@ -58,6 +60,12 @@ export type Product = {
   // Bought so far (orders not cancelled).
   sold?: number;
 };
+
+/**
+ * What a shop sends when listing an item or saving changes to it. It is a Product without the fields the server
+ * owns, and a % off is sent as a plain number (`discountPercent`) while it reads back as `Product.discount`.
+ */
+export type ProductInput = Omit<Product, 'id' | 'discount'> & { discountPercent?: number | null };
 
 export type Review = { id: string; uid: string; name: string; rating: number; text: string; createdAt: string };
 

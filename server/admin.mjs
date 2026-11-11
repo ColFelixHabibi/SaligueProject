@@ -2,6 +2,7 @@
 //   node server/admin.mjs official <email>      mark an account as INDECIANA (official)
 //   node server/admin.mjs unofficial <email>    remove the official mark
 //   node server/admin.mjs admin <email>         make an account a main admin (type 1: everything, manages sub-admins)
+//   node server/admin.mjs indeciana [password]  INDECIANA's own account: indeciana@gmail.com, shop, main admin (password: 8+ chars; kept if left out)
 //   node server/admin.mjs password <email> <new password>   set an account's password (signs it out everywhere)
 //   node server/admin.mjs users                 list accounts
 //   node server/admin.mjs support               list support requests
@@ -17,12 +18,18 @@
 //   node server/admin.mjs testmail <email>      send a test email (shows whether the mail account works)
 //   node server/admin.mjs aiserver <url> <key>   use Saligue's own AI server (ai-server/install.sh) first; "off" to stop
 //   node server/admin.mjs tryon <fal key>        unlimited realistic try-on with FASHN on fal.ai (pay per image); "off" to stop
-import { randomBytes, scryptSync } from 'node:crypto';
-import { db } from './db.mjs';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
+import { db, json, makeUsername, transaction } from './db.mjs';
 import { learn } from './learn.mjs';
 import { sendEmail } from './mail.mjs';
 
 const [command, email] = process.argv.slice(2);
+
+/** scrypt hash in the same format server/index.mjs checks: scrypt$<salt>$<hash>. */
+function hashPassword(password) {
+  const salt = randomBytes(16);
+  return ['scrypt', salt.toString('hex'), scryptSync(password, salt, 64).toString('hex')].join(String.fromCharCode(36));
+}
 
 if (command === 'official' || command === 'unofficial') {
   const flag = command === 'official' ? 1 : 0;
@@ -40,20 +47,56 @@ if (command === 'official' || command === 'unofficial') {
     console.error('Usage: node server/admin.mjs password <email> <new password (8+ characters)>');
     process.exit(1);
   }
-  const salt = randomBytes(16);
-  const hash = `scrypt$${salt.toString('hex')}$${scryptSync(password, salt, 64).toString('hex')}`;
   const user = db.prepare('select id from users where lower(email) = ?').get(String(email ?? '').toLowerCase());
   if (!user) {
     console.error(`No account with the email ${email}.`);
     process.exit(1);
   }
-  db.prepare('update users set password_hash = ? where id = ?').run(hash, user.id);
+  db.prepare('update users set password_hash = ? where id = ?').run(hashPassword(password), user.id);
   db.prepare('delete from sessions where user_id = ?').run(user.id);
   console.log(`Password changed for ${email}. Log in again with the new password.`);
 } else if (command === 'admin') {
   const done = db.prepare('update users set admin = 1, admin_level = 1 where email = ?').run(String(email ?? '').toLowerCase());
   console.log(done.changes ? `${email} can now open Platform settings (Me → Platform settings).` : `No account with the email ${email}.`);
   if (!done.changes) process.exit(1);
+} else if (command === 'indeciana') {
+  // INDECIANA's own account: the house shop's real login (email and password), a seller so it has a shop and a
+  // Seller Center, official so its items are the house ones, and type 1 main admin (everything, manages sub-admins).
+  // Safe to run again: it repairs whatever is missing and takes the house items back.
+  const HOUSE_EMAIL = 'indeciana@gmail.com';
+  // The password is given on the command line (or SALIGUE_HOUSE_PASSWORD), never written in this file: the repository
+  // is on GitHub. Left out, an existing account keeps its password and a new one gets a random one, printed once.
+  const given = process.argv[3] ?? process.env.SALIGUE_HOUSE_PASSWORD ?? '';
+  if (given && given.length < 8) {
+    console.error('The password needs 8 or more characters.');
+    process.exit(1);
+  }
+  const HOUSE_SHOP = { name: 'INDECIANA', phone: '+250 788 000 222', whatsapp: '+250 788 000 222', country: 'Rwanda', city: 'Kigali', district: 'Gasabo', street: 'KG 7 Ave', landmark: 'Kigali Heights', hours: 'Every day 9:00–21:00' };
+  const existing = db.prepare('select id, password_hash from users where lower(email) = ? and is_guest = 0').get(HOUSE_EMAIL);
+  const password = given || (existing?.password_hash ? null : randomBytes(9).toString('base64url'));
+  const hash = password ? hashPassword(password) : existing.password_hash;
+  const id = existing?.id ?? randomUUID();
+  let items = 0;
+  transaction(() => {
+    if (existing) {
+      db.prepare(`update users set display_name = 'INDECIANA', role = 'seller', official = 1, admin = 1, admin_level = 1, admin_perms = '[]',
+        password_hash = ?, suspended = 0, suspend_reason = null, suspended_at = null, delete_after = null,
+        shop = coalesce(nullif(shop, ''), ?), username = coalesce(username, ?) where id = ?`)
+        .run(hash, json(HOUSE_SHOP), makeUsername('indeciana', id), id);
+    } else {
+      db.prepare(`insert into users (id, email, display_name, username, role, official, admin, admin_level, admin_perms, password_hash, shop, created_at)
+        values (?, ?, 'INDECIANA', ?, 'seller', 1, 1, 1, '[]', ?, ?, ?)`)
+        .run(id, HOUSE_EMAIL, makeUsername('indeciana', id), hash, json(HOUSE_SHOP), new Date().toISOString());
+    }
+    // The house items (everything marked as INDECIANA's) are sold by this account from now on, so they open on its
+    // page and sit in its Seller Center instead of an account nobody can sign in to.
+    items = db.prepare('update products set seller_id = ?, seller = ?, seller_email = ?, shop = coalesce(shop, ?) where official = 1 and seller_id != ?')
+      .run(id, 'INDECIANA', HOUSE_EMAIL, json(HOUSE_SHOP), id).changes;
+    // Only a new password signs it out everywhere.
+    if (password) db.prepare('delete from sessions where user_id = ?').run(id);
+  });
+  const said = given ? 'the password you gave' : password ? `password ${password} — change it after signing in` : 'its password unchanged';
+  console.log(`${HOUSE_EMAIL} is INDECIANA's own account (${said}, main admin type 1) and ${items} house item(s) belong to it.`);
 } else if (command === 'users') {
   console.table(db.prepare('select email, display_name as name, role, official, created_at from users where is_guest = 0 order by created_at').all());
 } else if (command === 'support') {

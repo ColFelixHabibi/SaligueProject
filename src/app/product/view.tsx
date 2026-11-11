@@ -10,6 +10,7 @@ import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 import { ExpandableText } from '@/components/expandable-text';
 import { FollowButton } from '@/components/follow-button';
 import { noteInterest } from '@/lib/taste';
+import { noteSeen } from '@/lib/history';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -28,6 +29,7 @@ import { categoryLabel } from '@/lib/categories';
 import { completeTheLook } from '@/lib/outfit';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { formatPrice } from '@/lib/orders';
+import { DiscountTag } from '@/components/discount-tag';
 import { productHref } from '@/lib/links';
 import { MoreSheet } from '@/components/social/more-sheet';
 import { SoundChip } from '@/components/social/sound-chip';
@@ -81,6 +83,8 @@ export default function ProductView({ id }: { id: string | null }) {
     if (!id) return;
     api(`/products/${id}/view`, { body: {} }).catch(() => {});
     noteInterest(id, 'view');
+    // The item was opened, so it belongs in this person's History (My Saligue → History).
+    noteSeen(id);
   }, [id]);
 
   // INDECIANA items are only shown on INDECIANA's own page.
@@ -192,7 +196,11 @@ export default function ProductView({ id }: { id: string | null }) {
                 </a>
               )}
               <div className="flex items-center gap-2 mb-2">
-                <p className="text-4xl font-bold text-primary">{formatPrice(Number(product.price))}</p>
+                {/* A post on sale shows what is paid now, with the usual price crossed out beside it. */}
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-4xl font-bold text-primary">{formatPrice(Number(product.price))}</p>
+                  {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} className="text-sm" />}
+                </div>
                 <SoundChip product={product} autoPlay className="ml-auto" />
                 {user && on('looks') && (
                   <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 rounded-full" onClick={() => addToLook({ kind: 'product', id: product.id })} aria-label={t('Add to a look')} title={t('Add to a look')}>

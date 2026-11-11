@@ -6,6 +6,8 @@
 // What the four features *do* — who sees a close status, what a mute hides, what an archive leaves, what a forward
 // carries — is exercised against a running server at the end of tests/api.test.mjs, so this file stays the shape
 // guard and that one is the behaviour.
+// The last block guards three later additions the same way: the History list (one row per item and person, cleared
+// in one go), a % discount on a post (charged, never counted twice) and the 90-day deletion of a suspended account.
 //   npm test
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -151,5 +153,120 @@ describe('the app uses them', () => {
     assert.doesNotMatch(media, /Access-Control-Allow-Origin/, 'no other site\'s script may read a private chat file');
     assert.match(media, /'Referrer-Policy': 'no-referrer'/);
     assert.match(media, /timingSafeEqual/, 'the signature is compared without leaking it through timing');
+  });
+});
+
+describe('history, discounts and the 90-day deletion', () => {
+  test('the history is one row per item and person, so it stays short and can be cleared', () => {
+    const cols = db.prepare("select name, pk from pragma_table_info('view_history')").all();
+    assert.deepEqual(cols.map((c) => c.name).sort(), ['product_id', 'seen_at', 'times', 'user_id']);
+    // The pair is the key: watching the same item again is never a second row.
+    assert.ok(cols.find((c) => c.name === 'user_id').pk > 0 && cols.find((c) => c.name === 'product_id').pk > 0);
+    // It goes with the account, in both directions.
+    const fks = db.prepare("select \"table\", on_delete from pragma_foreign_key_list('view_history')").all();
+    assert.ok(fks.every((f) => f.on_delete === 'CASCADE'), 'nothing is left behind when the account or the item goes');
+    assert.match(source('server/db.mjs'), /create index if not exists view_history_user on view_history\(user_id, seen_at desc\)/);
+  });
+
+  test('each person reads, removes and clears only their own list', () => {
+    for (const pattern of ["'/api/history', ({ user, url })", "'/api/history', ({ user, body })"]) {
+      const route = routeBody(pattern);
+      assert.match(route, /if \(!user \|\| user\.is_guest\)/, `${pattern} is this person's alone`);
+    }
+    const read = routeBody("'/api/history', ({ user, url })");
+    assert.match(read, /where user_id = \? order by seen_at desc/);
+    // An item that has been taken down (or hidden after reports) is dropped rather than shown as a hole.
+    assert.match(read, /if \(!p \|\| \(\(p\.hidden \|\| p\.status !== 'active'\) && p\.seller_id !== user\.id\)\) continue;/);
+    const write = routeBody("'/api/history', ({ user, body })");
+    assert.match(write, /on conflict \(user_id, product_id\) do update set seen_at = excluded\.seen_at, times = view_history\.times \+ 1/);
+    // Bounded, so the table cannot grow for ever.
+    assert.match(write, /limit \?\)`\)\.run\(user\.id, user\.id, HISTORY_MAX\)/);
+    assert.match(server, /const HISTORY_MAX = 500;/);
+    // Clearing all of it removes this account's rows only (a visitor with no session has none to clear).
+    const clearAll = routeBody("'/api/history', ({ user })");
+    assert.match(clearAll, /delete from view_history where user_id = \?/);
+    const one = routeBody("'/api/history/([\\\\w-]+)'");
+    assert.match(one, /delete from view_history where user_id = \? and product_id = \?/);
+    // Deleting the account deletes the list, and the history is in the account file.
+    assert.match(server, /'story_views', 'view_history',/);
+    assert.match(server, /history: all\('select product_id, seen_at, times from view_history where user_id = \?/);
+  });
+
+  test('a % discount is a real price: the usual one is kept and checkout charges the lower one', () => {
+    assert.ok(columns('products').includes('discount'));
+    // No discount while a live deal already sets the lower price, and 1–90 is the range.
+    assert.match(server, /const discountOf = \(r\) => \(dealActive\(r\) \? 0 : Math\.min\(90, Math\.max\(0, Math\.floor\(Number\(r\.discount\) \|\| 0\)\)\)\);/);
+    assert.match(server, /if \(dealActive\(r\)\) return r\.deal_price;/);
+    assert.match(server, /return percent \? round2\(Number\(r\.price\) \* \(1 - percent \/ 100\)\) : r\.price;/);
+    // Both prices go to the app: the one to pay and the usual one to show crossed out.
+    assert.match(server, /discount: \{ percent: discountOf\(r\), was: Number\(r\.price\) \}/);
+    // An order is priced from priceOf(), so the discount is charged, not just displayed.
+    assert.match(server, /price: priceOf\(product\), quantity/);
+    assert.match(server, /group\.total \+= priceOf\(product\) \* quantity;/);
+    // The edit form sending the shown price back must not turn it into the usual price (a discount on a discount).
+    // Unless the same request changes the discount: then the price it sends is the one meant.
+    assert.match(server, /if \(fields\.price !== undefined && \(dealActive\(before\) \|\| fields\.discount === undefined\)\s+&& Number\(fields\.price\) === Number\(shown\) && Number\(shown\) !== Number\(before\.price\)\) delete fields\.price;/);
+    assert.match(server, /if \(!\(percent >= 0 && percent <= 90\)\) fail\(400, 'invalid_discount'/);
+  });
+
+  test('a suspension has a deadline, and an expired one is emptied for good', () => {
+    assert.match(server, /const SUSPEND_DELETE_DAYS = 90;/);
+    const suspend = routeBody("'/api/admin/users/([\\\\w-]+)/suspend'");
+    assert.match(suspend, /const deleteAfter = suspend \? new Date\(Date\.now\(\) \+ SUSPEND_DELETE_DAYS \* 86_400_000\)\.toISOString\(\) : null;/);
+    assert.match(suspend, /suspended_at = \?, delete_after = \?/);
+    // Signed out everywhere at once, and told the day in the notification.
+    assert.match(suspend, /delete from sessions where user_id = \?/);
+    assert.match(suspend, /permanently deleted on \$\{deleteAfter\.slice\(0, 10\)\}/);
+    assert.equal(columns('users').includes('suspended_at'), true);
+    assert.equal(columns('users').includes('delete_after'), true);
+    // The person is told the same thing at the door.
+    assert.match(server, /If it is not restored, the account and everything in it is permanently deleted on/);
+    // The sweep runs at start-up and once a day, skips the main admin, and empties the account through the one
+    // routine that deletes an account (so a suspended account is erased exactly like one its owner deleted).
+    assert.match(server, /function eraseExpiredAccounts\(\) \{/);
+    assert.match(server, /where delete_after is not null and delete_after <= \? and is_guest = 0 and coalesce\(admin_level, 0\) != 1/);
+    assert.match(server, /eraseAccount\(account, 'Suspended account deleted after 90 days'\);/);
+    assert.match(server, /eraseExpiredAccounts\(\);\nsetInterval\(eraseExpiredAccounts, 86_400_000\)\.unref\(\);/);
+    // An emptied account carries no deadline any more.
+    assert.match(server, /suspended = 1, suspend_reason = \?, suspended_at = null, delete_after = null where id = \?/);
+  });
+
+  test('the app records what was seen, shows it, and shows both prices', () => {
+    const history = source('src/lib/history.ts');
+    assert.match(history, /api<SeenItem\[\]>\('\/history'\)/, 'the list is read from the server');
+    assert.match(history, /api\('\/history', \{ method: 'DELETE' \}\)/, 'cleared in one go');
+    assert.match(history, /api\(`\/history\/\$\{encodeURIComponent\(productId\)\}`, \{ method: 'DELETE' \}\)/, 'one item out');
+    assert.match(history, /export function noteSeen\(/, 'what came on screen is noted');
+    // The feed notes the item that is really on screen, and the item page notes what was opened.
+    assert.match(source('src/components/social/feed-slide.tsx'), /noteSeen\(product\.id\)/);
+    assert.match(source('src/app/product/view.tsx'), /noteSeen\(id\)/);
+    // The list is reachable, and it can be cleared.
+    assert.match(source('src/app/my-account/layout.tsx'), /'\/my-account\/history'/);
+    assert.match(source('src/app/my-account/page.tsx'), /'\/my-account\/history'/);
+    const page = source('src/app/my-account/history/page.tsx');
+    assert.match(page, /clearHistory\(\)/);
+    assert.match(page, /forgetSeen\(id\)/);
+    // Both prices on the post: the discount is not a label only the shop sees.
+    for (const file of ['src/components/social/feed-slide.tsx', 'src/components/product-card.tsx', 'src/components/social/feed-side-panel.tsx']) {
+      assert.match(source(file), /<DiscountTag percent=\{product\.discount\.percent\} was=\{product\.discount\.was\}/, `${file} shows both prices`);
+    }
+    // A shop can set it when posting and when editing.
+    assert.match(source('src/app/sell/page.tsx'), /discountPercent: formValues\.discount === '' \? null : Number\(formValues\.discount\)/);
+    assert.match(source('src/app/edit-product/view.tsx'), /discountPercent: formValues\.discount === '' \? null : Number\(formValues\.discount\)/);
+    // The page a shopper buys on, and the cart line: what is paid now, plus the usual price crossed out.
+    assert.match(source('src/app/product/view.tsx'), /<DiscountTag percent=\{product\.discount\.percent\} was=\{product\.discount\.was\}/);
+    assert.match(source('src/app/cart/page.tsx'), /<DiscountTag percent=\{item\.discount\.percent\} was=\{item\.discount\.was\}/);
+    // Checkout charges what the server works out (priceOf), and shows that same amount.
+    assert.match(source('src/app/checkout/page.tsx'), /formatPrice\(item\.price \* item\.quantity\)/);
+    // A shop edits its own usual price, never the sale price: writing that back would count the discount twice.
+    assert.match(source('src/app/edit-product/view.tsx'), /price: \(product\.discount\?\.was \?\? product\.deal\?\.was \?\? product\.price\)\.toString\(\)/);
+    assert.match(source('src/app/dashboard/products/page.tsx'), /<InlineNumber value=\{p\.discount\?\.was \?\? p\.deal\?\.was \?\? p\.price\}/);
+  });
+
+  test('stories sit at the top of every feed tab, not only For You', () => {
+    const feed = source('src/app/page.tsx');
+    assert.match(feed, /<StoryBar compact/);
+    // Learn keeps its own row of topics in that spot, so the story row is the only tab it is hidden on.
+    assert.match(feed, /mode === 'learn' && 'hidden'/);
   });
 });

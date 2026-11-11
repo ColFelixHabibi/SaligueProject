@@ -880,6 +880,18 @@ db.exec(`
     views integer not null default 0,
     primary key (product_id, day)
   );
+
+  -- History: the items a person opened or scrolled past, so they can find them again (My Saligue → History).
+  -- One row per item and person (seen_at is the last time, times how often), which is what makes the list
+  -- short, removable one by one, and cleared in one go. Deleted with the account.
+  create table if not exists view_history (
+    user_id text not null references users(id) on delete cascade,
+    product_id text not null references products(id) on delete cascade,
+    seen_at text not null,
+    times integer not null default 1,
+    primary key (user_id, product_id)
+  );
+  create index if not exists view_history_user on view_history(user_id, seen_at desc);
 `);
 
 // Columns added after the first release.
@@ -888,13 +900,17 @@ for (const [table, column, type] of [
   ['users', 'terms_accepted_at', 'text'], ['users', 'terms_version', 'text'],
   // The date of birth a new account stated, and the day it was stated (the age gate: 16+, server/index.mjs).
   ['users', 'birth_date', 'text'], ['users', 'age_checked_at', 'text'],
-  ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
+  ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'],
+  // When an account was suspended, and the day it is permanently deleted if it is not restored first (90 days).
+  ['users', 'suspended_at', 'text'], ['users', 'delete_after', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
   // null stock = not tracked (always available)
   ['products', 'stock', 'integer'], ['products', 'rating_avg', 'real not null default 0'], ['products', 'rating_count', 'integer not null default 0'],
   ['orders', 'paid_at', 'text'], ['orders', 'payment_ref', 'text'], ['payments', 'campaign_id', 'text'], ['payments', 'tip_id', 'text'], ['lives', 'chat_mode', "text not null default 'everyone'"], ['lives', 'slow_seconds', 'integer not null default 0'], ['lives', 'video_fit', "text not null default 'fit'"], ['lives', 'moderators', "text not null default '[]'"], ['lives', 'invited', "text not null default '[]'"],
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['users', 'comment_mode', "text not null default 'everyone'"], ['users', 'hidden_words', "text not null default '[]'"],
   ['products', 'deal_price', 'real'], ['products', 'deal_until', 'text'], ['products', 'deal_live_id', 'text'], ['users', 'media', 'integer not null default 0'],
+  // A % off the shop put on the post itself (1–90): the shopper sees the usual price crossed out next to the new one.
+  ['products', 'discount', 'integer'],
   ['lives', 'egress_id', 'text'], ['lives', 'recorder', "text not null default 'phone'"], ['lives', 'layout', "text not null default 'side'"],
   ['orders', 'delivery_code', 'text'], ['orders', 'received_by', 'text'], ['orders', 'shop_reply', 'text'], ['users', 'payout_requested_at', 'text'],
   ['orders', 'shipped_at', 'text'], ['orders', 'received_at', 'text'], ['orders', 'problem', 'text'], ['orders', 'problem_at', 'text'], ['orders', 'problem_status', 'text'],

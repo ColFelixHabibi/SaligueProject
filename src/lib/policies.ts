@@ -159,7 +159,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   terms: {
         title: "Terms of Service",
-        updated: "4 November 2026",
+        updated: "11 November 2026",
         intro: "These terms apply when you use Saligue, the fashion marketplace by INDECIANA, on the web or in the app. By creating an account or using Saligue you accept them. If you do not agree, please do not use Saligue.",
         sections: [
           {
@@ -175,6 +175,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'You must be at least 16 years old to create an account. Give true information and keep your password secret; you are responsible for what happens with your account.',
               'You can browse, like and add to your bag as a guest. Selling items requires a registered account.',
               'We may suspend or close accounts that break these terms, defraud others or harm Saligue or its users.',
+              'A suspension signs the account out everywhere and stops it signing in. If it is not restored, the account and everything in it is permanently deleted 90 days after the suspension; the reason and the deletion date are shown to the person when they try to sign in, and restoring the account before that date clears the deadline.',
             ],
           },
           {
@@ -235,7 +236,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   privacy: {
         title: "Privacy Policy",
-        updated: "4 November 2026",
+        updated: "11 November 2026",
         intro: "This policy explains what information Saligue by INDECIANA collects, why, and the choices you have. We collect only what Saligue needs to work, and we never sell your personal information.",
         sections: [
           {
@@ -244,6 +245,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'Account: your name, email address, password (stored only as a secure hash) and whether you buy or sell. If you continue with Google, we receive your name and email address from Google.',
               'Shops: shop name, phone and WhatsApp number, address and opening hours, which are shown publicly with your items.',
               'Shopping: your bag, saved items, likes, Resaligues, comments, orders and the delivery address and phone number you enter at checkout.',
+              'History: the items you open, and the ones that fill the screen while you scroll the feed, kept in My Saligue → History so you can find them again. Only you see this list. It is kept whether or not you allow personalisation (see the Cookie Policy), and you can remove one item or clear the whole list at any time there, or in Settings → For You.',
               'Messages: what you write to shops or customers in Saligue Messages, so both sides can read the conversation. The other person also gets an email that a message is waiting.',
               'Reviews: the stars and text you post about items you received, shown publicly with your first name.',
               'Payments: when you pay online, Flutterwave handles your card or Mobile Money details on its own secure page. Saligue receives only whether the payment succeeded, the amount and a reference — never your card number or PIN.',
@@ -307,7 +309,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
         ]},
   cookies: {
         title: "Cookie Policy",
-        updated: "20 October 2026",
+        updated: "11 November 2026",
         intro: "Saligue uses a small number of cookies and on-device storage to keep you signed in, remember your choices and, if you allow it, personalise your For You feed. We do not use advertising cookies, and we never sell or share this data with advertisers.",
         sections: [
           {
@@ -323,6 +325,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'saligue_consent: remembers your choice in the cookie banner ("all" or "essential"), for one year.',
               'With "OK, personalise", Saligue records which items you open, how long you watch them in the feed, what you try on, add to your bag, message shops about or skip quickly, linked to your account. Together with likes, saves, Resaligues and orders, and with what shoppers with similar taste enjoy, this decides the order of your For You feed. It is kept for up to 6 months.',
               'With "Essential only" nothing of this is recorded. You can switch it off or clear what was learned any time in Settings → For You.',
+              'History (My Saligue → History) is not part of this choice: it lists the items you open or scroll past so you can find them again, is visible only to you, and is kept with "Essential only" too, because it is a list you asked for rather than something used to rank your feed. Remove one item or tap Delete all there, or use Clear my history in Settings → For You.',
             ],
           },
           {

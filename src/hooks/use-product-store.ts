@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Product } from '@/lib/types';
+import type { Product, ProductInput } from '@/lib/types';
 import { api, mediaUrl, onServerEvent } from '@/lib/api';
 
 interface ProductState {
@@ -10,8 +10,8 @@ interface ProductState {
   // Every page of the catalogue has arrived.
   complete: boolean;
   error: string | null;
-  addProduct: (item: Omit<Product, 'id'>) => Promise<string>;
-  updateProduct: (id: string, updatedProduct: Product) => Promise<void>;
+  addProduct: (item: ProductInput) => Promise<string>;
+  updateProduct: (id: string, updatedProduct: ProductInput) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   archiveProduct: (id: string) => Promise<void>;
 }
@@ -98,8 +98,8 @@ export const useProductStore = create<ProductState>()(() => ({
     return id;
   },
   updateProduct: async (id, updatedProduct) => {
-    // id, seller, official and likeCount are managed by the server.
-    const { id: _id, sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, videoDuration: _duration, sold: _sold, sample: _sample, deal: _deal, ...fields } = updatedProduct;
+    // seller, official and likeCount are managed by the server.
+    const { sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, videoDuration: _duration, sold: _sold, sample: _sample, deal: _deal, ...fields } = updatedProduct;
     // The fingerprint from the catalogue is a rounded copy: only a new photo's fingerprint is sent.
     if (fields.embedding && fields.embedding === useProductStore.getState().products.find((p) => p.id === id)?.embedding) delete fields.embedding;
     await api(`/products/${id}`, { method: 'PATCH', body: fields, timeoutMs: SAVE_MS });

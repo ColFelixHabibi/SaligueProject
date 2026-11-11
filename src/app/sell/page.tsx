@@ -16,7 +16,7 @@ import { useUserRoleStore } from '@/hooks/use-user-role-store';
 import { useAuth } from '@/components/auth/auth-provider';
 import { LoginDialog } from '@/components/auth/login-dialog';
 import { RegisterDialog } from '@/components/auth/register-dialog';
-import { Product } from '@/lib/types';
+import type { ProductInput } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField, type FashionSuggestion } from '@/components/item-photo-field';
 import { WriteWithAi } from '@/components/write-with-ai';
@@ -28,6 +28,7 @@ import { ShopProfileForm } from '@/components/shop-profile-form';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { updateAccount } from '@/lib/auth-actions';
 import { friendlyError } from '@/lib/errors';
+import { formatPrice, salePrice } from '@/lib/orders';
 import { categoryLabel } from '@/lib/categories';
 
 
@@ -83,6 +84,7 @@ export default function SellPage() {
         title: '',
         description: '',
         price: '',
+        discount: '',
         size: '',
         color: '',
         brand: '',
@@ -175,9 +177,11 @@ export default function SellPage() {
         setIsSubmitting(true);
 
         try {
-            const newProduct: Omit<Product, 'id'> = {
+            const newProduct: ProductInput = {
                 name: formValues.title,
                 price: parseFloat(formValues.price),
+                // A % off the shop puts on the post: the shopper is shown the usual price crossed out.
+                discountPercent: formValues.discount === '' ? null : Number(formValues.discount),
                 image: photo.image,
                 cutout: photo.cutout,
                 photoType,
@@ -328,6 +332,20 @@ export default function SellPage() {
                           <Input id="size" placeholder="e.g., Medium, 42, 10" className="pl-10 h-12 text-base" required value={formValues.size} onChange={handleInputChange} />
                       </div>
                   </div>
+              </div>
+
+              {/* A % off is kept on the post: shoppers see the usual price crossed out beside the lower one. */}
+              <div className="space-y-2">
+                  <Label htmlFor="discount" className="text-lg font-medium">Discount (% off)</Label>
+                  <div className="relative">
+                      <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input id="discount" type="number" min="0" max="90" step="1" placeholder="0 — no discount" className="pl-10 h-12 text-base" value={formValues.discount} onChange={handleInputChange} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                      {Number(formValues.discount) > 0 && Number(formValues.price) > 0
+                          ? `Shoppers pay ${formatPrice(salePrice(Number(formValues.price), Number(formValues.discount)))} and see ${formatPrice(Number(formValues.price))} crossed out.`
+                          : 'Leave it empty for the usual price. Up to 90%.'}
+                  </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

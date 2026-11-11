@@ -10,6 +10,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { Trash2, ShoppingCart } from 'lucide-react';
 import { productHref } from '@/lib/links';
+import { DiscountTag } from '@/components/discount-tag';
 
 export default function CartPage() {
   const { cartItems, removeFromCart, updateQuantity } = useCart();
@@ -50,6 +51,8 @@ export default function CartPage() {
                         </Link>
                         <p className="text-sm text-muted-foreground">{item.shop?.name ?? item.seller}</p>
                         <p className="text-lg font-bold text-primary mt-1">${Number(item.price).toFixed(2)}</p>
+                        {/* The line shows what is paid; a post on sale also shows the usual price crossed out. */}
+                        {item.discount && <DiscountTag percent={item.discount.percent} was={item.discount.was} className="mt-1" />}
                         {item.stock === 0 ? (
                           <p className="text-xs font-semibold text-destructive">Sold out — remove it to check out</p>
                         ) : item.stock != null && item.quantity > item.stock ? (

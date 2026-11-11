@@ -9,6 +9,7 @@ import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 
 import { adClicked, adOnScreen } from '@/lib/ads';
 import { noteInterest } from '@/lib/taste';
+import { noteSeen } from '@/lib/history';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BadgeCheck, MapPin, Music2, Play, Repeat2, ShoppingCart, Volume2, VolumeX, X } from 'lucide-react';
@@ -27,6 +28,7 @@ import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ExpandableText } from '@/components/expandable-text';
+import { DiscountTag } from '@/components/discount-tag';
 
 /** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
 function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null>) {
@@ -85,8 +87,11 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
       if (product.videoDuration && seconds >= Math.max(1, product.videoDuration * 0.9)) noteInterest(product.id, 'complete');
     };
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.intersectionRatio >= 0.6) since ??= Date.now();
-      else finish();
+      if (entry.intersectionRatio >= 0.6) {
+        // It came on screen: this is what My Saligue → History keeps (src/lib/history.ts).
+        if (since === null) noteSeen(product.id);
+        since ??= Date.now();
+      } else finish();
     }, { threshold: [0, 0.6, 1] });
     observer.observe(element);
     return () => {
@@ -221,7 +226,10 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
               </p>
             )}
             <div className="mt-2 flex items-center gap-3">
-              <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+              <div className="min-w-0">
+                <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+                {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
+              </div>
               <Button size="icon" className="h-10 w-10 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>
                 <ShoppingCart className="h-5 w-5" />
               </Button>
@@ -237,6 +245,7 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
             <div className="min-w-0">
               <p className="truncate font-semibold">{product.name}</p>
               <p className="text-lg font-extrabold leading-tight text-primary">{formatPrice(Number(product.price))}</p>
+              {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <Button size="icon" className="h-9 w-9 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { FollowButton } from '@/components/follow-button';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { SellerAvatar } from '@/components/seller-avatar';
+import { DiscountTag } from '@/components/discount-tag';
 import { VerifiedBadge } from '@/components/verified-badge';
 import { profileHref } from '@/components/profile-avatar';
 import { SuggestedShops } from '@/components/suggested-shops';
@@ -54,7 +55,10 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
         </div>
         <Link href={productHref(product)} className="block text-lg font-bold leading-tight hover:underline">{product.name}</Link>
         <div className="flex items-center justify-between">
-          <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+          <span className="flex min-w-0 flex-col">
+            <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+            {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
+          </span>
           {/* Sold so far, what is left (the stock the shop sets), then the stars: icons beside the price. */}
           <span className="flex items-center gap-3 text-sm">
           {(product.sold ?? 0) > 0 && <span className="flex items-center gap-1.5 font-semibold" title={t('sold')}><ShoppingBag className="h-4 w-4 text-primary" /> {product.sold}</span>}
@@ -97,7 +101,7 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.cutout || p.image} alt={p.name} loading="lazy" className="aspect-square w-full bg-muted object-contain p-1 transition group-hover:scale-105" />
                 <p className="truncate px-1.5 pt-1 text-[11px] font-medium">{p.name}</p>
-                <p className="px-1.5 pb-1.5 text-[11px] font-bold text-primary">{formatPrice(Number(p.price))}</p>
+                <p className="px-1.5 pb-1.5 text-[11px] font-bold text-primary">{formatPrice(Number(p.price))}{p.discount && <span className="ml-1 font-bold text-rose-600">−{p.discount.percent}%</span>}</p>
               </Link>
             ))}
           </div>

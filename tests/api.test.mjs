@@ -2107,3 +2107,166 @@ describe('the Android app download', () => {
     await refused.arrayBuffer();
   });
 });
+
+// History: everything a person opened or scrolled past, in one list of their own (My Saligue → History). It is kept
+// on the server so it survives a new phone, one entry per item, and the person can take anything out or clear it all.
+describe('history', () => {
+  test('what a person saw is kept in their own list, one entry per item, and they can remove it', async () => {
+    const person = await register('History Reader');
+    const stranger = await register('History Stranger');
+    const [first, second] = (await call('/products')).json;
+    assert.deepEqual((await call('/history', { token: person.token })).json, []);
+
+    const posted = await call('/history', { token: person.token, body: { events: [{ productId: first.id }, { productId: second.id }] } });
+    assert.equal(posted.status, 200, JSON.stringify(posted.json));
+    assert.equal(posted.json.recorded, 2);
+
+    // Watching the same item again counts on it and moves it to the top, instead of adding a second row.
+    await call('/history', { token: person.token, body: { events: [{ productId: first.id }] } });
+    let mine = (await call('/history', { token: person.token })).json;
+    assert.deepEqual(mine.map((p) => p.id), [first.id, second.id], 'newest first');
+    assert.equal(mine[0].times, 2, 'seen twice');
+    assert.ok(mine[0].seenAt, 'with the time it was last on screen');
+    assert.equal(mine[0].name, first.name, 'the item as the feed shows it');
+
+    // It is theirs alone, and it is downloaded with the account.
+    assert.deepEqual((await call('/history', { token: stranger.token })).json, [], 'nobody else has this list');
+    const file = (await call('/auth/me/export', { token: person.token })).json;
+    assert.equal(file.history.length, 2, 'the history goes with the account file');
+
+    // One item out, then the whole list.
+    assert.equal((await call(`/history/${first.id}`, { method: 'DELETE', token: person.token })).status, 200);
+    mine = (await call('/history', { token: person.token })).json;
+    assert.deepEqual(mine.map((p) => p.id), [second.id]);
+    assert.equal((await call('/history', { method: 'DELETE', token: person.token })).status, 200);
+    assert.deepEqual((await call('/history', { token: person.token })).json, []);
+  });
+
+  test('an item that does not exist is not recorded, and a visitor with no account keeps no list', async () => {
+    const person = await register('History Ghost');
+    const posted = await call('/history', { token: person.token, body: { events: [{ productId: 'no-such-item' }] } });
+    assert.equal(posted.status, 200);
+    assert.equal(posted.json.recorded, 0);
+    assert.deepEqual((await call('/history', { token: person.token })).json, []);
+    assert.deepEqual((await call('/history')).json, [], 'signed out, there is nothing to keep it for');
+  });
+
+  test('the list goes when the account goes', async () => {
+    const person = await register('History Leaving');
+    const [item] = (await call('/products')).json;
+    await call('/history', { token: person.token, body: { events: [{ productId: item.id }] } });
+    const { DatabaseSync } = await import('node:sqlite');
+    const look = new DatabaseSync(join(data, 'saligue.db'), { readOnly: true });
+    assert.equal(look.prepare('select count(*) as n from view_history where user_id = ?').get(person.id).n, 1);
+    look.close();
+    assert.equal((await call('/auth/me/delete', { token: person.token, body: { confirm: 'DELETE' } })).status, 200);
+    const after = new DatabaseSync(join(data, 'saligue.db'), { readOnly: true });
+    assert.equal(after.prepare('select count(*) as n from view_history where user_id = ?').get(person.id).n, 0, 'deleting the account deletes its history');
+    after.close();
+  });
+});
+
+// A % off on a post itself: the shopper sees the usual price crossed out and the lower one, and that lower price is
+// what checkout charges. It must never be counted twice when the edit form sends the shown price back.
+describe('discounts on posts', () => {
+  test('a shop can put a % off an item: both prices are shown and the lower one is charged', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && !p.deal && !p.discount && (p.stock == null || p.stock > 0));
+    assert.ok(product, 'a plain item to discount');
+    const shop = await sampleShop(product.id);
+    const usual = product.price;
+
+    assert.equal((await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { discountPercent: 25 } })).status, 200);
+    const deal = (await call(`/products/${product.id}`)).json;
+    assert.equal(deal.discount.percent, 25);
+    assert.equal(deal.discount.was, usual, 'the usual price is kept, so it can be shown crossed out');
+    assert.equal(deal.price, Math.round(usual * 0.75 * 100) / 100, 'the shopper pays 25% less');
+
+    // The edit form sends the price it was shown back: that never becomes the usual price.
+    await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { name: product.name, price: deal.price } });
+    const again = (await call(`/products/${product.id}`)).json;
+    assert.equal(again.discount.was, usual, 'the discount is not counted twice');
+    assert.equal(again.price, deal.price);
+
+    // Checkout charges it: this is a real price, not a label on the card.
+    const buyer = await register('Discount Buyer');
+    const placed = await call('/orders', {
+      token: buyer.token,
+      body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', delivery: { fullName: 'Discount Buyer', phone: '0780000021', city: 'Kigali', street: 'KN 21 Ave' } },
+    });
+    assert.equal(placed.status, 200, JSON.stringify(placed.json));
+    const order = (await call('/orders', { token: buyer.token })).json[0];
+    assert.equal(order.items[0].price, deal.price);
+    assert.equal(order.total, deal.price);
+
+    // A figure outside 1–90 is refused, and 0 takes the discount off again.
+    assert.equal((await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { discountPercent: 95 } })).status, 400);
+    assert.equal((await call(`/products/${product.id}`, { method: 'PATCH', token: shop.token, body: { discountPercent: 0 } })).status, 200);
+    const plain = (await call(`/products/${product.id}`)).json;
+    assert.equal(plain.discount, undefined);
+    assert.equal(plain.price, usual, 'the usual price comes back');
+  });
+});
+
+// Suspending an account comes with a deadline: unless an admin restores it first, the account and everything in it
+// is permanently deleted ninety days later (server/index.mjs → eraseExpiredAccounts).
+describe('a suspended account', () => {
+  test('is signed out, refused with the day it will be deleted, and the deadline is cleared on restore', async () => {
+    const admin = await register('Suspend Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const person = await register('Suspended Shopper');
+    const email = person.user.email;
+
+    const done = await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: true, reason: 'Selling counterfeit items' } });
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    // Signed out everywhere at once.
+    assert.equal((await call('/auth/me', { token: person.token })).status, 401);
+    // Refused at the door, with the reason and the day.
+    const refused = await call('/auth/login', { body: { email, password: 'Test12345!' } });
+    assert.equal(refused.status, 403, JSON.stringify(refused.json));
+    assert.equal(refused.json.error.code, 'suspended');
+    assert.match(refused.json.error.message, /Selling counterfeit items/);
+    assert.match(refused.json.error.message, /permanently deleted on \d{4}-\d{2}-\d{2}/);
+
+    // The admin's list carries both dates, the deadline ninety days out.
+    const listed = (await call(`/admin/users?q=${encodeURIComponent(email)}`, { token: admin.token })).json.find((u) => u.id === person.id);
+    assert.ok(listed.suspended);
+    assert.ok(listed.suspendedAt, 'when it was suspended');
+    const days = (new Date(listed.deleteAfter).getTime() - Date.now()) / 86_400_000;
+    assert.ok(days > 89.9 && days <= 90, `about ninety days (${days})`);
+
+    // Restored before the deadline: both dates are cleared and the account signs in again.
+    assert.equal((await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: false } })).status, 200);
+    const back = (await call(`/admin/users?q=${encodeURIComponent(email)}`, { token: admin.token })).json.find((u) => u.id === person.id);
+    assert.equal(back.suspended, false);
+    assert.equal(back.suspendedAt, null);
+    assert.equal(back.deleteAfter, null, 'nothing is waiting to be deleted');
+    assert.equal((await call('/auth/login', { body: { email, password: 'Test12345!' } })).status, 200);
+  });
+});
+
+// INDECIANA's own account (node server/admin.mjs indeciana): the house shop's real login, not an account nobody can
+// sign in to. This runs last: it takes the house items back, which is the point of it.
+describe('INDECIANA own account', () => {
+  test('has an email, a password and the main admin role', async () => {
+    const run = spawnSync(process.execPath, ['--no-warnings', 'server/admin.mjs', 'indeciana', 'House-test-pass1'], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /indeciana@gmail\.com is INDECIANA's own account/);
+
+    const login = await call('/auth/login', { body: { email: 'indeciana@gmail.com', password: 'House-test-pass1' } });
+    assert.equal(login.status, 200, JSON.stringify(login.json));
+    assert.equal(login.json.user.email, 'indeciana@gmail.com');
+    assert.equal(login.json.user.role, 'seller', 'a shop of its own');
+    assert.equal(login.json.user.official, true);
+    assert.equal(login.json.user.adminLevel, 1, 'the main admin (type 1)');
+    // Type 1 is what opens the parts only the main admin sees.
+    assert.equal((await call('/admin/admins', { token: login.json.token })).status, 200);
+
+    // The house items are sold by it from now on, so they sit in its Seller Center instead of a shop nobody owns.
+    const house = (await call('/products?limit=100')).json.filter((p) => p.official);
+    assert.ok(house.length > 0);
+    assert.ok(house.every((p) => p.sellerId === login.json.user.id));
+  });
+});

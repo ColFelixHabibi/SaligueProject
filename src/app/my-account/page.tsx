@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Bookmark, Coins, GraduationCap, Package, ShoppingBag, Store, Wand2 } from 'lucide-react';
+import { ArrowRight, Bookmark, Coins, GraduationCap, History, Package, ShoppingBag, Store, Wand2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ProductCard from '@/components/product-card';
 import { useCart } from '@/hooks/use-cart-store';
 import { useWishlist } from '@/hooks/use-wishlist';
+import { useHistory } from '@/lib/history';
 import { getCoins } from '@/lib/live';
 import { formatPrice, useOrders } from '@/lib/orders';
 import { cn } from '@/lib/utils';
@@ -14,9 +15,11 @@ import { useAuth } from '@/components/auth/auth-provider';
 
 const STATUS: Record<string, string> = { placed: 'Placed', confirmed: 'Confirmed', shipped: 'On the way', delivered: 'Delivered', cancelled: 'Cancelled' };
 
-/** My Saligue at a glance: orders on their way, saved items, the bag and coins; then the latest orders. */
+/** My Saligue at a glance: orders on their way, saved items, what was seen, the bag and coins; then the latest orders. */
 export default function MySaligue() {
   const orders = useOrders('buyer');
+  // What they opened or scrolled past (My Saligue → History): the same list, counted here.
+  const seen = useHistory();
   // One account: with a shop, the last card leads to it instead of offering to open one.
   const { role } = useAuth();
   const { wishlistItems } = useWishlist();
@@ -27,12 +30,13 @@ export default function MySaligue() {
   const tiles: [typeof Package, string, string, string][] = [
     [Package, 'On their way', String(open.length), '/my-account/orders'],
     [Bookmark, 'Saved', String(wishlistItems.length), '/my-account/saved'],
+    [History, 'History', seen === null ? '…' : String(seen.length), '/my-account/history'],
     [ShoppingBag, 'In your bag', String(cartItems.reduce((n, i) => n + i.quantity, 0)), '/cart'],
     [Coins, 'Coins', coins == null ? '…' : coins.toLocaleString(), '/my-account/coins'],
   ];
   return (
     <>
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
         {tiles.map(([Icon, label, value, href]) => (
           <Link key={label} href={href} className="group rounded-2xl border bg-card p-4 transition hover:border-primary">
             <Icon className="h-5 w-5 text-primary" />

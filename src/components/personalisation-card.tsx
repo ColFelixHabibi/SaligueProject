@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
+import { clearHistory } from '@/lib/history';
 
 const KEY = 'saligue-cookie-choice';
 
@@ -48,6 +49,14 @@ export function PersonalisationCard() {
       toast({ variant: 'destructive', title: 'Could not clear', description: 'Try again in a moment.' });
     }
   };
+  const clearSeen = async () => {
+    try {
+      await clearHistory();
+      toast({ title: 'History cleared', description: 'What you saw and scrolled past is gone from My Saligue → History.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not clear', description: 'Try again in a moment.' });
+    }
+  };
   return (
     <Card>
       <CardHeader>
@@ -59,7 +68,11 @@ export function PersonalisationCard() {
           <Label htmlFor="personalise" className="font-medium">Personalise my feed</Label>
           <Switch id="personalise" checked={on} onCheckedChange={change} />
         </div>
-        <Button variant="outline" onClick={clear}>Reset my recommendations</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={clear}>Reset my recommendations</Button>
+          {/* History is a list of its own (My Saligue → History): clearing the feed's learning leaves it alone. */}
+          <Button variant="outline" onClick={clearSeen}>Clear my history</Button>
+        </div>
         <div className="flex items-center justify-between gap-4 border-t pt-4">
           <Label htmlFor="data-saver" className="flex items-center gap-2 font-medium"><Gauge className="h-4 w-4 text-primary" /> Data saver <span className="font-normal text-muted-foreground">· videos play when you tap</span></Label>
           <Switch id="data-saver" checked={saver} onCheckedChange={setDataSaver} />

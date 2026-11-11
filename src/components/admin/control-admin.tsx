@@ -198,7 +198,7 @@ export function PoliciesAdmin() {
   );
 }
 
-type Account = { id: string; name: string; email: string; role: string; official: boolean; adminLevel: number; suspended: boolean; suspendReason: string | null; createdAt: string; items: number; orders: number };
+type Account = { id: string; name: string; email: string; role: string; official: boolean; adminLevel: number; suspended: boolean; suspendReason: string | null; suspendedAt?: string | null; deleteAfter?: string | null; createdAt: string; items: number; orders: number };
 
 /** Find accounts; suspend (signs them out and blocks login) or restore them. */
 export function AccountsAdmin() {
@@ -213,7 +213,7 @@ export function AccountsAdmin() {
   const suspend = async (a: Account) => {
     const answer = a.suspended
       ? await ask({ title: `Restore ${a.name}?`, description: 'They can log in again.', confirm: 'Restore' })
-      : await ask({ title: `Suspend ${a.name}?`, description: 'They are signed out everywhere and can’t log in until you restore them.', confirm: 'Suspend', destructive: true, input: { label: 'Reason (shown to them)', value: 'Breaking the Terms of Service' } });
+      : await ask({ title: `Suspend ${a.name}?`, description: 'They are signed out everywhere and can’t log in until you restore them. Without a restore, the account is deleted for good after 90 days.', confirm: 'Suspend', destructive: true, input: { label: 'Reason (shown to them)', value: 'Breaking the Terms of Service' } });
     if (answer === null) return;
     const reason = typeof answer === 'string' ? answer : '';
     await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: !a.suspended, reason } }), a.suspended ? 'Account restored' : 'Account suspended');
@@ -223,7 +223,7 @@ export function AccountsAdmin() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-primary" /> Accounts</CardTitle>
-        <CardDescription>A suspended account is signed out everywhere and can’t log in until you restore it.</CardDescription>
+        <CardDescription>A suspended account is signed out everywhere and can’t log in until you restore it. If it is not restored within 90 days, the account and everything in it is deleted for good.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" placeholder="Name, email or shop" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -234,7 +234,7 @@ export function AccountsAdmin() {
             <div className="min-w-0 flex-1">
               <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
               <p className="truncate text-xs text-muted-foreground">{a.email} · {a.role === 'seller' ? 'Shop' : 'Shopper'} · {a.items} items · {a.orders} orders · since {new Date(a.createdAt).toLocaleDateString()}</p>
-              {a.suspended && <p className="text-xs font-semibold text-destructive">Suspended{a.suspendReason ? `: ${a.suspendReason}` : ''}</p>}
+              {a.suspended && <p className="text-xs font-semibold text-destructive">Suspended{a.suspendReason ? `: ${a.suspendReason}` : ''}{a.deleteAfter ? ` · deleted on ${new Date(a.deleteAfter).toLocaleDateString()} unless restored` : ''}</p>}
             </div>
             {a.adminLevel !== 1 && (
               <Button size="sm" variant={a.suspended ? 'outline' : 'ghost'} className={a.suspended ? '' : 'text-destructive'} onClick={() => suspend(a)}>

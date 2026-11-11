@@ -99,6 +99,9 @@ function tidySessions(userId, at) {
 // an HttpOnly cookie (scripts can't read it), which signs in live updates and works when storage is blocked.
 const SESSION_DAYS = 60;
 const COOKIE = 'saligue_session';
+// A suspended account is permanently deleted after this long, unless it is restored first. The person is told the
+// day when it happens, and Admin → Accounts shows it too.
+const SUSPEND_DELETE_DAYS = 90;
 
 // Sessions from before hashing still hold the token itself until they are next used, and one that is never used
 // again would sit readable in saligue.db for the rest of its 60 days. Hash them all once at start: userOf looks a
@@ -272,7 +275,17 @@ const money = (n) => `$${Number(n).toFixed(2)}`;
 
 // A live-only deal: a lower price set by the shop during its live, until the countdown ends (or the live does).
 const dealActive = (r) => r.deal_price != null && r.deal_until && r.deal_until > now();
-const priceOf = (r) => (dealActive(r) ? r.deal_price : r.price);
+const round2 = (n) => Math.round(Number(n) * 100) / 100;
+// A discount the shop put on the post itself (% off, 0–90). It is not a live deal, so the usual price stays on
+// record and the shopper is shown both. A live deal already sets its own lower price, so it wins while it lasts.
+const discountOf = (r) => (dealActive(r) ? 0 : Math.min(90, Math.max(0, Math.floor(Number(r.discount) || 0))));
+// What the shopper actually pays: a live deal, else the discount, else the usual price. Orders are priced from
+// here (POST /api/orders), so a discount is what gets charged, not just what gets shown.
+const priceOf = (r) => {
+  const percent = discountOf(r);
+  if (dealActive(r)) return r.deal_price;
+  return percent ? round2(Number(r.price) * (1 - percent / 100)) : r.price;
+};
 
 function productOut(r) {
   const p = {
@@ -281,6 +294,8 @@ function productOut(r) {
     price: priceOf(r),
     // While a live deal lasts: the usual price (shown crossed out), when it ends and in which live.
     ...(dealActive(r) ? { deal: { was: r.price, until: r.deal_until, liveId: r.deal_live_id } } : {}),
+    // A % off on the post: the usual price (shown crossed out) and how much comes off.
+    ...(discountOf(r) ? { discount: { percent: discountOf(r), was: Number(r.price) } } : {}),
     image: r.image,
     cutout: r.cutout ?? undefined,
     embedding: parse(r.embedding) ?? undefined,
@@ -341,6 +356,12 @@ function productFields(body) {
   if (body.status !== undefined) {
     if (!['active', 'archived', 'draft'].includes(body.status)) fail(400, 'invalid_status', 'Invalid status.');
     fields.status = body.status;
+  }
+  // A % off shown on the post: 1–90, and 0 (or null) takes it off again.
+  if (body.discountPercent !== undefined) {
+    const percent = body.discountPercent === null || body.discountPercent === '' ? 0 : Math.round(Number(body.discountPercent));
+    if (!(percent >= 0 && percent <= 90)) fail(400, 'invalid_discount', 'A discount is a whole % between 1 and 90 (0 removes it).');
+    fields.discount = percent || null;
   }
   if (body.photoType !== undefined) fields.photo_type = body.photoType === 'worn' ? 'worn' : 'item';
   if (body.stock !== undefined) {
@@ -593,11 +614,16 @@ function noteFailedAttempt(key) {
   failedLogins.set(k, [...(failedLogins.get(k) ?? []), Date.now()]);
 }
 
+// What a suspended person is told when they try to sign in: the reason, and the day their account is emptied for
+// good if nobody restores it first. Both sign-in paths say exactly the same thing.
+const suspendRefusal = (account) =>
+  `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}.${account.delete_after ? ` If it is not restored, the account and everything in it is permanently deleted on ${account.delete_after.slice(0, 10)}.` : ''} Contact Saligue support.`;
+
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
   if (tooManyAttempts(email)) fail(429, 'too_many_attempts', 'Too many tries. Wait 15 minutes or reset your password.');
   const account = db.prepare('select * from users where email = ?').get(email);
-  if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}. Contact Saligue support.`);
+  if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', suspendRefusal(account));
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
     noteFailedAttempt(email);
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
@@ -632,7 +658,7 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   if (account) {
     // The same refusal the password sign-in gives: an admin who suspended this account (Admin → Accounts) must
     // not be told "signed in" here either.
-    if (account.suspended) fail(403, 'suspended', `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}. Contact Saligue support.`);
+    if (account.suspended) fail(403, 'suspended', suspendRefusal(account));
     if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
     return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
   }
@@ -723,6 +749,8 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
     looks: all('select * from looks where user_id = ?', id).map((l) => lookOut(l, true)),
     stories: all('select id, kind, media, caption, background, product_id, seconds, created_at, expires_at from stories where user_id = ?', id),
     searches: all('select q, created_at from searches where user_id = ? order by created_at', id),
+    // What they saw or scrolled past — the same list My Saligue → History shows them.
+    history: all('select product_id, seen_at, times from view_history where user_id = ? order by seen_at desc', id),
     whatYouShowedInterestIn: all('select product_id, kind, weight, created_at from interactions where user_id = ? order by created_at', id),
     coins: all('select amount, reason, created_at from coins where user_id = ? order by created_at', id),
     tips: all('select to_user, from_user, amount, share, message, status, created_at from tips where from_user = ? or to_user = ?', id, id),
@@ -741,13 +769,9 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
 // Deleting your account. Orders stay (the other side needs them for delivery and accounts), so the account is
 // emptied rather than removed: no name, email, photo, username, shop or password, and it can never sign in again.
 // What the person made or did on Saligue goes: comments, questions, likes, follows, looks, searches, history;
-// a shop's items and a teacher's lessons are taken down.
-route('POST', '/api/auth/me/delete', ({ user, body }) => {
-  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
-  if (String(body.confirm ?? '').trim().toUpperCase() !== 'DELETE') fail(400, 'not_confirmed', 'Type DELETE to confirm.');
-  if (user.admin_level === 1) fail(403, 'main_admin', 'The main admin can’t delete their account. Give main admin to someone else first.');
-  const open = db.prepare("select count(*) as n from orders where (buyer_id = ? or seller_id = ?) and status in ('placed', 'confirmed', 'shipped')").get(user.id, user.id).n;
-  if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
+// a shop's items and a teacher's lessons are taken down. The same emptying happens when a suspension's 90 days
+// are up (eraseExpiredAccounts below), so a suspended account is not left behind for ever.
+function eraseAccount(user, note = 'Account deleted by its owner') {
   const id = user.id;
   // What is being erased and is a file of its own: their profile photo and their statuses' photos and voice notes.
   // They are removed once the rows are gone — unless an item, a lesson or someone else's status shows the same file.
@@ -760,7 +784,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
     // Their chat messages (with photos, videos and voice notes) are deleted; the other person sees "Message unsent".
     for (const m of db.prepare('select id, attachment from messages where sender_id = ? and attachment is not null').all(id)) removeChatFiles(m.attachment);
     db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where sender_id = ? and deleted_at is null").run(now(), id);
-    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'stories', 'story_views', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
+    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'stories', 'story_views', 'view_history', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
       db.prepare(`delete from ${table} where user_id = ?`).run(id);
     }
     db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
@@ -774,12 +798,22 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
     db.prepare("update products set status = 'archived', hidden = 1 where seller_id = ?").run(id);
     db.prepare('update lessons set hidden = 1 where user_id = ?').run(id);
     db.prepare("update lives set replay_status = 'none', replay_video = null, replay_poster = null where seller_id = ?").run(id);
+    // The suspension dates go too: nothing is waiting to be deleted once the account is already empty.
     db.prepare(`update users set email = ?, display_name = 'Deleted account', username = null, password_hash = null, avatar = null, bio = null, shop = null,
-      admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = 'Account deleted by its owner' where id = ?`).run(`deleted-${id}@deleted.saligue`, id);
+      admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = ?, suspended_at = null, delete_after = null where id = ?`).run(`deleted-${id}@deleted.saligue`, note, id);
   });
   releaseMedia(theirFiles);
   broadcast('products');
   broadcast('lessons');
+}
+
+route('POST', '/api/auth/me/delete', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  if (String(body.confirm ?? '').trim().toUpperCase() !== 'DELETE') fail(400, 'not_confirmed', 'Type DELETE to confirm.');
+  if (user.admin_level === 1) fail(403, 'main_admin', 'The main admin can’t delete their account. Give main admin to someone else first.');
+  const open = db.prepare("select count(*) as n from orders where (buyer_id = ? or seller_id = ?) and status in ('placed', 'confirmed', 'shipped')").get(user.id, user.id).n;
+  if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
+  eraseAccount(user);
   return { ok: true };
 });
 
@@ -953,10 +987,10 @@ route('POST', '/api/products', async ({ user, body }) => {
   const checked = await requireFashion(fields);
   if (checked) fields.embedding = json(checked);
   const id = randomUUID();
-  db.prepare(`insert into products (id, name, price, image, cutout, embedding, category, type, seller, seller_id, seller_email, status,
+  db.prepare(`insert into products (id, name, price, discount, image, cutout, embedding, category, type, seller, seller_id, seller_email, status,
       description, size, color, brand, condition, contact, shop, official, sound, stock, photo_type, created_at)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, fields.name, fields.price, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, fields.name, fields.price, fields.discount ?? null, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
     fields.seller || user.display_name || 'Seller', user.id, user.email, fields.status ?? 'active', fields.description ?? null, fields.size ?? null,
     fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null,
     fields.stock ?? null, fields.photo_type ?? 'item', now()
@@ -971,8 +1005,12 @@ route('PATCH', '/api/products/([\\w-]+)', async ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   const before = ownProduct(user, params[0]);
   const fields = productFields(body);
-  // During a live deal the app shows the deal price: sent back unchanged, it never becomes the usual price.
-  if (dealActive(before) && fields.price !== undefined && Number(fields.price) === Number(before.deal_price)) delete fields.price;
+  // During a live deal or a discount the app shows the lower price: sent back unchanged (as the edit form does),
+  // it never becomes the usual price, so a discount can never be counted twice.
+  // A request that changes the discount itself means the price it sends (the forms send the usual one).
+  const shown = priceOf(before);
+  if (fields.price !== undefined && (dealActive(before) || fields.discount === undefined)
+    && Number(fields.price) === Number(shown) && Number(shown) !== Number(before.price)) delete fields.price;
   // Changed photo or words are checked again.
   const checked = await requireFashion({
     ...fields,
@@ -1438,7 +1476,7 @@ const storyExpiry = () => new Date(Date.now() + STORY_HOURS * 3_600_000).toISOSt
 
 /** A story as the app draws it, with the item it opens and whether this viewer has already watched it. */
 function storyOut(r, viewerId) {
-  const p = r.product_id ? db.prepare('select id, name, price, deal_price, deal_until, image from products where id = ?').get(r.product_id) : null;
+  const p = r.product_id ? db.prepare('select id, name, price, discount, deal_price, deal_until, image from products where id = ?').get(r.product_id) : null;
   return {
     id: r.id,
     kind: r.kind,
@@ -3500,6 +3538,62 @@ route('POST', '/api/searches', ({ req, user, body }) => {
 });
 
 // ---------------------------------------------------------------------------
+// History: what a person saw or scrolled past, kept in one list they can go back through (My Saligue → History).
+// It is theirs to look at: an item already there moves to the top instead of being added twice, anything can be
+// taken out on its own, and the whole list can be cleared in one go. It goes with the account.
+// ---------------------------------------------------------------------------
+const HISTORY_MAX = 500;
+
+route('GET', '/api/history', ({ user, url }) => {
+  if (!user || user.is_guest) return [];
+  const limit = Math.min(HISTORY_MAX, Math.max(1, Number(url.searchParams.get('limit')) || 120));
+  const rows = db.prepare('select product_id, seen_at, times from view_history where user_id = ? order by seen_at desc limit ?').all(user.id, limit);
+  const one = db.prepare('select * from products where id = ?');
+  const items = [];
+  for (const r of rows) {
+    const p = one.get(r.product_id);
+    // An item taken down since (deleted, hidden after reports, archived or a draft again) is dropped from the list
+    // rather than shown as a hole — unless it is this person's own.
+    if (!p || ((p.hidden || p.status !== 'active') && p.seller_id !== user.id)) continue;
+    const { embedding, ...item } = productOut(p);
+    items.push({ ...item, seenAt: r.seen_at, times: r.times });
+  }
+  return items;
+});
+
+// The app sends what came on screen, in small batches (src/lib/history.ts).
+route('POST', '/api/history', ({ user, body }) => {
+  if (!user || user.is_guest) return { ok: true, recorded: 0 };
+  const events = (Array.isArray(body.events) ? body.events : []).slice(0, 50);
+  let recorded = 0;
+  transaction(() => {
+    for (const e of events) {
+      const productId = String(e.productId ?? '');
+      if (!db.prepare('select 1 from products where id = ?').get(productId)) continue;
+      db.prepare(`insert into view_history (user_id, product_id, seen_at, times) values (?, ?, ?, 1)
+        on conflict (user_id, product_id) do update set seen_at = excluded.seen_at, times = view_history.times + 1`).run(user.id, productId, now());
+      recorded += 1;
+    }
+    // The oldest fall off once the list is full, so it stays short and the table cannot grow for ever.
+    db.prepare(`delete from view_history where user_id = ? and product_id not in (
+      select product_id from view_history where user_id = ? order by seen_at desc limit ?)`).run(user.id, user.id, HISTORY_MAX);
+  });
+  return { ok: true, recorded };
+});
+
+// Clear it all (also Settings → Privacy, next to "Reset my recommendations").
+route('DELETE', '/api/history', ({ user }) => {
+  if (user) db.prepare('delete from view_history where user_id = ?').run(user.id);
+  return { ok: true };
+});
+
+// Take one item out of it.
+route('DELETE', '/api/history/([\\w-]+)', ({ user, params }) => {
+  if (user) db.prepare('delete from view_history where user_id = ? and product_id = ?').run(user.id, params[0]);
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
 // Platform settings (admins): connect email, online payments and unlimited try-on from the browser.
 // Secrets are stored on the server and never sent back, only whether they are set.
 // ---------------------------------------------------------------------------
@@ -4670,6 +4764,8 @@ route('GET', '/api/admin/users', ({ user, url }) => {
   return db.prepare("select * from users where is_guest = 0 and (lower(email) like ? or lower(display_name) like ? or lower(coalesce(shop, '')) like ?) order by created_at desc limit 50").all(q, q, q).map((u) => ({
     id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), email: u.email, role: u.role, official: !!u.official, adminLevel: u.admin_level ?? 0,
     suspended: !!u.suspended, suspendReason: u.suspend_reason, createdAt: u.created_at,
+    // When a suspended account is emptied for good if it is not restored (90 days after it was suspended).
+    suspendedAt: u.suspended_at ?? null, deleteAfter: u.delete_after ?? null,
     items: db.prepare('select count(*) as n from products where seller_id = ?').get(u.id).n,
     orders: db.prepare('select count(*) as n from orders where buyer_id = ?').get(u.id).n,
   }));
@@ -4682,8 +4778,21 @@ route('POST', '/api/admin/users/([\\w-]+)/suspend', ({ user, params, body }) => 
   if (target.admin_level === 1 || (target.admin_level === 2 && user.admin_level !== 1)) fail(403, 'forbidden', 'Only the main admin can suspend an admin, and the main admin can’t be suspended.');
   const suspend = body.suspended !== false;
   const reason = suspend ? String(body.reason ?? '').trim().slice(0, 200) || null : null;
-  db.prepare('update users set suspended = ?, suspend_reason = ? where id = ?').run(suspend ? 1 : 0, reason, target.id);
+  // A suspension comes with a deadline: unless the account is restored first, it is emptied for good after 90 days
+  // (eraseExpiredAccounts below). Restoring clears both dates again.
+  const deleteAfter = suspend ? new Date(Date.now() + SUSPEND_DELETE_DAYS * 86_400_000).toISOString() : null;
+  db.prepare('update users set suspended = ?, suspend_reason = ?, suspended_at = ?, delete_after = ? where id = ?').run(suspend ? 1 : 0, reason, suspend ? now() : null, deleteAfter, target.id);
   if (suspend) db.prepare('delete from sessions where user_id = ?').run(target.id);
+  if (suspend) {
+    // The person is told what is happening and when it happens, by email and on their phone: an account that is
+    // emptied without ever having said so would be a surprise.
+    notify(target.id, {
+      type: 'account',
+      title: 'Your Saligue account is suspended',
+      body: `${reason ? `Reason: ${reason}. ` : ''}Your account will be permanently deleted on ${deleteAfter.slice(0, 10)} unless it is restored first.`,
+      link: '/support',
+    });
+  }
   logAdmin(user, suspend ? 'suspended' : 'restored', `${target.email}${reason ? `: ${reason}` : ''}`);
   return { ok: true };
 });
@@ -6478,6 +6587,23 @@ setInterval(() => db.prepare('delete from interactions where created_at < ?').ru
 const dropOldSessions = () => db.prepare('delete from sessions where created_at < ?').run(new Date(Date.now() - SESSION_DAYS * 86_400_000).toISOString());
 dropOldSessions();
 setInterval(dropOldSessions, 86_400_000).unref();
+
+// A suspended account whose 90 days are up is emptied for good, exactly as if its owner had deleted it (and their
+// orders stay readable for the shops). Run at start-up too, so a server that was off for a while catches up at once.
+// The main admin can never be shown a deadline (it cannot be suspended), and one that is already empty is skipped.
+function eraseExpiredAccounts() {
+  const due = db.prepare('select * from users where delete_after is not null and delete_after <= ? and is_guest = 0 and coalesce(admin_level, 0) != 1').all(now());
+  for (const account of due) {
+    try {
+      eraseAccount(account, 'Suspended account deleted after 90 days');
+      console.log(`Suspended account ${account.id} was permanently deleted (its 90 days were up).`);
+    } catch (error) {
+      console.error(`Could not delete the suspended account ${account.id}:`, error.message);
+    }
+  }
+}
+eraseExpiredAccounts();
+setInterval(eraseExpiredAccounts, 86_400_000).unref();
 
 server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);
