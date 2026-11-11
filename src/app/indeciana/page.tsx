@@ -26,7 +26,7 @@ import { SoundChip } from '@/components/social/sound-chip';
 const LOGO = `${BASE_PATH}/brand/indeciana-logo.png`;
 
 function Wordmark() {
-  const [logoOk, setLogoOk] = useState(true);
+  const [logoOk, setLogoOk] = useState(process.env.NEXT_PUBLIC_BRAND_LOGO === '1');
   return logoOk ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={LOGO} alt="INDECIANA" className="mx-auto h-24 w-auto object-contain md:h-32" onError={() => setLogoOk(false)} />

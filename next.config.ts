@@ -1,5 +1,6 @@
 
 import type {NextConfig} from 'next';
+import { existsSync } from 'node:fs';
 import { siteUrl } from './scripts/site-url.mjs';
 
 // Set when building for GitHub Pages, which serves the site from /<repo-name>.
@@ -17,7 +18,12 @@ const nextConfig: NextConfig = {
   // Static export: served by Saligue's own server (server/), or hosted elsewhere such as GitHub Pages.
   output: 'export',
   // The public address for share cards (src/app/layout.tsx), from the same place the server and app builds read it.
-  env: { NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || siteUrl() },
+  // NEXT_PUBLIC_BRAND_LOGO: whether INDECIANA's logo file exists, so the page never asks for a file that is not there
+  // (a 404 and a console error on every visit) and shows the wordmark instead.
+  env: {
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || siteUrl(),
+    NEXT_PUBLIC_BRAND_LOGO: existsSync('public/brand/indeciana-logo.png') ? '1' : '',
+  },
   basePath,
   trailingSlash: true,
   typescript: {
