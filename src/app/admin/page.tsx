@@ -130,7 +130,7 @@ function PlatformSettings() {
       <div>
         <p className="text-muted-foreground">Connect the services Saligue needs. Keys are kept on your server and never shown again.</p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[['Accounts', data.stats.users], ['Sellers', data.stats.sellers], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
+          {[['Accounts', data.stats.users], ['Shops', data.stats.sellers], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
             <div key={k as string} className="rounded-xl border bg-card p-3"><p className="text-2xl font-bold">{v}</p><p className="text-xs text-muted-foreground">{k}</p></div>
           ))}
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Ban, CheckCircle2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Ban, Check, CheckCircle2, Eraser, Undo2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
 
 type Event = { id: number; kind: string; ip: string | null; country: string | null; user_id: string | null; detail: string; alerted: number; created_at: string };
 type Blocked = { ip: string; reason: string; until: string | null; by: string; created_at: string };
-type Check = { key: string; ok: boolean; label: string; fix: string };
-type Security = { last24h: Record<string, number>; topAddresses: { ip: string; country: string | null; n: number; kinds: string }[]; events: Event[]; blocked: Blocked[]; server: Check[] };
+type ServerCheck = { key: string; ok: boolean; label: string; fix: string; handled?: boolean };
+type Security = { last24h: Record<string, number>; topAddresses: { ip: string; country: string | null; n: number; kinds: string }[]; events: Event[]; blocked: Blocked[]; server: ServerCheck[]; clearedAt: string | null };
 
 const KIND: Record<string, string> = {
   login_failed: 'Wrong password', account_locked: 'Account locked', admin_login: 'Admin signed in', admin_denied: 'Admin function refused',
@@ -45,9 +45,13 @@ export function SecurityAdmin() {
   const act = (p: Promise<Security>, done: string) =>
     p.then((d) => { setData(d); toast({ title: done }); }).catch((e) => toast({ variant: 'destructive', title: 'Not done', description: friendlyError(e) }));
   const block = (target: string) => act(api<Security>('/admin/security/block', { body: { ip: target, hours: 24 * 30, reason: 'Blocked by an admin' } }), `${target} blocked for 30 days`);
+  const clear = () => act(api<Security>('/admin/security/clear', { method: 'POST' }), 'Counters cleared');
+  const handle = (key: string, handled: boolean) =>
+    act(api<Security>('/admin/security/handled', { body: { key, handled } }), handled ? 'Marked as handled' : 'Warning shown again');
   const unblock = (target: string) => act(api<Security>(`/admin/security/block/${encodeURIComponent(target)}`, { method: 'DELETE' }), `${target} unblocked`);
   if (!data) return <Skeleton className="h-96" />;
-  const weak = data.server.filter((c) => !c.ok);
+  // A warning marked as handled no longer turns the card red.
+  const weak = data.server.filter((c) => !c.ok && !c.handled);
   const events = filter ? data.events.filter((e) => e.kind === filter) : data.events;
 
   return (
@@ -60,16 +64,27 @@ export function SecurityAdmin() {
         <CardContent className="space-y-2 text-sm">
           {data.server.length === 0 && <p className="text-muted-foreground">Could not read the server’s settings.</p>}
           {data.server.map((c) => (
-            <div key={c.key} className="flex items-start gap-2">
-              {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />}
-              <span><b>{c.label}</b>{!c.ok && <span className="block text-xs text-muted-foreground">{c.fix}</span>}</span>
+            <div key={c.key} className={cn('flex items-start gap-2', c.handled && 'text-muted-foreground')}>
+              {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : c.handled ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />}
+              <span className="min-w-0 flex-1"><b>{c.label}</b>{!c.ok && <span className="block text-xs text-muted-foreground">{c.handled ? 'Marked as handled' : c.fix}</span>}</span>
+              {!c.ok && (
+                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => void handle(c.key, !c.handled)}
+                  aria-label={c.handled ? 'Show this warning again' : 'Mark as handled'} title={c.handled ? 'Show this warning again' : 'Mark as handled'}>
+                  {c.handled ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                </Button>
+              )}
             </div>
           ))}
         </CardContent>
       </Card>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-bold">Last 24 hours</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold">{data.clearedAt && Date.now() - new Date(data.clearedAt).getTime() < 86_400_000 ? `Since cleared ${new Date(data.clearedAt).toLocaleString()}` : 'Last 24 hours'}</h2>
+          <Button size="icon" variant="ghost" className="ml-auto h-8 w-8" onClick={() => void clear()} aria-label="Clear counters" title="Clear counters">
+            <Eraser className="h-4 w-4" />
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {TILES.map(([key, label]) => {
             const n = data.last24h[key] ?? 0;
@@ -122,7 +137,7 @@ export function SecurityAdmin() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">What happened {filter && <button type="button" className="ml-2 text-xs font-normal text-primary underline" onClick={() => setFilter(null)}>show all</button>}</CardTitle>
-          <CardDescription>The latest 200 events, newest first. Kept 90 days.</CardDescription>
+          <CardDescription>The latest 200 events{data.clearedAt ? ' since the counters were cleared' : ''}, newest first. Kept 90 days.</CardDescription>
         </CardHeader>
         <CardContent className="divide-y text-sm">
           {events.length === 0 && <p className="text-muted-foreground">Nothing yet.</p>}

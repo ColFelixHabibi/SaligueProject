@@ -286,15 +286,45 @@ function readSsh() {
 // Admin → Security
 // ---------------------------------------------------------------------------
 
+// What an admin said in Admin → Security: when the counters were last cleared, and which server warnings they have
+// dealt with (or chosen to live with). Kept in app_config so it survives restarts.
+const securityState = () => {
+  try {
+    return JSON.parse(db.prepare("select value from app_config where key = 'security_state'").get()?.value ?? 'null') ?? {};
+  } catch {
+    return {};
+  }
+};
+const saveSecurityState = (state) =>
+  db.prepare("insert into app_config (key, value) values ('security_state', ?) on conflict(key) do update set value = excluded.value").run(JSON.stringify(state));
+
+/** Starts the counters and the event list afresh from now. The events themselves stay stored (90 days) for audits. */
+export function clearSecurityCounts(by) {
+  saveSecurityState({ ...securityState(), clearedAt: now(), clearedBy: by });
+}
+
+/** Marks one server warning as dealt with (handled = true) or brings it back (false). */
+export function handleServerCheck(key, handled, by) {
+  const state = securityState();
+  const list = new Set(state.handled ?? []);
+  if (handled) list.add(key);
+  else list.delete(key);
+  saveSecurityState({ ...state, handled: [...list], handledBy: by });
+}
+
 export function securityOverview() {
-  const since = new Date(Date.now() - 24 * HOUR).toISOString();
+  const state = securityState();
+  const dayAgo = new Date(Date.now() - 24 * HOUR).toISOString();
+  // After a clear, only what came since counts, up to the last 24 hours.
+  const since = state.clearedAt && state.clearedAt > dayAgo ? state.clearedAt : dayAgo;
   const counts = Object.fromEntries(db.prepare('select kind, count(*) as n from security_events where created_at > ? group by kind').all(since).map((r) => [r.kind, r.n]));
   // SSH failures are stored as one summary line per check: add up their totals.
   const ssh = db.prepare("select detail from security_events where kind = 'ssh_failed' and created_at > ?").all(since).reduce((s, r) => s + (Number(/^(\d+)/.exec(r.detail)?.[1]) || 0), 0);
   return {
     last24h: { ...counts, ssh_failed_attempts: ssh },
     topAddresses: db.prepare("select ip, country, count(*) as n, group_concat(distinct kind) as kinds from security_events where created_at > ? and ip is not null and kind not in ('signup', 'admin_login', 'reset') group by ip order by n desc limit 10").all(since),
-    events: db.prepare("select id, kind, ip, country, user_id, detail, alerted, created_at from security_events where kind != 'signup' order by id desc limit 200").all(),
+    events: db.prepare("select id, kind, ip, country, user_id, detail, alerted, created_at from security_events where kind != 'signup' and created_at > ? order by id desc limit 200").all(state.clearedAt ?? ''),
+    clearedAt: state.clearedAt ?? null,
     blocked: db.prepare('select * from blocked_ips where until is null or until > ? order by created_at desc').all(now()),
     server: serverChecks(),
   };
@@ -320,7 +350,9 @@ export function serverChecks() {
   }
   if (ufw !== null) checks.push({ key: 'firewall', ok: /Status: active/.test(ufw), label: 'Firewall on (only web, LiveKit and SSH open)', fix: 'Turn on ufw allowing 22, 80, 443 and LiveKit’s ports.' });
   checks.push({ key: 'fail2ban', ok: f2b !== null && /pong/i.test(f2b), label: 'Password guessers on the server are banned automatically (fail2ban)', fix: 'Install fail2ban: addresses that guess wrong 5 times are banned.' });
-  return checks;
+  // A warning an admin marked as handled stops counting as a problem (no red card, not in the daily summary).
+  const handled = new Set(securityState().handled ?? []);
+  return checks.map((c) => ({ ...c, handled: !c.ok && handled.has(c.key) }));
 }
 
 /** Once a day: how the last 24 hours went, so quiet days are confirmed too. */
@@ -336,7 +368,7 @@ function dailySummary() {
     s.flood && `${s.flood} floods`,
   ].filter(Boolean);
   const blockedNow = db.prepare('select count(*) as n from blocked_ips where until is null or until > ?').get(now()).n;
-  const weak = serverChecks().filter((c) => !c.ok).map((c) => c.label.toLowerCase());
+  const weak = serverChecks().filter((c) => !c.ok && !c.handled).map((c) => c.label.toLowerCase());
   const server = weak.length ? ` Server still to fix: ${weak.join('; ')}.` : '';
   alert('daily', 'summary', 'Security: daily summary', (parts.length ? `Last 24 hours: ${parts.join(', ')}. ${blockedNow} address${blockedNow === 1 ? '' : 'es'} blocked now. All of them failed. Details: Admin → Security.` : 'Last 24 hours: no attacks noticed.') + server, { always: true });
 }

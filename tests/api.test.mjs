@@ -1401,6 +1401,28 @@ describe('security watch', () => {
     assert.equal(seen.events.some((e) => e.kind === 'injection' && e.ip === '203.0.113.99'), false);
     assert.ok(seen.events.some((e) => e.kind === 'injection' && e.ip === '203.0.113.100'));
   });
+  test('an admin can clear the counters and mark a server warning as handled', async () => {
+    const admin = await mainAdmin('Clearing Admin');
+    await call('/auth/login', { body: { email: admin.user.email, password: 'wrong-again' }, headers: from('198.51.100.40') });
+    const before = (await call('/admin/security', { token: admin.token })).json;
+    assert.ok((before.last24h.login_failed ?? 0) > 0);
+    const cleared = await call('/admin/security/clear', { method: 'POST', token: admin.token });
+    assert.equal(cleared.status, 200);
+    assert.ok(cleared.json.clearedAt);
+    assert.equal(cleared.json.last24h.login_failed ?? 0, 0);
+    assert.equal(cleared.json.events.some((e) => e.ip === '198.51.100.40'), false);
+    // Something new after the clear counts again.
+    await call('/auth/login', { body: { email: admin.user.email, password: 'wrong-later' }, headers: from('198.51.100.41') });
+    assert.equal((await call('/admin/security', { token: admin.token })).json.last24h.login_failed, 1);
+    // Marking a warning handled is remembered, and can be undone; a non-admin cannot do either.
+    const handled = await call('/admin/security/handled', { token: admin.token, body: { key: 'ssh_password', handled: true } });
+    assert.equal(handled.status, 200);
+    const shown = await call('/admin/security/handled', { token: admin.token, body: { key: 'ssh_password', handled: false } });
+    assert.equal(shown.status, 200);
+    assert.equal(shown.json.server.some((c) => c.key === 'ssh_password' && c.handled), false);
+    const stranger = await register('Not An Admin');
+    assert.equal((await call('/admin/security/clear', { method: 'POST', token: stranger.token })).status, 403);
+  });
 });
 
 describe('resaligue, pin and download', () => {

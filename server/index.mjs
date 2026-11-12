@@ -20,7 +20,7 @@ import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from '
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { launchNumbers, markActive } from './launch.mjs';
-import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, blockIp, connectSecurity, guestStarted, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
+import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, blockIp, clearSecurityCounts, connectSecurity, handleServerCheck, guestStarted, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
 import { sweepWatermarked, watermarked } from './download.mjs';
 import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFile, storeChatFile } from './chat-media.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
@@ -3724,7 +3724,8 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     live: { enabled: liveSettings().enabled },
     stats: {
       users: count('select count(*) as n from users where is_guest = 0'),
-      sellers: count("select count(*) as n from users where role = 'seller' and is_guest = 0"),
+      // Every account can sell (one account per person), so a shop is an account with something on sale.
+      sellers: count("select count(distinct u.id) as n from users u join products p on p.seller_id = u.id and p.status = 'active' where u.is_guest = 0"),
       products: count("select count(*) as n from products where status = 'active'"),
       orders: count("select count(*) as n from orders where status != 'cancelled'"),
     },
@@ -4410,6 +4411,20 @@ route('POST', '/api/admin/security/block', ({ user, body }) => {
   logAdmin(user, 'address blocked', `${target}${hours ? ` for ${hours} h` : ''}`);
   return securityOverview();
 });
+route('POST', '/api/admin/security/clear', ({ user }) => {
+  requireAdmin(user, 'platform');
+  clearSecurityCounts(user.email);
+  logAdmin(user, 'security counters cleared', '');
+  return securityOverview();
+});
+route('POST', '/api/admin/security/handled', ({ user, body }) => {
+  requireAdmin(user, 'platform');
+  const key = String(body.key ?? '');
+  if (!/^[a-z0-9_]{1,40}$/.test(key)) fail(400, 'invalid', 'Unknown check.');
+  handleServerCheck(key, body.handled !== false, user.email);
+  logAdmin(user, body.handled !== false ? 'server warning marked handled' : 'server warning shown again', key);
+  return securityOverview();
+});
 route('DELETE', '/api/admin/security/block/([\\w.:%-]+)', ({ user, params }) => {
   requireAdmin(user, 'platform');
   const target = decodeURIComponent(params[0]);
@@ -4444,7 +4459,8 @@ route('GET', '/api/admin/overview', ({ user }) => {
     stats: {
       users: n('select count(*) as n from users where is_guest = 0'),
       newUsers: n('select count(*) as n from users where is_guest = 0 and created_at > ?', week),
-      sellers: n("select count(*) as n from users where role = 'seller' and is_guest = 0"),
+      // Every account can sell (one account per person), so a shop is an account with something on sale.
+      sellers: n("select count(distinct u.id) as n from users u join products p on p.seller_id = u.id and p.status = 'active' where u.is_guest = 0"),
       products: n("select count(*) as n from products where status = 'active' and hidden = 0"),
       orders: n("select count(*) as n from orders where status != 'cancelled'"),
       newOrders: n("select count(*) as n from orders where status != 'cancelled' and created_at > ?", week),
