@@ -17,7 +17,7 @@ import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
 import { useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { useLives } from '@/lib/lives';
-import { StoryBar } from '@/components/social/story-bar';
+import { StatusButton } from '@/components/social/story-bar';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -291,8 +291,7 @@ export default function ForYouPage() {
           ))}
         </nav>
       </div>
-      {/* Stories sit at the top of every feed tab, not only For You: Network and Local are watched the same way.
-          Learn is left alone: it has its own row of topics in that spot. */}
+      {/* Who is live, on every feed tab but Learn (its own row of topics sits there). */}
       <div className={cn('pointer-events-none sticky top-0 z-40 flex h-0 justify-start gap-3 px-3', mode === 'learn' && 'hidden')}>
         {/* Who is live: the seller's photo in a pink ring with a LIVE tag, like stories. */}
         {on('live') && lives.length > 0 && (
@@ -305,8 +304,11 @@ export default function ForYouPage() {
             </span>
           </Link>
         )}
-        {/* Stories, beside the live ring: your own first, then everyone whose status you can watch. */}
-        <StoryBar compact className="mt-14 min-w-0 flex-1" />
+      </div>
+      {/* Status: one small button in the top corner, level with the tabs, so nothing lies over the item being
+          watched. The rings open from it in a panel. Learn is left alone: it has its own row of topics. */}
+      <div className={cn('pointer-events-none sticky top-0 z-[55] flex h-0 justify-start px-3', mode === 'learn' && 'hidden')}>
+        <StatusButton className="mt-2" />
       </div>
       {mode === 'learn' ? (
         <LessonFeed breakReminder={false} className="h-full pt-0 [&>nav:first-child]:top-12" />

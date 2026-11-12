@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { Check, Image as ImageIcon, Mic, Plus, Square, Type } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, CircleFadingPlus, Image as ImageIcon, Mic, Plus, Square, Type, X } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,65 @@ const initials = (name: string) =>
     .join('') || '?';
 
 const firstName = (name: string) => name.split(' ')[0] ?? name;
+
+/**
+ * The feed's way in to Status: one small round button in the corner instead of a row of rings lying over the
+ * item being watched. A coloured ring and a count say there is something new; tapping opens the rings in a panel
+ * under it, and tapping outside (or the cross, or Escape) puts it away again.
+ */
+export function StatusButton({ className }: { className?: string }) {
+  const t = useT();
+  const stories = useStories();
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const unseen = stories?.unseen ?? 0;
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      // The composer is a dialog drawn outside this panel: working in it must not close the panel under it.
+      if (!target || root.current?.contains(target) || target.closest('[role="dialog"]')) return;
+      setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className={cn('pointer-events-auto relative', className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={unseen > 0 ? `${t('Status')} (${unseen})` : t('Status')}
+        className={cn('block rounded-full p-[2px] shadow-md', unseen > 0 ? 'bg-gradient-to-tr from-pink-500 via-red-500 to-amber-400' : 'bg-background/95')}
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-foreground">
+          {open ? <X className="h-4 w-4" /> : <CircleFadingPlus className="h-[18px] w-[18px]" />}
+        </span>
+      </button>
+      {unseen > 0 && !open && (
+        <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground ring-2 ring-background">
+          {unseen > 9 ? '9+' : unseen}
+        </span>
+      )}
+      {open && (
+        // No backdrop blur here: it would trap the full-screen story viewer inside this little panel.
+        <div className="absolute left-0 top-full mt-2 w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl border bg-background p-3 shadow-xl">
+          <StoryBar />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Stories at the top of the feed: your own ring first (tap the + to post), then everyone whose status you can watch.
@@ -176,7 +235,7 @@ export function StoryBar({ className, compact = false }: { className?: string; c
     <div className={cn(compact ? 'pointer-events-auto' : 'space-y-2', className)}>
       {!compact && (
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-semibold tracking-tight">{t('Stories')}</h2>
+          <h2 className="text-sm font-semibold tracking-tight">{t('Status')}</h2>
           {stories?.error && (
             <button onClick={() => stories.reload()} className="text-xs font-medium text-destructive hover:underline">
               {stories.error} · {t('Try again')}
@@ -211,7 +270,7 @@ export function StoryBar({ className, compact = false }: { className?: string; c
               <Plus className="h-4 w-4" />
             </button>
           </div>
-          <span className="w-full truncate text-center text-xs text-muted-foreground">{t('Your story')}</span>
+          <span className="w-full truncate text-center text-xs text-muted-foreground">{t('Your status')}</span>
         </div>
 
         {others.map((group) => (
@@ -237,7 +296,7 @@ export function StoryBar({ className, compact = false }: { className?: string; c
           </button>
         ))}
 
-        {!stories && <p className="px-1 py-4 text-xs text-muted-foreground">{t('Loading stories…')}</p>}
+        {!stories && <p className="px-1 py-4 text-xs text-muted-foreground">{t('Loading statuses…')}</p>}
       </div>
 
       {watching && <StoryViewer group={watching} onClose={() => setWatching(null)} onChanged={() => stories?.reload()} />}

@@ -148,7 +148,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
       if (index + 1 < group.stories.length) setIndex(index + 1);
       else onClose();
     } catch (error) {
-      toast({ variant: 'destructive', title: t('Could not remove that story'), description: friendlyError(error) });
+      toast({ variant: 'destructive', title: t('Could not remove that status'), description: friendlyError(error) });
     }
   };
 
@@ -193,7 +193,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
         )}
         {mine && <span className="flex items-center gap-1 text-xs text-white/70"><Eye className="h-4 w-4" /> {story.views ?? 0}</span>}
         {mine && (
-          <button onClick={remove} aria-label={t('Remove this story')} className="rounded-full p-2 hover:bg-white/10">
+          <button onClick={remove} aria-label={t('Remove this status')} className="rounded-full p-2 hover:bg-white/10">
             <Trash2 className="h-5 w-5" />
           </button>
         )}
@@ -278,8 +278,8 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
         )}
 
         {/* Tap zones: back on the left, on on the right. A voice status keeps its middle for the play button. */}
-        <button onClick={back} aria-label={t('Previous story')} className="absolute inset-y-0 left-0 w-1/3" />
-        <button onClick={forward} aria-label={t('Next story')} className="absolute inset-y-0 right-0 w-1/3" />
+        <button onClick={back} aria-label={t('Previous status')} className="absolute inset-y-0 left-0 w-1/3" />
+        <button onClick={forward} aria-label={t('Next status')} className="absolute inset-y-0 right-0 w-1/3" />
         {!voice && <button onClick={close} aria-label={t('Close')} className="absolute inset-y-0 left-1/3 right-1/3" />}
 
         {photo && story.caption && (
@@ -311,7 +311,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={`${t('Reply to')} ${group.user.displayName}`}
-            aria-label={t('Reply to this story')}
+            aria-label={t('Reply to this status')}
             maxLength={500}
             className="h-11 flex-1 border-white/30 bg-white/10 text-white placeholder:text-white/50"
           />

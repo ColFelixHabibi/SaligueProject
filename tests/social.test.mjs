@@ -263,10 +263,15 @@ describe('history, discounts and the 90-day deletion', () => {
     assert.match(source('src/app/dashboard/products/page.tsx'), /<InlineNumber value=\{p\.discount\?\.was \?\? p\.deal\?\.was \?\? p\.price\}/);
   });
 
-  test('stories sit at the top of every feed tab, not only For You', () => {
+  test('status opens from one small button in the feed corner, not a row over the item', () => {
     const feed = source('src/app/page.tsx');
-    assert.match(feed, /<StoryBar compact/);
-    // Learn keeps its own row of topics in that spot, so the story row is the only tab it is hidden on.
+    assert.match(feed, /<StatusButton className="mt-2" \/>/);
+    assert.doesNotMatch(feed, /<StoryBar compact/);
+    // Learn keeps its own row of topics in that spot, so it is the only tab the button is hidden on.
     assert.match(feed, /mode === 'learn' && 'hidden'/);
+    const bar = source('src/components/social/story-bar.tsx');
+    assert.match(bar, /export function StatusButton/);
+    // English says Status too, like Kinyarwanda and French.
+    assert.match(source('src/lib/i18n.ts'), /^  Status: \['Status', 'Statuts'\],$/m);
   });
 });
