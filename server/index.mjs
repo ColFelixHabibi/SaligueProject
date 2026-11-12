@@ -919,7 +919,9 @@ let fingerprintCache = null;
 route('GET', '/api/products/fingerprints', ({ req, res }) => {
   if (!fingerprintCache) {
     const out = {};
-    for (const r of db.prepare('select id, embedding from products where embedding is not null').all()) {
+    // Ordered by id: this body is hashed to make the ETag, and SQLite owes no order without ORDER BY, so the same
+    // items could serialize to different bytes and a phone that changed nothing would still be sent the lot again.
+    for (const r of db.prepare('select id, embedding from products where embedding is not null order by id').all()) {
       const v = parse(r.embedding);
       if (!Array.isArray(v) || !v.length) continue;
       // Each vector scaled to its own largest value: similarity (cosine) ignores the scale, so none is stored.

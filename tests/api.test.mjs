@@ -275,10 +275,21 @@ describe('catalogue', () => {
     assert.ok(list.json.every((p) => p.embedding === undefined));
     assert.ok(list.json.every((p) => typeof p.sold === 'number'));
     const fp = await call('/products/fingerprints');
-    const etag = fp.headers.get('etag');
+    let etag = fp.headers.get('etag');
     assert.ok(etag);
-    const again = await fetch(`${base}/api/products/fingerprints`, { headers: { 'If-None-Match': etag } });
-    assert.equal(again.status, 304);
+    // The set of fingerprints is still growing for the first seconds of a server's life: on boot the items with no
+    // fingerprint yet (the demo catalogue here) are fingerprinted in the background, and that write clears the cache
+    // (server/index.mjs, `broadcast('products')`). Asking once and comparing straight away raced that job — a busy
+    // machine, not a broken cache, turned this green or red. So follow the ETag while it moves, and only then insist
+    // it is accepted; a cache that never answers 304 still fails, which is what this test is for.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const again = await fetch(`${base}/api/products/fingerprints`, { headers: { 'If-None-Match': etag } });
+      if (again.status === 304) return;
+      assert.equal(again.status, 200, 'the fingerprint list answers 200 or 304, never anything else');
+      etag = again.headers.get('etag') ?? etag;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.fail('the ETag was never accepted: every phone would download the fingerprints again on every visit');
   });
   test('sample items are marked and the demo sentence is removed', async () => {
     const list = (await call('/products')).json;
