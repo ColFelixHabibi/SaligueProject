@@ -28,6 +28,7 @@ import { ensureTryOnConsent } from '@/lib/ai/consent';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
+import { Price } from '@/components/price';
 
 // The body, head to feet: one button per slot around the mirror.
 const SLOTS: { category: Category; label: string; icon: LucideIcon }[] = [
@@ -426,7 +427,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
                   <img src={p.cutout || p.image} alt="" className="h-11 w-11 shrink-0 rounded bg-background object-contain p-0.5" />
                   <div className="min-w-0 flex-1">
                     <Link href={productHref(p)} className="block truncate text-sm font-medium hover:underline">{p.name}</Link>
-                    <span className="text-xs text-muted-foreground">{formatPrice(Number(p.price))}</span>
+                    <span className="text-xs text-muted-foreground"><Price product={p} /></span>
                   </div>
                   <button type="button" onClick={() => takeOff(outfitSlot(p))} className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground" aria-label={`Take off ${p.name}`}>
                     <X className="h-4 w-4" />
@@ -471,7 +472,7 @@ export function OutfitStudio({ products, person, landmarks, personUrl, photoUrl,
                     </span>
                   </span>
                   <span className="truncate px-2 pt-1 text-xs font-medium">{p.name}</span>
-                  <span className="px-2 pb-1.5 text-xs font-bold text-primary">{formatPrice(Number(p.price))}</span>
+                  <span className="px-2 pb-1.5 text-xs font-bold text-primary"><Price product={p} /></span>
                 </button>
                 );
               })}

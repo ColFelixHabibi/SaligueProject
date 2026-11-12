@@ -436,9 +436,11 @@ function OverviewAdmin({ open }: { open: (tab: string) => void }) {
   const todo = data.waiting.filter((w) => w.count > 0);
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {tiles.map(([Icon, label, value, sub]) => (
-          <div key={label} className="min-w-0 rounded-xl border bg-card p-3">
+      {/* Five numbers: Accounts across the top on a phone and four below, one row of five on wider screens, so no
+          tile is left alone with a gap beside it. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {tiles.map(([Icon, label, value, sub], i) => (
+          <div key={label} className={cn('min-w-0 rounded-xl border bg-card p-3', i === 0 && 'col-span-2 sm:col-span-1')}>
             <Icon className="h-4 w-4 text-primary" />
             <p className="mt-1 text-2xl font-bold tabular-nums">{(value ?? 0).toLocaleString()}</p>
             <p className="truncate text-xs text-muted-foreground">{label}</p>
@@ -513,8 +515,8 @@ export default function AdminPage() {
   return (
     <Hub
       tone={main ? 'main-admin' : 'admin'}
-      kicker={main ? 'Saligue admin · Main admin' : 'Saligue admin · Sub-admin'}
-      title={main ? 'Full access' : `${me.perms.length} right${me.perms.length === 1 ? '' : 's'}`}
+      kicker={main ? 'Main admin · every right' : `Sub-admin · ${me.perms.length} right${me.perms.length === 1 ? '' : 's'}`}
+      title="Saligue admin"
       items={tabs.map((t) => ({ key: t.value, icon: t.icon, label: t.label, onSelect: () => open(t.value) }))}
       activeKey={tab}
     >

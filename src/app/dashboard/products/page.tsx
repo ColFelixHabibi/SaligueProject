@@ -23,6 +23,8 @@ import { api } from '@/lib/api';
 import { categoryLabel } from '@/lib/categories';
 import { friendlyError } from '@/lib/errors';
 import { formatPrice } from '@/lib/orders';
+import { Price } from '@/components/price';
+import { OwnerItemActions } from '@/components/owner-item-actions';
 import { downloadCsv, useSellerStats } from '@/lib/seller';
 import { productHref } from '@/lib/links';
 import type { Product } from '@/lib/types';
@@ -222,6 +224,15 @@ function ProductsTable() {
                             <span className="block text-xs text-muted-foreground">{p.type ?? categoryLabel(p.category)}{p.size ? ` · ${p.size}` : ''}</span>
                           </span>
                         </Link>
+                        {/* On a phone the table's other columns are off to the right: what matters most sits here, with
+                            Edit and Discount one tap away. */}
+                        <span className="mt-2 flex items-center gap-2 pl-[3.75rem]">
+                          <span className="min-w-0 flex-1 text-xs">
+                            <Price product={p} className="font-bold text-primary" />
+                            <span className="flex items-center gap-1 text-muted-foreground"><Eye className="h-3 w-3" /> {(s?.views ?? 0).toLocaleString()} views</span>
+                          </span>
+                          <OwnerItemActions product={p} />
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={cn('capitalize', STATUS_STYLE[p.status])}>{p.status}</Badge>

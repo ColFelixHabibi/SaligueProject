@@ -11,6 +11,7 @@ import { AuthProvider } from '@/components/auth/auth-provider';
 import { PwaRegister } from '@/components/pwa-register';
 import { CookieBanner } from '@/components/cookie-banner';
 import { AppUpdate } from '@/components/app-update';
+import { PresenceHeartbeat } from '@/components/presence-heartbeat';
 import { BackButton } from '@/components/back-button';
 import { ConfirmHost } from '@/components/confirm-dialog';
 import { ShareHost } from '@/components/share-sheet';
@@ -106,6 +107,7 @@ export default function RootLayout({
           <PageTranslator />
           <CookieBanner />
           <AppUpdate />
+          <PresenceHeartbeat />
           <BackButton />
           <ConfirmHost />
           <ShareHost />

@@ -12,12 +12,11 @@ import { CommentsPanel } from '@/components/social/comments-panel';
 import { SoundChip } from '@/components/social/sound-chip';
 import { Stars } from '@/components/stars';
 import { SellerAvatar } from '@/components/seller-avatar';
-import { DiscountTag } from '@/components/discount-tag';
 import { categoryLabel } from '@/lib/categories';
 import { productHref } from '@/lib/links';
-import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Price } from '@/components/price';
 
 interface ProductCardProps {
   product: Product;
@@ -79,8 +78,7 @@ function ShopTile({ product, className, sponsoredBy }: { product: Product; class
       </div>
       <Link href={href} className="mt-2.5 space-y-0.5 px-0.5">
         <p className="flex flex-wrap items-baseline gap-1.5 text-lg font-bold text-foreground">
-          {formatPrice(Number(product.price))}
-          {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} className="text-xs font-semibold" />}
+          <Price product={product} />
         </p>
         <p className="truncate text-sm font-medium text-foreground/90">{product.name}</p>
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -138,8 +136,7 @@ function SocialCard({ product, className }: { product: Product; className?: stri
         <div className="flex items-start justify-between gap-2">
           <Link href={href} className="line-clamp-2 font-semibold leading-snug hover:underline">{product.name}</Link>
           <span className="flex shrink-0 flex-col items-end">
-            <span className="font-bold text-primary">{formatPrice(Number(product.price))}</span>
-            {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} className="text-[11px]" />}
+            <span className="font-bold text-primary"><Price product={product} /></span>
           </span>
         </div>
         <p className="text-xs text-muted-foreground">{categoryLabel(product.category)}{product.size ? ` · Size ${product.size}` : ''}</p>

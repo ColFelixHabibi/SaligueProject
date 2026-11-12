@@ -39,9 +39,9 @@ import { ComingUp } from '@/components/live/coming-up';
 import { absoluteUrl } from '@/lib/paths';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { formatPrice } from '@/lib/orders';
 
 import { ProfileHeader, compact, type Person, type Profile } from '@/components/profile-header';
+import { Price } from '@/components/price';
 
 /** A shop's or teacher's page: photo, bio, clients, and everything they sell and teach. */
 function ProfileView({ id }: { id: string }) {
@@ -220,7 +220,7 @@ function ProfileView({ id }: { id: string }) {
             {people?.list === null && <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
             {people?.list?.map((p) => (
               <Link key={p.id} href={p.isShop ? profileHref(p.id) : '#'} onClick={() => setPeople(null)} className={cn('flex items-center gap-3 rounded-xl p-2 hover:bg-muted', !p.isShop && 'pointer-events-none')}>
-                <SellerAvatar src={p.avatar} name={p.name} className="h-10 w-10" />
+                <SellerAvatar src={p.avatar} name={p.name} userId={p.id} className="h-10 w-10" />
                 <span className="min-w-0 flex-1 truncate font-medium">{p.name}{p.verified && <VerifiedBadge className="ml-1" />}</span>
                 {p.isShop && <Store className="h-4 w-4 text-muted-foreground" />}
               </Link>
@@ -244,7 +244,7 @@ function ItemTile({ product }: { product: Product }) {
       {product.pinnedAt && <span className="absolute left-1.5 top-1.5 flex items-center gap-0.5 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground"><Pin className="h-3 w-3" /> Pinned</span>}
       {product.video && <Play className="absolute right-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />}
       {product.stock === 0 && <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs font-bold text-white">Sold out</span>}
-      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white">{formatPrice(Number(product.price))}</span>
+      <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white"><Price product={product} /></span>
     </Link>
   );
 }

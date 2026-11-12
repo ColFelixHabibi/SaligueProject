@@ -16,11 +16,13 @@ import { useProductStore, ensureProduct } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
 import { categoryLabel } from '@/lib/categories';
-import { formatPrice } from '@/lib/orders';
 import { BASE_PATH } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { ReportButton } from '@/components/social/report-button';
 import { SoundChip } from '@/components/social/sound-chip';
+import { Price } from '@/components/price';
+import { OwnerItemActions } from '@/components/owner-item-actions';
+import { countView } from '@/lib/views';
 
 // INDECIANA's logo, if provided (public/brand/indeciana-logo.png). The wordmark is shown otherwise.
 const LOGO = `${BASE_PATH}/brand/indeciana-logo.png`;
@@ -49,6 +51,11 @@ function IndecianaStore() {
   const categories = useMemo(() => [...new Set(collection.map((p) => p.category))], [collection]);
   const shown = filter ? collection.filter((p) => p.category === filter) : collection;
   const selected = collection.find((p) => p.id === params.get('item')) ?? collection[0];
+  // The item on show counts as a view for INDECIANA's dashboard, like opening any item's page.
+  const shownId = selected?.id;
+  useEffect(() => {
+    if (shownId) countView(shownId);
+  }, [shownId]);
   // A shared link to an item not loaded yet: fetch it alone.
   useEffect(() => {
     const item = params.get('item');
@@ -106,7 +113,11 @@ function IndecianaStore() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.35em] text-muted-foreground">{categoryLabel(selected.category)}</p>
                   <h2 className="mt-3 font-serif text-4xl font-light leading-tight md:text-5xl">{selected.name}</h2>
-                  <p className="mt-5 text-2xl tracking-wider">{formatPrice(Number(selected.price))}</p>
+                  <div className="mt-5 flex flex-wrap items-center gap-3">
+                    <p className="text-2xl tracking-wider"><Price product={selected} /></p>
+                    {/* INDECIANA's own account sees its tools on its own items: edit, or put one on sale. */}
+                    <OwnerItemActions product={selected} className="ml-auto" />
+                  </div>
                   <SoundChip key={selected.id} product={selected} autoPlay className="mt-3" />
                 </div>
                 {selected.description && <ExpandableText key={selected.id} text={selected.description} lines={3} className="leading-relaxed text-foreground/80" />}
@@ -163,7 +174,7 @@ function IndecianaStore() {
                       <img src={p.image} alt={p.name} loading="lazy" className="aspect-[4/5] w-full object-contain p-3 transition-transform duration-500 group-hover:scale-105" />
                     </div>
                     <p className="mt-3 truncate text-sm tracking-wide">{p.name}</p>
-                    <p className="text-sm text-muted-foreground">{formatPrice(Number(p.price))}</p>
+                    <p className="text-sm text-muted-foreground"><Price product={p} /></p>
                   </button>
                 ))}
               </div>

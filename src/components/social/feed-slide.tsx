@@ -24,11 +24,11 @@ import { useToast } from '@/hooks/use-toast';
 import { loadProductSound } from '@/lib/audio';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
-import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ExpandableText } from '@/components/expandable-text';
-import { DiscountTag } from '@/components/discount-tag';
+import { Price } from '@/components/price';
+import { countView } from '@/lib/views';
 
 /** Plays an item's sound, looping, while its slide fills the screen, like TikTok. */
 function useSlideSound(product: Product, ref: React.RefObject<HTMLElement | null>) {
@@ -81,6 +81,8 @@ function useWatchTime(product: Product, ref: React.RefObject<HTMLElement | null>
       if (since === null) return;
       const seconds = (Date.now() - since) / 1000;
       since = null;
+      // Two seconds on screen is a real look at the item: it counts as a view for the shop (src/lib/views.ts).
+      if (seconds >= 2) countView(product.id);
       if (seconds >= 3) noteInterest(product.id, 'dwell', Math.min(3, seconds / 3));
       else if (seconds < 1) noteInterest(product.id, 'skip');
       // Watched the whole video (it loops, so time on screen tells): a strong sign, and a launch number.
@@ -227,8 +229,7 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
             )}
             <div className="mt-2 flex items-center gap-3">
               <div className="min-w-0">
-                <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
-                {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
+                <p className="text-2xl font-extrabold text-primary"><Price product={product} /></p>
               </div>
               <Button size="icon" className="h-10 w-10 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>
                 <ShoppingCart className="h-5 w-5" />
@@ -244,8 +245,7 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate font-semibold">{product.name}</p>
-              <p className="text-lg font-extrabold leading-tight text-primary">{formatPrice(Number(product.price))}</p>
-              {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
+              <p className="text-lg font-extrabold leading-tight text-primary"><Price product={product} /></p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <Button size="icon" className="h-9 w-9 rounded-full" onClick={add} aria-label={t('Add to cart')} title={t('Add to cart')}>

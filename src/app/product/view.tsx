@@ -29,7 +29,6 @@ import { categoryLabel } from '@/lib/categories';
 import { completeTheLook } from '@/lib/outfit';
 import { useOutfitStore } from '@/hooks/use-outfit-store';
 import { formatPrice } from '@/lib/orders';
-import { DiscountTag } from '@/components/discount-tag';
 import { productHref } from '@/lib/links';
 import { MoreSheet } from '@/components/social/more-sheet';
 import { SoundChip } from '@/components/social/sound-chip';
@@ -37,11 +36,13 @@ import { MessageSellerButton } from '@/components/message-seller-button';
 import { Reviews } from '@/components/reviews';
 import { Stars } from '@/components/stars';
 import { SellerAvatar } from '@/components/seller-avatar';
-import { api } from '@/lib/api';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useFeatures } from '@/lib/features';
 import { addToLook } from '@/components/look-picker';
 import { ProductQuestions } from '@/components/product-questions';
+import { Price } from '@/components/price';
+import { OwnerItemActions } from '@/components/owner-item-actions';
+import { countView } from '@/lib/views';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
@@ -81,7 +82,7 @@ export default function ProductView({ id }: { id: string | null }) {
   // Counts the visit for the seller's dashboard (once per day per shopper).
   useEffect(() => {
     if (!id) return;
-    api(`/products/${id}/view`, { body: {} }).catch(() => {});
+    countView(id);
     noteInterest(id, 'view');
     // The item was opened, so it belongs in this person's History (My Saligue → History).
     noteSeen(id);
@@ -181,7 +182,7 @@ export default function ProductView({ id }: { id: string | null }) {
                 </div>
                 <div className="text-right">
                     <div className="flex items-center gap-2 text-muted-foreground">
-                        <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-8 w-8" />
+                        <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} userId={product.sellerId} className="h-8 w-8" />
                         <span className="max-w-[9rem] truncate text-sm font-medium">{product.shop?.name ?? product.seller}</span>
                     </div>
                 </div>
@@ -198,10 +199,11 @@ export default function ProductView({ id }: { id: string | null }) {
               <div className="flex items-center gap-2 mb-2">
                 {/* A post on sale shows what is paid now, with the usual price crossed out beside it. */}
                 <div className="flex flex-col gap-0.5">
-                  <p className="text-4xl font-bold text-primary">{formatPrice(Number(product.price))}</p>
-                  {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} className="text-sm" />}
+                  <p className="text-4xl font-bold text-primary"><Price product={product} /></p>
                 </div>
                 <SoundChip product={product} autoPlay className="ml-auto" />
+                {/* Your own item: edit it or put it on sale right here. */}
+                <OwnerItemActions product={product} />
                 {user && on('looks') && (
                   <Button size="icon" variant="outline" className="h-10 w-10 shrink-0 rounded-full" onClick={() => addToLook({ kind: 'product', id: product.id })} aria-label={t('Add to a look')} title={t('Add to a look')}>
                     <Layers className="h-5 w-5" />
@@ -292,7 +294,7 @@ export default function ProductView({ id }: { id: string | null }) {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.cutout || p.image} alt={p.name} className="aspect-square w-full object-contain" />
                     <p className="truncate px-1 text-xs font-medium">{p.name}</p>
-                    <p className="px-1 text-xs font-bold text-primary">{formatPrice(Number(p.price))}</p>
+                    <p className="px-1 text-xs font-bold text-primary"><Price product={p} /></p>
                   </Link>
                 </div>
               ))}

@@ -18,6 +18,7 @@ import { productHref } from '@/lib/links';
 import { createLook, deleteLook, getLook, removeFromCartLook, renameLook, togglePiece, useMyLooks, type Look } from '@/lib/looks';
 import { formatPrice } from '@/lib/orders';
 import { absoluteUrl } from '@/lib/paths';
+import { Price } from '@/components/price';
 
 function Cover({ look }: { look: Look }) {
   return (
@@ -125,7 +126,7 @@ function OneLook({ id }: { id: string }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.cutout || p.image} alt={p.name} className="aspect-square w-full bg-muted object-contain" />
                 <p className="truncate px-2 pt-1.5 text-sm font-medium">{p.name}</p>
-                <p className="px-2 pb-2 text-sm font-bold text-primary">{formatPrice(Number(p.price))}</p>
+                <p className="px-2 pb-2 text-sm font-bold text-primary"><Price product={p} /></p>
               </Link>
               {mine && <button type="button" className={x} onClick={() => remove('product', p.id)} aria-label={t('Remove')}><X className="h-4 w-4" /></button>}
             </div>

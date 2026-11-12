@@ -1431,6 +1431,29 @@ describe('security watch', () => {
     const platform = (await call('/admin/platform', { token: admin.token })).json.stats;
     for (const key of ['users', 'sellers', 'products', 'orders']) assert.equal(typeof platform[key], 'number', key);
   });
+  test('the main admin can clear the admin log, and one line says who cleared it', async () => {
+    const admin = await mainAdmin('Log Admin');
+    assert.equal((await call('/admin/security/clear', { method: 'POST', token: admin.token })).status, 200);
+    const cleared = await call('/admin/log', { method: 'DELETE', token: admin.token });
+    assert.equal(cleared.status, 200);
+    const log = (await call('/admin/log', { token: admin.token })).json;
+    assert.equal(log.length, 1);
+    assert.equal(log[0].action, 'admin log cleared');
+    const stranger = await register('Log Stranger');
+    assert.equal((await call('/admin/log', { method: 'DELETE', token: stranger.token })).status, 403);
+  });
+  test('a signed-in account shows as online; a guest and an unknown id do not', async () => {
+    const a = await register('Online Person');
+    const b = await register('Looking Person');
+    await call('/auth/me', { token: a.token });
+    const asked = await call(`/presence?ids=${a.id},${b.id},nobody-here`, { token: b.token });
+    assert.equal(asked.status, 200);
+    assert.ok(asked.json.online.includes(a.id));
+    assert.ok(asked.json.online.includes(b.id), 'asking keeps the asker online');
+    assert.equal(asked.json.online.includes('nobody-here'), false);
+    const guest = (await call('/auth/guest', { body: {} })).json;
+    assert.equal((await call(`/presence?ids=${guest.user.id}`, { token: b.token })).json.online.length, 0);
+  });
 });
 
 describe('resaligue, pin and download', () => {

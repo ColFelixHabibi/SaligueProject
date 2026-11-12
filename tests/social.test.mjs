@@ -246,15 +246,23 @@ describe('history, discounts and the 90-day deletion', () => {
     const page = source('src/app/my-account/history/page.tsx');
     assert.match(page, /clearHistory\(\)/);
     assert.match(page, /forgetSeen\(id\)/);
-    // Both prices on the post: the discount is not a label only the shop sees.
-    for (const file of ['src/components/social/feed-slide.tsx', 'src/components/product-card.tsx', 'src/components/social/feed-side-panel.tsx']) {
-      assert.match(source(file), /<DiscountTag percent=\{product\.discount\.percent\} was=\{product\.discount\.was\}/, `${file} shows both prices`);
+    // Both prices and the % off, everywhere an item is shown: one Price component (new price, usual price crossed
+    // out, −X%), including INDECIANA's house page, where the discount used to be missing altogether.
+    const price = source('src/components/price.tsx');
+    assert.match(price, /<s [^>]*>\{formatPrice\(Number\(d\.was\)\)\}<\/s>/);
+    assert.match(price, /−\{d\.percent\}%/);
+    for (const file of ['src/components/social/feed-slide.tsx', 'src/components/product-card.tsx', 'src/components/social/feed-side-panel.tsx', 'src/app/product/view.tsx', 'src/app/indeciana/page.tsx', 'src/app/profile/page.tsx']) {
+      assert.match(source(file), /<Price product=\{/, `${file} shows both prices`);
     }
+    // The owner can edit an item and set its discount from the item itself and from Seller Center → Products.
+    for (const file of ['src/app/product/view.tsx', 'src/app/indeciana/page.tsx', 'src/app/dashboard/products/page.tsx']) {
+      assert.match(source(file), /<OwnerItemActions product=\{/, `${file} has Edit and Discount`);
+    }
+    assert.match(source('src/components/owner-item-actions.tsx'), /discountPercent: value \|\| null/);
     // A shop can set it when posting and when editing.
     assert.match(source('src/app/sell/page.tsx'), /discountPercent: formValues\.discount === '' \? null : Number\(formValues\.discount\)/);
     assert.match(source('src/app/edit-product/view.tsx'), /discountPercent: formValues\.discount === '' \? null : Number\(formValues\.discount\)/);
     // The page a shopper buys on, and the cart line: what is paid now, plus the usual price crossed out.
-    assert.match(source('src/app/product/view.tsx'), /<DiscountTag percent=\{product\.discount\.percent\} was=\{product\.discount\.was\}/);
     assert.match(source('src/app/cart/page.tsx'), /<DiscountTag percent=\{item\.discount\.percent\} was=\{item\.discount\.was\}/);
     // Checkout charges what the server works out (priceOf), and shows that same amount.
     assert.match(source('src/app/checkout/page.tsx'), /formatPrice\(item\.price \* item\.quantity\)/);

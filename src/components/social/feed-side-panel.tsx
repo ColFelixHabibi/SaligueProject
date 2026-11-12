@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { FollowButton } from '@/components/follow-button';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { SellerAvatar } from '@/components/seller-avatar';
-import { DiscountTag } from '@/components/discount-tag';
 import { VerifiedBadge } from '@/components/verified-badge';
 import { profileHref } from '@/components/profile-avatar';
 import { SuggestedShops } from '@/components/suggested-shops';
@@ -18,9 +17,9 @@ import { useToast } from '@/hooks/use-toast';
 import { categoryLabel } from '@/lib/categories';
 import { useT } from '@/lib/i18n';
 import { productHref } from '@/lib/links';
-import { formatPrice } from '@/lib/orders';
 import { similarTo } from '@/lib/recommend';
 import type { Product } from '@/lib/types';
+import { Price } from '@/components/price';
 
 /**
  * Computers: what the feed shows, beside it (like TikTok's comments panel, but for shopping): the shop, the
@@ -46,7 +45,7 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
     <div className="space-y-4">
       <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex items-center gap-3">
-          <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} className="h-11 w-11" />
+          <SellerAvatar src={product.sellerAvatar} name={product.shop?.name ?? product.seller} userId={product.sellerId} className="h-11 w-11" />
           <Link href={product.sellerId ? profileHref(product.sellerId) : productHref(product)} className="min-w-0 flex-1">
             <p className="truncate font-semibold">{product.shop?.name ?? product.seller}{product.sellerVerified && <VerifiedBadge className="ml-1" />}</p>
             {product.shop?.city && <p className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {product.shop.city}</p>}
@@ -56,8 +55,7 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
         <Link href={productHref(product)} className="block text-lg font-bold leading-tight hover:underline">{product.name}</Link>
         <div className="flex items-center justify-between">
           <span className="flex min-w-0 flex-col">
-            <p className="text-2xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
-            {product.discount && <DiscountTag percent={product.discount.percent} was={product.discount.was} />}
+            <p className="text-2xl font-extrabold text-primary"><Price product={product} /></p>
           </span>
           {/* Sold so far, what is left (the stock the shop sets), then the stars: icons beside the price. */}
           <span className="flex items-center gap-3 text-sm">
@@ -101,7 +99,7 @@ export function FeedSidePanel({ product }: { product: Product | null }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.cutout || p.image} alt={p.name} loading="lazy" className="aspect-square w-full bg-muted object-contain p-1 transition group-hover:scale-105" />
                 <p className="truncate px-1.5 pt-1 text-[11px] font-medium">{p.name}</p>
-                <p className="px-1.5 pb-1.5 text-[11px] font-bold text-primary">{formatPrice(Number(p.price))}{p.discount && <span className="ml-1 font-bold text-rose-600">−{p.discount.percent}%</span>}</p>
+                <p className="px-1.5 pb-1.5 text-[11px] font-bold text-primary"><Price product={p} /></p>
               </Link>
             ))}
           </div>

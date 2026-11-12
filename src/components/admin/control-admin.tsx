@@ -3,7 +3,7 @@
 import { FeatureCountries, ruleSummary, type CountryRule } from '@/components/admin/feature-countries';
 import { ask } from '@/components/confirm-dialog';
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, History, Loader2, Plus, RotateCcw, ScrollText, Search, ShieldCheck, SlidersHorizontal, Trash2, UserCog, Wallet } from 'lucide-react';
+import { Ban, ChevronDown, Eraser, History, Loader2, Plus, RotateCcw, ScrollText, Search, ShieldCheck, SlidersHorizontal, Trash2, UserCog, Wallet } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -279,9 +279,15 @@ export function AdminsAdmin({ allPerms }: { allPerms: Record<string, string> }) 
       <CardContent className="space-y-4">
         {admins.map((a) => (
           <div key={a.id} className="space-y-2 rounded-xl border p-3 text-sm">
+            {/* Name and email get the full width on their own lines; the role and Remove sit below, so a phone
+                never squeezes the email into one letter per line. */}
+            <div className="min-w-0">
+              <b className="block truncate">{a.name || a.email}</b>
+              <span className="block truncate text-xs text-muted-foreground">{a.email}</span>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 flex-1 break-words"><b>{a.name || a.email}</b> <span className="break-all text-muted-foreground">{a.email}</span></span>
               <Badge>{a.level === 1 ? 'Main admin · everything' : 'Sub-admin'}</Badge>
+              <span className="flex-1" />
               {(a.level === 2 || admins.filter((x) => x.level === 1).length > 1) && <Button size="sm" variant="ghost" className="text-destructive" onClick={async () => (await ask({ title: `Remove ${a.email} as admin?`, description: 'Their account stays; only the admin rights are removed.', confirm: 'Remove', destructive: true })) && act(() => api(`/admin/admins/${a.id}`, { method: 'DELETE' }), 'Admin removed').then(load)}>Remove</Button>}
             </div>
             {a.level === 2 && permBoxes(a.perms, (v) => act(() => api(`/admin/admins/${a.id}`, { method: 'PUT', body: { perms: v } }), 'Rights updated').then(load))}
@@ -318,19 +324,43 @@ function readable(detail: string) {
   }
 }
 
-/** Main admin only: what every admin did, newest first. */
+/** Main admin only: what every admin did, newest first. Folded away until opened, and the main admin can clear it. */
 export function AdminLog() {
+  const act = useAct();
   const [rows, setRows] = useState<{ id: number; who: string; action: string; detail: string; at: string }[]>([]);
-  useEffect(() => void api<typeof rows>('/admin/log').then(setRows).catch(() => {}), []);
+  const [open, setOpen] = useState(false);
+  const [all, setAll] = useState(false);
+  const load = useCallback(() => void api<typeof rows>('/admin/log').then(setRows).catch(() => {}), []);
+  useEffect(() => load(), [load]);
+  const clear = async () => {
+    if (!(await ask({ title: `Clear the admin log (${rows.length} lines)?`, description: 'This cannot be undone. One line stays, saying you cleared it.', confirm: 'Clear', destructive: true }))) return;
+    await act(() => api('/admin/log', { method: 'DELETE' }), 'Admin log cleared');
+    load();
+  };
+  const shown = all ? rows : rows.slice(0, 15);
   return (
     <Card>
-      <CardHeader><CardTitle className="flex items-center gap-2"><History className="h-5 w-5 text-primary" /> Admin log</CardTitle></CardHeader>
-      <CardContent className="divide-y text-sm">
+      <CardHeader className="flex-row items-center gap-2 space-y-0">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <CardTitle className="flex items-center gap-2"><History className="h-5 w-5 text-primary" /> Admin log</CardTitle>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{rows.length}</span>
+          <ChevronDown className={cn('ml-auto h-5 w-5 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        </button>
+        {rows.length > 0 && (
+          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={() => void clear()} aria-label="Clear the admin log" title="Clear the admin log">
+            <Eraser className="h-4 w-4" />
+          </Button>
+        )}
+      </CardHeader>
+      {open && <CardContent className="divide-y text-sm">
         {rows.length === 0 && <p className="text-muted-foreground">Nothing yet.</p>}
-        {rows.map((r) => (
+        {shown.map((r) => (
           <div key={r.id} className="py-2"><b>{r.who}</b> · {r.action}{r.detail && <span className="break-words text-muted-foreground"> — {readable(r.detail)}</span>}<span className="block text-xs text-muted-foreground">{new Date(r.at).toLocaleString()}</span></div>
         ))}
-      </CardContent>
+        {!all && rows.length > shown.length && (
+          <button type="button" onClick={() => setAll(true)} className="w-full pt-3 text-center text-sm font-semibold text-primary">Show all {rows.length}</button>
+        )}
+      </CardContent>}
     </Card>
   );
 }

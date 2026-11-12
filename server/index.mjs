@@ -128,6 +128,19 @@ function tokenOf(req) {
   return header.startsWith('Bearer ') ? header.slice(7) : cookieToken(req);
 }
 
+// Online status: the last moment each signed-in account used Saligue. Written at most once a minute per account (kept
+// in memory between writes), so busy accounts cost no extra database work. Online = seen in the last 2 minutes.
+const ONLINE_MS = 2 * 60_000;
+const lastSeenWrite = new Map();
+function markSeen(u) {
+  if (!u || u.is_guest) return;
+  const t = Date.now();
+  if (t - (lastSeenWrite.get(u.id) ?? 0) < 60_000) return;
+  lastSeenWrite.set(u.id, t);
+  if (lastSeenWrite.size > 50_000) lastSeenWrite.clear();
+  db.prepare('update users set last_seen = ? where id = ?').run(new Date(t).toISOString(), u.id);
+}
+
 function userOf(req, token = tokenOf(req)) {
   // A session token is 43 characters. Anything much longer is not one (a client echoing the whole link), and is
   // refused before it reaches the database.
@@ -136,7 +149,10 @@ function userOf(req, token = tokenOf(req)) {
   // Suspended accounts (Admin → Accounts) can't use the app until an admin lifts it.
   const find = (value) => db.prepare('select u.* from sessions s join users u on u.id = s.user_id where s.token = ? and s.created_at > ? and u.suspended = 0').get(value, since) ?? null;
   const found = find(sessionHash(token));
-  if (found) return found;
+  if (found) {
+    markSeen(found);
+    return found;
+  }
   // Signed in before the database began holding hashes: let it work once, and keep only the hash from now on.
   const older = find(token);
   if (older) db.prepare('update sessions set token = ? where token = ?').run(sessionHash(token), token);
@@ -4869,6 +4885,23 @@ route('DELETE', '/api/admin/admins/([\\w-]+)', ({ user, params }) => {
   logAdmin(user, 'sub-admin removed', target.email);
   return { ok: true };
 });
+// The main admin can empty the log. One line stays behind saying who emptied it and when, so a clear is never silent.
+route('DELETE', '/api/admin/log', ({ user }) => {
+  requireMain(user);
+  const n = db.prepare('delete from admin_log').run().changes;
+  logAdmin(user, 'admin log cleared', `${n} line${n === 1 ? '' : 's'}`);
+  return { ok: true, cleared: n };
+});
+// Who of these accounts is online now (green dot on their photo). Signed-in accounts only; a guest has no status.
+// Asking also keeps the asker online: an app left open on a screen still counts as being here.
+route('GET', '/api/presence', ({ url }) => {
+  const ids = String(url.searchParams.get('ids') ?? '').split(',').map((s) => s.trim()).filter((s) => /^[\w-]{1,64}$/.test(s)).slice(0, 100);
+  if (!ids.length) return { online: [] };
+  const since = new Date(Date.now() - ONLINE_MS).toISOString();
+  const rows = db.prepare(`select id from users where id in (${ids.map(() => '?').join(',')}) and is_guest = 0 and suspended = 0 and last_seen > ?`).all(...ids, since);
+  return { online: rows.map((r) => r.id) };
+});
+
 route('GET', '/api/admin/log', ({ user }) => {
   requireMain(user);
   return db.prepare('select l.*, u.display_name, u.email from admin_log l left join users u on u.id = l.user_id order by l.id desc limit 200').all()

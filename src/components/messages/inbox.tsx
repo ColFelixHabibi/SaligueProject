@@ -20,9 +20,11 @@ import { useT } from '@/lib/i18n';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
 import { clearConversation, forwardMessage, setArchived, useConversation, useInbox } from '@/lib/messages';
-import { formatPrice, shortOrderId } from '@/lib/orders';
+import { shortOrderId } from '@/lib/orders';
 import type { ChatAttachment, Conversation, Message } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Price } from '@/components/price';
+import { OnlineDot } from '@/components/online-dot';
 
 const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
 
@@ -46,12 +48,15 @@ function ConversationRow({ c, active, onOpen, onClear, onArchive }: { c: Convers
     // The bin sits beside the row, not inside it: a button inside a button is not valid and swallows the tap.
     <div className={cn('group flex items-center rounded-xl transition-colors hover:bg-muted', active && 'bg-primary/10 hover:bg-primary/10')}>
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-3 text-left">
-        <Avatar className="h-11 w-11 shrink-0">
-          <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
-          <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
-            {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
-          </AvatarFallback>
-        </Avatar>
+        <span className="relative shrink-0">
+          <Avatar className="h-11 w-11 shrink-0">
+            <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
+            <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
+              {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
+            </AvatarFallback>
+          </Avatar>
+          <OnlineDot userId={c.other.id} />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-2">
             <span className={cn('flex min-w-0 items-center gap-1 truncate', c.unread ? 'font-bold' : 'font-semibold')}>
@@ -107,7 +112,7 @@ function ItemCard({ productId }: { productId: string }) {
       <img src={product.cutout || product.image} alt="" className="h-12 w-12 rounded-md bg-muted object-contain p-0.5" />
       <span className="min-w-0">
         <span className="block truncate text-xs font-semibold">{product.name}</span>
-        <span className="block text-xs font-bold text-primary">{formatPrice(Number(product.price))}</span>
+        <span className="block text-xs font-bold text-primary"><Price product={product} /></span>
       </span>
     </Link>
   );
@@ -212,12 +217,15 @@ function Thread({ id, onBack, onClear }: { id: string; onBack: () => void; onCle
         <Button variant="ghost" size="icon" className="md:hidden" onClick={onBack} aria-label={t('Back to conversations')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <Avatar className="h-10 w-10">
-          <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
-          <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
-            {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
-          </AvatarFallback>
-        </Avatar>
+        <span className="relative shrink-0">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={mediaUrl(c.other.avatar ?? undefined)} alt="" className="object-cover" />
+            <AvatarFallback className={cn('font-semibold', c.role === 'buyer' ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+              {c.role === 'buyer' ? <Store className="h-5 w-5" /> : initials(c.other.name)}
+            </AvatarFallback>
+          </Avatar>
+          <OnlineDot userId={c.other.id} />
+        </span>
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1 truncate font-semibold">{c.other.name}{c.other.official && <BadgeCheck className="h-4 w-4 text-primary" />}</p>
           <p className="text-xs text-muted-foreground">{c.role === 'buyer' ? t('Shop · usually replies in Saligue and by email') : c.other.isGuest ? t('Customer (guest, sees replies in the app)') : t('Customer')}</p>

@@ -18,7 +18,7 @@ export function ProfileAvatar({ id, name, src, size = 'md', live, className }: {
   return (
     <span className={cn('relative inline-flex shrink-0', className)}>
       <Link href={profileHref(id)} aria-label={`${name}: profile`} className={cn('rounded-full', live ? 'bg-gradient-to-tr from-primary to-[#e30613] p-[2px]' : 'ring-2 ring-white/80')}>
-        <SellerAvatar src={src} name={name} className={cn(box, live && 'ring-2 ring-background')} />
+        <SellerAvatar src={src} name={name} userId={id} className={cn(box, live && 'ring-2 ring-background')} />
       </Link>
       {!own && (
         <button type="button" onClick={toggle} aria-pressed={following} aria-label={following ? `You follow ${name}` : `Follow ${name}`}

@@ -12,8 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 import { categoryLabel } from '@/lib/categories';
 import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
-import { formatPrice } from '@/lib/orders';
 import { shopAddressLines, type Product } from '@/lib/types';
+import { Price } from '@/components/price';
 
 /** The chosen look, with the item's shop on a map, directions and contacts. */
 export function LocateSellerDialog({ product, image, onClose }: { product: Product; image: string; onClose: () => void }) {
@@ -58,7 +58,7 @@ export function LocateSellerDialog({ product, image, onClose }: { product: Produ
                 {product.brand ? ` · ${product.brand}` : ''}
               </DialogDescription>
             </DialogHeader>
-            <p className="text-3xl font-extrabold text-primary">{formatPrice(Number(product.price))}</p>
+            <p className="text-3xl font-extrabold text-primary"><Price product={product} /></p>
 
             <div className="grid grid-cols-2 gap-2">
               <Button onClick={add}>

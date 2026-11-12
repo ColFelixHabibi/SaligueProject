@@ -42,7 +42,7 @@ export function PeopleResults({ query }: { query: string }) {
         {people.map((p) => (
           <div key={p.id} className="flex w-32 shrink-0 flex-col items-center gap-1 rounded-2xl border bg-card p-2.5 text-center">
             <Link href={profileHref(p.id)} className="flex flex-col items-center gap-1">
-              <SellerAvatar src={p.avatar} name={p.name} className="h-12 w-12" />
+              <SellerAvatar src={p.avatar} name={p.name} userId={p.id} className="h-12 w-12" />
               <span className="line-clamp-1 text-xs font-semibold">{p.name}{p.verified && <VerifiedBadge className="ml-0.5" />}</span>
               <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">{p.isShop && <Store className="h-3 w-3" />}@{p.username}</span>
             </Link>
