@@ -72,7 +72,7 @@ export default function MePage() {
       {/* The same top as your public profile (and every shop's), so Me and Profile look alike. */}
       {user && stats ? (
         <ProfileHeader profile={{ ...stats, avatar: photo ?? null }}
-          avatar={<ProfilePhotoField photoOnly name={shop?.name ?? user.displayName} required={role === 'seller'} />}
+          avatar={<ProfilePhotoField photoOnly name={shop?.name ?? user.displayName} required={!!shop} />}
           statHref={{ items: '/dashboard/products', clients: `/profile?id=${user.uid}`, following: `/profile?id=${user.uid}`, likes: `/profile?id=${user.uid}` }}>
           {/* One profile: this is it, as others see it (with the shop's items when there is a shop). */}
           <Button asChild variant="secondary" size="icon" className="h-10 w-10 shrink-0 rounded-full"><Link href={`/profile?id=${user.uid}`} aria-label={t('See my profile as others see it')} title={t('See my profile as others see it')}><Eye className="h-4 w-4" /></Link></Button>

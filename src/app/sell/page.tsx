@@ -35,7 +35,7 @@ import { categoryLabel } from '@/lib/categories';
 type Step = 'account' | 'switch' | 'shop' | 'photo' | 'list';
 
 const STEPS: { key: Step; label: string }[] = [
-  { key: 'account', label: 'Seller account' },
+  { key: 'account', label: 'Account' },
   { key: 'shop', label: 'Shop address' },
   { key: 'photo', label: 'Profile photo' },
   { key: 'list', label: 'List your item' },
@@ -97,7 +97,7 @@ export default function SellPage() {
     const { role, shop, avatar, official } = useUserRoleStore();
     const hasShop = isShopComplete(shop);
     const setRole = useUserRoleStore((st) => st.setRole);
-    // Selling takes four steps: a seller account, the shop's address, a profile photo, then the item.
+    // Selling takes four steps: an account (the one you shop with too), the shop's address, a profile photo, then the item.
     const step: Step = !user ? 'account' : role !== 'seller' ? 'switch' : !hasShop ? 'shop' : !avatar && !official ? 'photo' : 'list';
     const [switching, setSwitching] = useState(false);
     const switchToSelling = async () => {
@@ -248,11 +248,11 @@ export default function SellPage() {
               <div className="space-y-4 rounded-lg border border-primary/40 bg-primary/5 p-5 text-center">
                 <Store className="mx-auto h-10 w-10 text-primary" />
                 <div>
-                  <p className="text-lg font-semibold">Selling needs a seller account</p>
-                  <p className="text-sm text-muted-foreground">So buyers know who they buy from, every item on Saligue belongs to a registered shop. It&apos;s free.</p>
+                  <p className="text-lg font-semibold">Selling needs an account</p>
+                  <p className="text-sm text-muted-foreground">So buyers know who they buy from, every item on Saligue belongs to a registered account. It&apos;s free, and the same account you shop with.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                  <Button size="lg" onClick={() => { setRole('seller'); setRegisterOpen(true); }}>Create a seller account</Button>
+                  <Button size="lg" onClick={() => { setRole('seller'); setRegisterOpen(true); }}>Create an account</Button>
                   <Button size="lg" variant="outline" onClick={() => { setRole('seller'); setLoginOpen(true); }}>I already have an account</Button>
                 </div>
               </div>

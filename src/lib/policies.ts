@@ -14,7 +14,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
           {
             heading: 'Ad income program: who can join',
             paragraphs: [
-              'A seller account with a profile photo and full shop address, active for at least 4 months (120 days).',
+              'An account with a profile photo and full shop address, active for at least 4 months (120 days).',
               'At least 10,000 clients (people who follow your shop).',
               'At least 5,000,000 views of your items in the last 90 days.',
               'No items removed for breaking Saligue’s rules in the last 90 days.',

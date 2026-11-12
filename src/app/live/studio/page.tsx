@@ -850,11 +850,11 @@ function NotAShop({ signedIn }: { signedIn: boolean }) {
       <h1 className="text-2xl font-extrabold">Going live is for shops</h1>
       <p className="text-sm text-muted-foreground">
         {signedIn
-          ? 'Your account is a buyer account. Switch to selling to show your items on camera — you can still shop as before.'
-          : 'Create a free seller account to show your items on camera.'}
+          ? 'Open Sell once to set up your shop, then come back here to go live.'
+          : 'Create a free account to show your items on camera.'}
       </p>
       <div className="flex flex-wrap justify-center gap-2">
-        <Button asChild><Link href="/sell">{signedIn ? 'Switch to selling' : 'Create a seller account'}</Link></Button>
+        <Button asChild><Link href="/sell">{signedIn ? 'Sell' : 'Create an account'}</Link></Button>
         <Button variant="outline" asChild><Link href="/live">Watch a live instead</Link></Button>
       </div>
     </div>

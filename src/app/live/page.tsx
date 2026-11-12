@@ -77,9 +77,9 @@ export default function LivesPage() {
           <Store className="h-8 w-8 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
             <p className="font-semibold">Want to go live?</p>
-            <p className="text-muted-foreground">{user ? 'Only shops can go live. Switch to selling to show your items on camera — you can still shop as before.' : 'Live is for shops. Create a free seller account to show your items on camera.'}</p>
+            <p className="text-muted-foreground">{user ? 'Open the studio to show your items on camera.' : 'Create a free account to show your items on camera.'}</p>
           </div>
-          <Button size="sm" asChild><Link href="/sell">{user ? 'Switch to selling' : 'Create a shop'}</Link></Button>
+          <Button size="sm" asChild><Link href="/sell">{user ? 'Go live' : 'Create an account'}</Link></Button>
         </div>
       )}
       <ComingUp />

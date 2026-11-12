@@ -997,6 +997,9 @@ for (const table of ['lessons', 'challenges']) {
   db.exec(`update ${table} set topic = 'sewing' where topic = 'care'`);
   db.exec(`update ${table} set topic = 'styling' where topic = 'shoes_accessories'`);
 }
+// One account per person: there is no separate shopper and seller account. Everyone signed in can shop, sell and go
+// live with the same account (role 'seller' means just that); accounts made as shoppers before are brought level.
+db.exec("update users set role = 'seller' where is_guest = 0 and role != 'seller'");
 // Admins from before admin levels are main admins (type 1).
 db.exec('update users set admin_level = 1 where admin = 1 and admin_level = 0');
 // Badges from before monthly billing: documents were checked, the first month starts now.

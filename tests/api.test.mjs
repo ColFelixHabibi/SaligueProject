@@ -200,9 +200,10 @@ describe('accounts', () => {
     assert.equal((await call(`/products/${id}`)).json.saveCount, before + 1);
   });
   // One account per person: starting to sell adds a shop; nothing (an old app's switch, a login) takes it away.
-  test('an account can start selling, and is never switched back to shopping only', async () => {
+  test('one account per person: every account can sell, and is never switched back to shopping only', async () => {
+    // No separate shopper and seller accounts: a new account can shop and sell from the start, whatever it asks for.
     const a = await register('One Account');
-    assert.equal(a.user.role, 'buyer');
+    assert.equal(a.user.role, 'seller');
     assert.equal((await call('/auth/me', { method: 'PATCH', token: a.token, body: { role: 'seller' } })).status, 200);
     assert.equal((await call('/auth/me', { token: a.token })).json.user.role, 'seller');
     assert.equal((await call('/auth/me', { method: 'PATCH', token: a.token, body: { role: 'buyer' } })).status, 200);
@@ -687,7 +688,9 @@ describe('reasons to come back', () => {
     const at = new Date(Date.now() + 2 * 3_600_000).toISOString();
     const plan = await call('/live-schedules', { token: shop.token, body: { title: 'New kitenge', startsAt: at } });
     assert.equal(plan.status, 200);
-    assert.equal((await call('/live-schedules', { token: a.token, body: { title: 'x y z', startsAt: at } })).status, 403);
+    // Only a visitor without an account is turned away: every account can plan a live (one account per person).
+    const guest = (await call('/auth/guest', { body: {} })).json;
+    assert.equal((await call('/live-schedules', { token: guest.token, body: { title: 'x y z', startsAt: at } })).status, 403);
     const r = await call(`/live-schedules/${plan.json.id}/remind`, { token: a.token, body: {} });
     assert.equal(r.json.reminded, true);
     assert.equal((await call(`/live-schedules?seller=${shop.id}`)).json[0].reminders, 1);

@@ -510,7 +510,8 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
   const name = String(body.name ?? '').trim().slice(0, 80);
   const email = String(body.email ?? '').trim().toLowerCase();
   const password = String(body.password ?? '');
-  const role = body.role === 'seller' ? 'seller' : 'buyer';
+  // One account per person, whatever an older app sends: every account can shop and sell (server/db.mjs).
+  const role = 'seller';
   if (!name) fail(400, 'missing_name', 'Please enter your name.');
   if (!EMAIL.test(email)) fail(400, 'invalid_email', 'Please enter a valid email address.');
   if (password.length < 6) fail(400, 'weak_password', 'Password must be at least 6 characters.');
@@ -541,10 +542,9 @@ function welcome(userId, name, role) {
   notify(userId, {
     type: 'account',
     title: `Welcome to Saligue, ${name}!`,
-    body: role === 'seller'
-      ? 'Your seller account is ready. Add your shop address, then list your first item so buyers can wear it in the Fitting Room.'
-      : 'Your account is ready. Open the Fitting Room to see yourself in complete outfits before you buy.',
-    link: role === 'seller' ? '/sell' : '/mirror',
+    // One account for everything, so one welcome: shopping and selling both start from it.
+    body: 'Your account is ready. Try anything on in the Fitting Room, or post your first item to sell it.',
+    link: '/mirror',
   });
 }
 
@@ -652,7 +652,8 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   if (info.email_verified !== 'true' && info.email_verified !== true) fail(401, 'unverified_email', 'Your Google email is not verified.');
   const email = String(info.email).toLowerCase();
   const name = String(info.name || email.split('@')[0]).slice(0, 80);
-  const role = body.role === 'seller' || body.role === 'buyer' ? body.role : null;
+  // One account per person: a new Google account can shop and sell like any other.
+  const role = 'seller';
 
   const account = db.prepare('select * from users where email = ?').get(email);
   if (account) {
@@ -667,13 +668,13 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   // states its date of birth in the same dialog, so Google does not become a way around the age gate.
   const birthDate = requireBirthDate(body);
   if (user?.is_guest) {
-    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ?, birth_date = ?, age_checked_at = ? where id = ?').run(email, name, role ?? 'buyer', now(), TERMS_VERSION, birthDate, now(), user.id);
-    welcome(user.id, name, role ?? 'buyer');
+    db.prepare('update users set email = ?, display_name = ?, role = ?, is_guest = 0, terms_accepted_at = ?, terms_version = ?, birth_date = ?, age_checked_at = ? where id = ?').run(email, name, role, now(), TERMS_VERSION, birthDate, now(), user.id);
+    welcome(user.id, name, role);
     return { token: tokenOf(req), user: publicUser(db.prepare('select * from users where id = ?').get(user.id)), isNew: true };
   }
   const id = randomUUID();
-  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, birth_date, age_checked_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role ?? 'buyer', now(), TERMS_VERSION, birthDate, now(), now());
-  welcome(id, name, role ?? 'buyer');
+  db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, birth_date, age_checked_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role, now(), TERMS_VERSION, birthDate, now(), now());
+  welcome(id, name, role);
   return { token: createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
 });
 
@@ -981,7 +982,7 @@ async function requireFashion(fields, current = {}, productId = null) {
 route('POST', '/api/products', async ({ user, body }) => {
   needFeature('selling');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to sell items.');
-  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only seller accounts can list items. Switch to selling in your account settings.');
+  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Create an account to post items.');
   if (!parse(user.shop)?.name) fail(403, 'shop_required', 'Add your shop name and full address before listing.');
   if (!user.avatar && !user.official) fail(403, 'avatar_required', 'Add a profile photo before listing, so buyers can see who they buy from.');
   const fields = productFields(body);
@@ -2244,13 +2245,15 @@ route('POST', '/api/conversations', ({ user, body }) => {
     sellerId = String(body.sellerId);
   } else if (body.userId) {
     // A person in your Clients or Network. With a shop it is the usual shop chat; otherwise a direct chat.
-    const other = db.prepare('select id, role, is_guest, suspended from users where id = ?').get(String(body.userId));
+    const other = db.prepare('select id, role, shop, is_guest, suspended from users where id = ?').get(String(body.userId));
     if (!other || other.is_guest || other.suspended) fail(404, 'not_found', 'This account does not exist.');
     if (other.id === user.id) fail(400, 'own_account', 'This is you.');
     if (user.is_guest) fail(401, 'not_signed_in', 'Create an account to message people.');
     if (blockedBetween(user.id, other.id)) fail(403, 'blocked', 'You can’t message this account.');
-    const shopChat = (other.role === 'seller') !== (user.role === 'seller');
-    if (shopChat) [buyerId, sellerId] = other.role === 'seller' ? [user.id, other.id] : [other.id, user.id];
+    // Every account is the same kind now (one account per person), so what makes it a shop chat is having a shop.
+    const hasShop = (u) => !!parse(u.shop)?.name;
+    const shopChat = hasShop(other) !== hasShop(user);
+    if (shopChat) [buyerId, sellerId] = hasShop(other) ? [user.id, other.id] : [other.id, user.id];
     else {
       if (!connected(user.id, other.id)) fail(403, 'not_connected', 'You can message people in your Clients or Network.');
       let c = db.prepare("select * from conversations where kind = 'direct' and ((buyer_id = ? and seller_id = ?) or (buyer_id = ? and seller_id = ?))").get(user.id, other.id, other.id, user.id);
@@ -2982,7 +2985,7 @@ route('GET', '/api/shops/suggested', ({ user }) => {
 route('POST', '/api/lives', async ({ user, body }) => {
   needFeature('live');
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to go live.');
-  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Only sellers can go live. Switch to selling first.');
+  if (user.role !== 'seller') fail(403, 'not_a_seller', 'Create an account to go live.');
   if (!liveSettings().enabled) fail(503, 'live_off', 'Live is not switched on yet.');
   const title = String(body.title ?? '').trim().slice(0, 100);
   if (!title) fail(400, 'missing_title', 'Give your live a title.');
