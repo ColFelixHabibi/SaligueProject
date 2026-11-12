@@ -233,7 +233,7 @@ export function AccountsAdmin() {
           <div key={a.id} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm', a.suspended && 'border-destructive/40 bg-destructive/5')}>
             <div className="min-w-0 flex-1">
               <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
-              <p className="truncate text-xs text-muted-foreground">{a.email} · {a.items > 0 ? 'Shop' : 'Account'} · {a.items} items · {a.orders} orders · since {new Date(a.createdAt).toLocaleDateString()}</p>
+              <p className="truncate text-xs text-muted-foreground">{a.email} · {a.items} items · {a.orders} orders · since {new Date(a.createdAt).toLocaleDateString()}</p>
               {a.suspended && <p className="text-xs font-semibold text-destructive">Suspended{a.suspendReason ? `: ${a.suspendReason}` : ''}{a.deleteAfter ? ` · deleted on ${new Date(a.deleteAfter).toLocaleDateString()} unless restored` : ''}</p>}
             </div>
             {a.adminLevel !== 1 && (

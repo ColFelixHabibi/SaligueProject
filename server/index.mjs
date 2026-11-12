@@ -3724,8 +3724,6 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     live: { enabled: liveSettings().enabled },
     stats: {
       users: count('select count(*) as n from users where is_guest = 0'),
-      // Every account can sell (one account per person), so a shop is an account with something on sale.
-      sellers: count("select count(distinct u.id) as n from users u join products p on p.seller_id = u.id and p.status = 'active' where u.is_guest = 0"),
       products: count("select count(*) as n from products where status = 'active'"),
       orders: count("select count(*) as n from orders where status != 'cancelled'"),
     },
@@ -4459,8 +4457,6 @@ route('GET', '/api/admin/overview', ({ user }) => {
     stats: {
       users: n('select count(*) as n from users where is_guest = 0'),
       newUsers: n('select count(*) as n from users where is_guest = 0 and created_at > ?', week),
-      // Every account can sell (one account per person), so a shop is an account with something on sale.
-      sellers: n("select count(distinct u.id) as n from users u join products p on p.seller_id = u.id and p.status = 'active' where u.is_guest = 0"),
       products: n("select count(*) as n from products where status = 'active' and hidden = 0"),
       orders: n("select count(*) as n from orders where status != 'cancelled'"),
       newOrders: n("select count(*) as n from orders where status != 'cancelled' and created_at > ?", week),

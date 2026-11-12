@@ -14,7 +14,7 @@ import { ComplianceAdmin } from '@/components/admin/compliance-admin';
 import { AiLearningAdmin } from '@/components/admin/ai-learning-admin';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldAlert, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, Store, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldAlert, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,7 @@ type Platform = {
   hf?: { key: string | null; fromEnv: boolean };
   aiServer: { url: string; ok: boolean; reason?: string; gpu?: string | null; memoryGb?: number | null; ready?: boolean; busy?: boolean; fromEnv: boolean } | null;
   live: { enabled: boolean };
-  stats: { users: number; sellers: number; products: number; orders: number };
+  stats: { users: number; products: number; orders: number };
 };
 
 // These settings are checked with the outside services before they are saved here: a mail server login, Flutterwave,
@@ -129,8 +129,9 @@ function PlatformSettings() {
     <div className="space-y-6">
       <div>
         <p className="text-muted-foreground">Connect the services Saligue needs. Keys are kept on your server and never shown again.</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[['Accounts', data.stats.users], ['Shops', data.stats.sellers], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
+        {/* One account per person: Accounts is the only count of people, never split into shoppers and shops. */}
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {[['Accounts', data.stats.users], ['Items on sale', data.stats.products], ['Orders', data.stats.orders]].map(([k, v]) => (
             <div key={k as string} className="rounded-xl border bg-card p-3"><p className="text-2xl font-bold">{v}</p><p className="text-xs text-muted-foreground">{k}</p></div>
           ))}
         </div>
@@ -353,7 +354,7 @@ function PlatformSettings() {
 
 type AdminInfo = { level: number; perms: string[]; allPerms: Record<string, string>; features: Record<string, string> };
 type Overview = {
-  stats: { users: number; newUsers: number; sellers: number; products: number; orders: number; newOrders: number; lessons: number; livesNow: number };
+  stats: { users: number; newUsers: number; products: number; orders: number; newOrders: number; lessons: number; livesNow: number };
   waiting: { key: string; tab: string; count: number }[];
   days: { date: string; users: number; orders: number }[];
 };
@@ -427,7 +428,6 @@ function OverviewAdmin({ open }: { open: (tab: string) => void }) {
   const s = data.stats;
   const tiles: [LucideIcon, string, number, string?][] = [
     [Users, 'Accounts', s.users, s.newUsers ? `+${s.newUsers} this week` : undefined],
-    [Store, 'Shops', s.sellers],
     [Package, 'Items on sale', s.products],
     [ShoppingBag, 'Orders', s.orders, s.newOrders ? `+${s.newOrders} this week` : undefined],
     [GraduationCap, 'Lessons', s.lessons],
