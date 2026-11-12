@@ -4,7 +4,7 @@ Everything the Play Console asks for, taken from this repository: the exact comm
 data-safety answers that match what the code actually does. Nothing here is guessed — each claim names the file it
 comes from, so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionCode **52**, versionName **2.41**, minSdk 24, targetSdk 36.
+Current build: `com.indeciana.saligue`, versionCode **53**, versionName **2.42**, minSdk 24, targetSdk 36.
 The iOS app carries the same two numbers (`ios/App/App.xcodeproj/project.pbxproj`), so the two stores never drift.
 
 ---
@@ -15,7 +15,7 @@ Play takes a **bundle**, not an APK. The release script already produces one, si
 
 ```bash
 node scripts/build-app.mjs --aab
-# → dist/saligue-2.41-52.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
+# → dist/saligue-2.42-53.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
 ```
 
 **Upload that `.aab`. Never the `.apk`.** The bundle goes to `dist/`, deliberately never to `data/downloads/`
@@ -36,9 +36,11 @@ Play Console, choose **"Use an existing app signing key"** and upload the same k
 your key as the upload key). If you let Google make a *different* app signing key, every phone that installed
 `saligue.apk` from the site gets "App not installed" when it tries to update from Play. Keep one key.
 
-After the first upload, **every later upload must have a higher `versionCode`** in `android/app/build.gradle`
-(currently `versionCode 52`). `/api/app/version` reads the same number, so the in-app "update available" banner and
-the Play update arrive from one source.
+After the first upload, **every later upload must have a higher `versionCode`** in `android/app/build.gradle` — the
+number on the "Current build" line at the top of this file, which `npm test` keeps equal to it.
+`/api/app/version` reads the same number out of `data/downloads/saligue.json`, so the in-app "update available"
+banner and the Play update arrive from one source — provided the app was rebuilt after the number was raised
+(`node scripts/build-app.mjs --apk`; `tests/applinks.test.mjs` refuses a number that was written and never built).
 
 ### Links in WhatsApp must open the app
 

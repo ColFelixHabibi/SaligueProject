@@ -2,7 +2,8 @@
 // with, and the address it claims. They live in three different files, so this keeps them from drifting apart —
 // which would fail silently (links simply open a browser, with nothing broken enough to notice).
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -23,6 +24,11 @@ const host = new URL(FIRST_ADDRESS).host;
 const appLinks = readFileSync('src/components/app-links.tsx', 'utf8');
 const appUpdate = readFileSync('src/components/app-update.tsx', 'utf8');
 const native = readFileSync('src/lib/native.ts', 'utf8');
+// The app this machine last built. scripts/build-app.mjs writes both files into data/downloads (or SALIGUE_DATA);
+// neither is in the repository, so on CI and on a laptop there is simply nothing here to compare against.
+const DATA = resolve(process.env.SALIGUE_DATA || 'data');
+const builtApp = join(DATA, 'downloads', 'saligue.json');
+const apkFile = join(DATA, 'downloads', 'saligue.apk');
 
 test('the app is published as the app that owns Saligue links', () => {
   const list = JSON.parse(readFileSync(ASSETLINKS, 'utf8'));
@@ -127,6 +133,23 @@ test('the in-app download and update both hand the file to the browser', () => {
   // the phone's browser (deploy/play-store.md says why, and why allowNavigation has to stay empty).
   assert.match(native, /export function openInBrowser/);
   assert.match(native, /window\.location\.href = url/);
+});
+
+// A phone decides an update exists by comparing the versionCode it was installed with against the one published here
+// (`v.versionCode > MINE` in src/components/app-update.tsx). Raise the number in gradle and never rebuild, and this
+// file still publishes the number the phones already carry: `52 > 52` is false, so the new app is offered to nobody
+// and the store refuses a duplicate versionCode — while the release commit says it shipped. Nothing else notices,
+// because the other version tests only compare written-down numbers with each other.
+const STALE = 'is not the app this tree builds: run `node scripts/build-app.mjs --apk` before committing a release';
+
+test('the app on offer is the app this tree builds', { skip: existsSync(builtApp) ? false : 'no app built on this machine' }, () => {
+  const onOffer = JSON.parse(readFileSync(builtApp, 'utf8'));
+  // The two numbers a phone and a store compare, read the same way scripts/build-app.mjs reads them.
+  assert.equal(String(onOffer.versionCode), /versionCode\s+(\d+)/.exec(gradle)?.[1], `${builtApp} ${STALE}`);
+  assert.equal(onOffer.versionName, /versionName\s+"([^"]+)"/.exec(gradle)?.[1], `${builtApp} ${STALE}`);
+  // Written on the line after the APK is swapped in, never instead of it: a published number whose file is gone
+  // leaves the update button pointing at nothing, which is the same dead end from the other side.
+  assert.ok(existsSync(apkFile), `${apkFile} is missing though ${builtApp} offers it: rebuild the app`);
 });
 
 test('the WebView is not told to keep addresses that Capacitor would open in the browser', () => {

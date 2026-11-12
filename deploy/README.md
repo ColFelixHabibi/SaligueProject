@@ -27,12 +27,28 @@ Hardened on 2026-11-09 (see `README.md` → "Accounts and security" for what eac
   answer (port 80 is unreachable from outside), so that block could never serve anything, and plain HTTP would have
   carried every password and token in the clear. Only the two real hostnames are ACME identifiers now.
 - **Log files stay out of the repository.** One-off shell probes and their captured output (`/.*.sh`, `/.*.txt` at the
-  root) are ignored; one of them ran `git checkout server/index.mjs` and could undo a release.
+  root, and the plain-named `/---locks---` and `/exit=0`) are ignored; one of them ran `git checkout server/index.mjs`
+  and could undo a release. `.gitignore` stops these being committed, it does not delete them — and a name that starts
+  with `-` is read as an option, so those two need `rm -f -- '---locks---' 'exit=0'`. Ignoring is only possible where
+  the name is predictable: a mangled paste can leave a file called `k > .agent-probe.txt`, and step 6 (`git add -A`)
+  would commit it. Read `git status --short` before step 6 instead of trusting the tree. Ignoring cannot help once
+  one is committed — `.gitignore` only decides what is newly added — so it has to be taken back out by hand:
+  `git rm -- 'h -c echo alive' 'k > .agent-probe.txt'` (the `--` matters for any name starting with `-`).
 
 ## Release
 1. `npm test`
 2. `node server/backup.mjs` (a copy of the database before the release)
-3. Raise `versionCode` / `versionName` in android/app/build.gradle (installed apps then offer the update)
-4. `node scripts/build-app.mjs --apk`: builds the app into data/downloads and rebuilds the website (out/)
+3. Raise `versionCode` / `versionName` in **four** files, or the update is never offered: android/app/build.gradle,
+   both `CURRENT_PROJECT_VERSION` / `MARKETING_VERSION` pairs in ios/App/App.xcodeproj/project.pbxproj, the "Current
+   build" line and the `.aab` filename in deploy/play-store.md, and the "Current build" line in deploy/ios.md.
+   `tests/universallinks.test.mjs` reads the number out of android/app/build.gradle and refuses the other three if
+   they disagree, so a half-done bump fails `npm test` — which is why step 1 is run again after this one.
+4. `node scripts/build-app.mjs --apk`: builds the app into data/downloads and rebuilds the website (out/). This is
+   also what writes data/downloads/saligue.json — `{versionCode, versionName, builtAt}`, read out of build.gradle and
+   never edited by hand — and that file is the only thing a phone reads to decide an update exists. So a number
+   raised here but never rebuilt is not a release: `tests/applinks.test.mjs` compares the two wherever an app has been
+   built, which means `npm test` fails between step 3 and this one, on purpose, instead of shipping a version nobody
+   is offered.
 5. `systemctl restart saligue`, then check `curl -s localhost:8080/api/health` and `journalctl -u saligue -n 50`
-6. Commit "Android app X (versionCode N)"
+6. Commit "Android app X (versionCode N)" — after step 4, never before: the commit has to describe an app that
+   really exists in data/downloads. Read `git status --short` first (see the note above about probe files).

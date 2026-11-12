@@ -25,7 +25,7 @@ Most AI runs on the user's device (browser or installed app), and a shopper phot
 | Redraw the garment on the shopper's photo | Saligue's own AI Studio (Leffa + SDXL inpainting), then FASHN on fal.ai, then free public models | `server/tryon.mjs`, `ai-server/server.py` |
 | Check that only that garment changed, before the look is shown | the app | `src/lib/ai/composite.ts` |
 | Write a seller's item description from the details they typed | DeepSeek | `server/index.mjs` (`/api/ai/write`), `src/components/write-with-ai.tsx` |
-| Pick an outfit for where a shopper is going, from what Saligue really sells | DeepSeek, reasoner tier | `server/stylist.mjs` (`/api/ai/stylist`), `src/app/stylist/page.tsx` |
+| Pick an outfit for where a shopper is going, from what Saligue really sells | DeepSeek, chat model (not the reasoner: it spends its budget thinking) | `server/stylist.mjs` (`/api/ai/stylist`), `src/app/stylist/page.tsx` |
 
 A shopper photo leaves the phone only when they ask for a realistic look, and only after confirming it is them
 (`src/lib/ai/consent.ts`). Our own Studio is always tried first; the free public models are the fallback that finishes
@@ -40,9 +40,19 @@ is built to be trusted rather than clever — it may only choose ids from a shor
 already ranked by that shopper's own behaviour (`server/recommend.mjs`), so it cannot invent a product, a shop, a size
 or a price, and the size and budget it is given are hard limits. With no AI key, a busy model, a guest account (whose
 questions never spend Saligue's key) or twenty questions in an hour, it answers from that same ranking and the card
-says so plainly instead of pretending the AI said it. It answers in the shopper's own language, Kinyarwanda and French
+says so plainly instead of pretending the AI said it. Only a question that really reaches the AI spends one of those
+twenty: a guest's question and one too short to answer cost no token, so a visitor who tries the stylist as a guest and
+then registers is not left an hour without its key — the guest becomes the account, and the account's own key works at
+once. It answers in the shopper's own language, Kinyarwanda and French
 included; that answer is kept in `DICT` (`src/lib/i18n.ts`) as well, so the no-AI reply is translated too rather than
 leaving a Kinyarwanda shopper reading English.
+
+There are two dictionaries, and they do different jobs: `DICT` holds what the screens ask for by name (`t('Follow')`)
+and is also the fallback for whole texts, while `public/i18n/<lang>.json` holds the long body copy the page translator
+matches in place. `tests/i18n.test.mjs` checks the first against the screens, and now checks that both `.json` files
+still parse (a stray comma there silently turns every screen back to English), carry no blank line, and say the same
+things in both languages — plus that the stylist's no-AI replies stay in `DICT`, since no `t()` call would notice them
+going.
 
 ### What the AI learns
 

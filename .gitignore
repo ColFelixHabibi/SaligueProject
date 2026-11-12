@@ -63,6 +63,12 @@ next-env.d.ts
 # part of the app, and one of them (`git checkout server/index.mjs`) can undo real work if it is committed.
 /.*.sh
 /.*.txt
+# The same probes also leave captured output under a plain name: `... > exit=0`, `... > ---locks---`, or — when a
+# paste is mangled — the command itself becomes the file name (`-la | tail -n +2 | awk ...`). All of it is terminal
+# transcript, not source, and release step 6 commits everything in the working tree. Nothing this repository builds
+# starts with a dash, so the whole class goes in one line (`rm` reads such a name as an option: `rm -f -- ./-*`).
+/-*
+/exit=0
 
 # Build logs and Python bytecode: produced on every run, never source.
 /*.log

@@ -5930,11 +5930,15 @@ const STYLE_PER_HOUR = 20;
 
 route('POST', '/api/ai/stylist', async ({ user, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
+  // Only a question that really reaches the AI spends the hourly allowance. A guest is answered from the catalogue
+  // and a question too short to answer is refused (400), so neither costs a token — and a guest becomes the account
+  // it registers as (same id), so counting its questions would throttle someone who has just added their own key.
+  const willAsk = !user.is_guest && String(body.message ?? '').trim().length >= 3;
   const hour = Date.now() - 3_600_000;
   const recent = (styleRuns.get(user.id) ?? []).filter((t) => t > hour);
   // Too many questions this hour: the shopper still gets an answer, from the ranking instead of the AI.
   const over = recent.length >= STYLE_PER_HOUR;
-  if (!over) styleRuns.set(user.id, [...recent, Date.now()]);
+  if (willAsk && !over) styleRuns.set(user.id, [...recent, Date.now()]);
   try {
     return await style({
       userId: user.id,
@@ -5943,7 +5947,7 @@ route('POST', '/api/ai/stylist', async ({ user, body }) => {
       maxPrice: body.maxPrice,
       lang: body.lang,
       // A guest has no key of its own, so its questions are answered from the catalogue, never from Saligue's key.
-      ai: !over && !user.is_guest,
+      ai: willAsk && !over,
     });
   } catch (error) {
     fail(error.status ?? 502, error.code ?? 'ai_failed', error.message);

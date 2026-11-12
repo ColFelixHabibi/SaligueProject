@@ -1259,6 +1259,50 @@ describe('the AI stylist', () => {
     for (const pick of cheap.json.picks) assert.ok(Number(real.get(pick.id).price) <= 12, 'never over budget');
   });
 
+  // The hourly allowance exists to limit what Saligue pays for, so only a question that reaches the AI may spend it.
+  // A guest's question and a question too short to answer cost nothing.
+  test('a guest’s questions cost nothing, so they never throttle the account they register as', async () => {
+    const guest = (await call('/auth/guest', { body: {} })).json;
+    for (let i = 0; i < 25; i++) {
+      const answered = await call('/ai/stylist', { token: guest.token, body: { message: `A wedding, number ${i + 1}` } });
+      assert.equal(answered.status, 200, JSON.stringify(answered.json));
+      assert.equal(answered.json.source, 'plain', 'a guest is answered from the catalogue, never from Saligue’s key');
+    }
+    // Registering turns the guest row into the real account, keeping its id — so anything the guest spent would follow.
+    const upgraded = await call('/auth/register', {
+      token: guest.token,
+      body: { name: 'Style Upgraded', email: `styleupgraded${Math.random().toString(36).slice(2, 7)}@example.com`, password: 'Test12345!', acceptTerms: true, birthDate: '1996-05-04' },
+    });
+    assert.equal(upgraded.status, 200, JSON.stringify(upgraded.json));
+    assert.equal(upgraded.json.user.id, guest.user.id, 'the guest becomes the account');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: upgraded.json.token, body: { key: GOOD_KEY } });
+    const answer = await call('/ai/stylist', { token: upgraded.json.token, body: { message: 'A wedding in Kigali next month' } });
+    assert.equal(answer.json.source, 'yours', 'the account’s own key is used at once, not an hour later');
+  });
+
+  test('a question too short to answer spends none of the hourly allowance', async () => {
+    const shopper = await register('Style Short');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
+    for (let i = 0; i < 25; i++) {
+      assert.equal((await call('/ai/stylist', { token: shopper.token, body: { message: ' ' } })).status, 400);
+    }
+    const answer = await call('/ai/stylist', { token: shopper.token, body: { message: 'A wedding in Kigali next month' } });
+    assert.equal(answer.json.source, 'yours', 'a refused question never eats the real allowance');
+  });
+
+  test('past twenty real questions in an hour the shopper is still answered, from the catalogue', async () => {
+    const shopper = await register('Style Hour Limit');
+    await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
+    const sources = [];
+    for (let i = 0; i < 21; i++) {
+      const answer = await call('/ai/stylist', { token: shopper.token, body: { message: `A party, question ${i + 1}` } });
+      assert.equal(answer.status, 200, JSON.stringify(answer.json));
+      sources.push(answer.json.source);
+    }
+    assert.deepEqual(sources.slice(0, 20), Array(20).fill('yours'), 'the first twenty are reasoned');
+    assert.equal(sources[20], 'plain', 'the twenty-first is answered from the catalogue, never refused');
+  });
+
   test('opening a pick is counted as follow-through, and INDECIANA sees it', async () => {
     const shopper = await register('Style Follower');
     await call('/ai/keys/deepseek', { method: 'PUT', token: shopper.token, body: { key: GOOD_KEY } });
