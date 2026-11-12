@@ -69,6 +69,9 @@ next-env.d.ts
 # starts with a dash, so the whole class goes in one line (`rm` reads such a name as an option: `rm -f -- ./-*`).
 /-*
 /exit=0
+# A bare dotfile, so neither `/.*.sh` nor `/.*.txt` covers it: a probe of the shape `git status --short > .modified`
+# leaves an empty one behind, and step 6 (`git add -A`) would commit it.
+/.modified
 
 # Build logs and Python bytecode: produced on every run, never source.
 /*.log

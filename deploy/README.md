@@ -26,14 +26,21 @@ Hardened on 2026-11-09 (see `README.md` → "Accounts and security" for what eac
   `https://78.47.151.100` server block was removed: a certificate for an address needs a challenge this box cannot
   answer (port 80 is unreachable from outside), so that block could never serve anything, and plain HTTP would have
   carried every password and token in the clear. Only the two real hostnames are ACME identifiers now.
-- **Log files stay out of the repository.** One-off shell probes and their captured output (`/.*.sh`, `/.*.txt` at the
-  root, and the plain-named `/---locks---` and `/exit=0`) are ignored; one of them ran `git checkout server/index.mjs`
-  and could undo a release. `.gitignore` stops these being committed, it does not delete them — and a name that starts
-  with `-` is read as an option, so those two need `rm -f -- '---locks---' 'exit=0'`. Ignoring is only possible where
-  the name is predictable: a mangled paste can leave a file called `k > .agent-probe.txt`, and step 6 (`git add -A`)
-  would commit it. Read `git status --short` before step 6 instead of trusting the tree. Ignoring cannot help once
+- **Log files stay out of the repository.** One-off shell probes and their captured output are ignored: dotfiles with
+  an extension (`/.*.sh`, `/.*.txt`, `/.*.log`), every root name that starts with a dash (`/-*` — a mangled paste can
+  leave the command itself behind as a filename, `-la | tail -n +2 | awk ...`), and the plain names seen so far
+  (`/exit=0`, `/.modified`). One of them ran `git checkout server/index.mjs` and could undo a release. `.gitignore`
+  stops these being committed, it does not delete them — and a name that starts with `-` is read as an option, so
+  those need `rm -f -- ./-*`. Ignoring is only possible where the name is predictable: a mangled paste can leave a
+  file called `k > .agent-probe.txt`, and step 6 (`git add -A`) would commit it. Read `git status --short` before
+  step 6 instead of trusting the tree. Ignoring cannot help once
   one is committed — `.gitignore` only decides what is newly added — so it has to be taken back out by hand:
   `git rm -- 'h -c echo alive' 'k > .agent-probe.txt'` (the `--` matters for any name starting with `-`).
+  `/.modified` was that case: an empty file a probe left behind, tracked in the index, so its ignore rule hid nothing
+  on its own. It was taken out with `git rm --cached -- .modified` (commit `23dc051`) — `--cached`, because that empty
+  file stays on disk, unlike the two above, whose files themselves had to go — and only from then on does the rule keep
+  it out. To see which rule covers a name, without staging or deleting anything: `git check-ignore -v --no-index --
+  -zzz './---locks---' 'exit=0'` prints the file and line of the rule that matches each one (exit 1 if none match).
 
 ## Release
 1. `npm test`
