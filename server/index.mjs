@@ -3724,6 +3724,9 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     live: { enabled: liveSettings().enabled },
     stats: {
       users: count('select count(*) as n from users where is_guest = 0'),
+      // Apps up to 2.46 still read this and crash on the admin page without it. One account per person, so it is
+      // the same number as users; 2.47 and later no longer show it.
+      sellers: count('select count(*) as n from users where is_guest = 0'),
       products: count("select count(*) as n from products where status = 'active'"),
       orders: count("select count(*) as n from orders where status != 'cancelled'"),
     },
@@ -4457,6 +4460,9 @@ route('GET', '/api/admin/overview', ({ user }) => {
     stats: {
       users: n('select count(*) as n from users where is_guest = 0'),
       newUsers: n('select count(*) as n from users where is_guest = 0 and created_at > ?', week),
+      // Apps up to 2.46 still read this and crash on the admin page without it (same number as users: one account
+      // per person); 2.47 and later no longer show it.
+      sellers: n('select count(*) as n from users where is_guest = 0'),
       products: n("select count(*) as n from products where status = 'active' and hidden = 0"),
       orders: n("select count(*) as n from orders where status != 'cancelled'"),
       newOrders: n("select count(*) as n from orders where status != 'cancelled' and created_at > ?", week),

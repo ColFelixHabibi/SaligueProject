@@ -1423,6 +1423,14 @@ describe('security watch', () => {
     const stranger = await register('Not An Admin');
     assert.equal((await call('/admin/security/clear', { method: 'POST', token: stranger.token })).status, 403);
   });
+  test('the admin overview keeps every number installed apps read, so their admin page cannot crash', async () => {
+    const admin = await mainAdmin('Overview Admin');
+    const stats = (await call('/admin/overview', { token: admin.token })).json.stats;
+    // Apps up to 2.46 call toLocaleString() on each of these; a missing one blanked the whole admin page.
+    for (const key of ['users', 'newUsers', 'sellers', 'products', 'orders', 'newOrders', 'lessons', 'livesNow']) assert.equal(typeof stats[key], 'number', key);
+    const platform = (await call('/admin/platform', { token: admin.token })).json.stats;
+    for (const key of ['users', 'sellers', 'products', 'orders']) assert.equal(typeof platform[key], 'number', key);
+  });
 });
 
 describe('resaligue, pin and download', () => {

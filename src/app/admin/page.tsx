@@ -440,7 +440,7 @@ function OverviewAdmin({ open }: { open: (tab: string) => void }) {
         {tiles.map(([Icon, label, value, sub]) => (
           <div key={label} className="min-w-0 rounded-xl border bg-card p-3">
             <Icon className="h-4 w-4 text-primary" />
-            <p className="mt-1 text-2xl font-bold tabular-nums">{value.toLocaleString()}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums">{(value ?? 0).toLocaleString()}</p>
             <p className="truncate text-xs text-muted-foreground">{label}</p>
             {sub && <p className="truncate text-[11px] font-semibold text-emerald-600">{sub}</p>}
           </div>
