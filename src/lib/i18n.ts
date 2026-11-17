@@ -642,13 +642,19 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   // An app too old for the server (src/components/app-update.tsx).
   'Update Saligue to continue': ['Vugurura Saligue kugira ngo ukomeze', 'Mettez Saligue à jour pour continuer'],
   'This version is too old for the new Saligue. The update keeps your account and everything in it.': ['Iyi verisiyo ishaje cyane kuri Saligue nshya. Kuvugurura bigumana konti yawe n’ibiyirimo byose.', 'Cette version est trop ancienne pour le nouveau Saligue. La mise à jour garde votre compte et tout son contenu.'],
-  'Everything you earn on Saligue, in dollars. Paid every month on payday once it reaches': ['Ibyo winjiza byose kuri Saligue, mu madolari. Wishyurwa buri kwezi ku munsi wo kwishyurwa iyo bigeze kuri', 'Tout ce que vous gagnez sur Saligue, en dollars. Payé chaque mois le jour de paie dès qu’il atteint'],
-  'Next payday': ['Umunsi wo kwishyurwa ukurikira', 'Prochain jour de paie'],
-  'more to reach the minimum. What you earn carries over to the next payday.': ['ni byo bisigaye ngo ugere ku gipimo gito. Ibyo winjiza bisigara ku munsi wo kwishyurwa ukurikira.', 'de plus pour atteindre le minimum. Vos gains sont reportés au prochain jour de paie.'],
-  'will be paid to your Mobile Money, nothing to do.': ['bizishyurwa kuri Mobile Money yawe, nta cyo ugomba gukora.', 'sera payé sur votre Mobile Money, rien à faire.'],
   'Paid to': ['Bishyurwa kuri', 'Payé sur'],
   Change: ['Hindura', 'Changer'],
   Payments: ['Ubwishyu', 'Paiements'],
+  // Withdrawing from the balance, paid on the 15th (src/components/wallet-card.tsx).
+  'Everything you earn on Saligue, in dollars. Withdraw from': ['Ibyo winjiza byose kuri Saligue, mu madolari. Kura amafaranga uhereye kuri', 'Tout ce que vous gagnez sur Saligue, en dollars. Retirez à partir de'],
+  'withdrawals are paid on the 15th of each month.': ['ibyo ukuye byishyurwa ku itariki ya 15 buri kwezi.', 'les retraits sont payés le 15 de chaque mois.'],
+  'How much do you want to withdraw?': ['Urashaka gukura angahe?', 'Combien voulez-vous retirer ?'],
+  Withdraw: ['Kura amafaranga', 'Retirer'],
+  'Withdrawal asked': ['Gusaba gukura byakiriwe', 'Retrait demandé'],
+  'Not asked': ['Ntibyasabwe', 'Non demandé'],
+  'Paid on': ['Byishyurwa ku wa', 'Payé le'],
+  'Being sent now.': ['Biroherezwa ubu.', 'En cours d’envoi.'],
+  'more and you can withdraw. Withdrawals are paid on the 15th.': ['bindi ugashobora gukura amafaranga. Ibyo ukuye byishyurwa ku itariki ya 15.', 'de plus et vous pourrez retirer. Les retraits sont payés le 15.'],
 };
 
 const KEY = 'saligue-lang';

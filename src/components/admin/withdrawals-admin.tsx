@@ -19,15 +19,16 @@ type Waiting = { id: string; userId: string; name: string; email: string; amount
 type Data = {
   rules: { minimum: number; payday: number; autoSend: boolean };
   nextPayday: string; transfersReady: boolean;
+  queued: { n: number; amount: number };
   payout: { open: boolean; message: string | null };
   local: { currency: string; rate: number };
   waiting: Waiting[];
 };
 
 /**
- * Admin → Money → Payday (server/wallet.mjs). Like YouTube: on payday everyone whose balance reached the minimum is
- * paid in full, with nobody approving. With automatic sending the payment partner sends the money; without it, this
- * list is what to send by Mobile Money, and each one is recorded as sent or as failed (the money goes back).
+ * Admin → Money → Payday (server/wallet.mjs). People withdraw the amount they want, whenever they like; on payday
+ * (the 15th) every withdrawal asked for is paid, with nobody approving. With automatic sending the payment partner
+ * sends the money; without it, this list is what to send by Mobile Money, each one recorded as sent or failed.
  */
 export function WithdrawalsAdmin() {
   const { toast } = useToast();
@@ -67,11 +68,11 @@ export function WithdrawalsAdmin() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><CalendarClock className="h-5 w-5 text-primary" /> Payday {data.waiting.length > 0 && <Badge>{data.waiting.length}</Badge>}</CardTitle>
         <CardDescription>
-          Every month on the {nth(data.rules.payday)}, everyone whose balance reached {formatPrice(data.rules.minimum)} is paid all of it to their Mobile Money — nobody asks, nobody approves. Next: <b>{payday}</b>.
+          People withdraw what they want from {formatPrice(data.rules.minimum)}, any time. Every month on the {nth(data.rules.payday)}, every withdrawal asked for is paid — nobody approves. Next: <b>{payday}</b>, {data.queued.n} withdrawal(s), {formatPrice(data.queued.amount)}.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        {!data.payout.open && data.payout.message && <p className="rounded-lg bg-amber-400/10 p-2 text-xs">{data.payout.message} Until then, payments are held and carried over.</p>}
+        {!data.payout.open && data.payout.message && <p className="rounded-lg bg-amber-400/10 p-2 text-xs">{data.payout.message} Until then, withdrawals wait for the next payday.</p>}
         <div className="flex flex-wrap items-end gap-3 rounded-xl border p-3">
           <label className="space-y-1 text-xs">Payday (day of month)
             <Input type="number" min={1} max={28} defaultValue={data.rules.payday} className="h-9 w-20" onBlur={(e) => Number(e.target.value) !== data.rules.payday && save({ payday: Number(e.target.value) })} />

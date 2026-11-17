@@ -94,13 +94,12 @@ count, and a shop's ad never follows its own lesson.
 
 **The Saligue balance** (`server/wallet.mjs`, `/wallet`): everything a person earns — tips, Share & earn, monetization,
 Learning ads — lands in their balance in US dollars once it is final, each earning exactly once. Months close by
-themselves on the 1st. Paid like YouTube pays its creators: nobody asks and nobody approves. On payday (the 21st,
-Admin → Money → Payday) every balance of $50 or more is paid in full to the Mobile Money number on the account;
-below it carries over. A payment is held, never lost, while there is no number, the account is suspended or a payout
-rule (`compliance.mjs`) stops it. With automatic sending on, Flutterwave Transfers send it (`sendMobileMoney`, the
+themselves on the 1st. The person withdraws the amount they want (from $50 up to their balance) whenever they like;
+it leaves the balance at once and can be cancelled until payday. Payday is the 15th (Admin → Money → Payday): every
+withdrawal asked for before it is paid, with nobody approving. One stopped by a payout rule (`compliance.mjs`) or a
+suspension waits for the next payday. With automatic sending on, Flutterwave Transfers send it (`sendMobileMoney`, the
 answer comes by webhook or the hourly check); otherwise the payday list is sent by hand and each one recorded as sent,
-or as failed — the money then comes back and goes out next payday. Only money really sent counts towards the
-monthly limit.
+or as failed — the money then comes back to the balance. Only money really sent counts towards the monthly limit.
 
 **Challenges**: Saligue sets a theme and a deadline, people answer with a short lesson video, likes decide. Everyone
 active hears when one starts, the Challenges tab in Learn carries the number open, both challenge pages explain the

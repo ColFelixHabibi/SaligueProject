@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, Clock, Loader2, Wallet } from 'lucide-react';
+import { ArrowDownToLine, CalendarClock, Clock, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,9 +12,9 @@ import { useT } from '@/lib/i18n';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
 
-type Withdrawal = { id: string; amount: number; status: 'requested' | 'paid' | 'rejected'; momoNumber: string; reference: string | null; note: string | null; createdAt: string; decidedAt: string | null };
+type Withdrawal = { id: string; amount: number; status: 'requested' | 'paid' | 'rejected'; scheduled?: boolean; momoNumber: string; reference: string | null; note: string | null; createdAt: string; decidedAt: string | null };
 export type WalletData = {
-  balance: number; minimum: number; earned: number; nextPayday: string; open: Withdrawal | null;
+  balance: number; minimum: number; earned: number; nextPayday: string; canWithdraw: boolean; open: Withdrawal | null;
   held: { code: string; message: string } | null;
   entries: { amount: number; kind: string; label: string; note: string; at: string }[];
   withdrawals: Withdrawal[];
@@ -25,8 +25,8 @@ export type WalletData = {
 
 /**
  * The Saligue balance (server/wallet.mjs): everything earned — tips, Share & earn, monetization, Learning ads —
- * in dollars. Like YouTube, nobody asks for it: on payday each month, a balance that reached the minimum ($50) is paid
- * in full to the Mobile Money number on the account; below it, it carries over.
+ * in dollars. The person withdraws the amount they want (from $50) whenever they like; it is paid on payday, the 15th,
+ * without anyone approving it, and can be cancelled until then.
  */
 export function WalletCard({ full }: { full?: boolean }) {
   const t = useT();
@@ -34,6 +34,7 @@ export function WalletCard({ full }: { full?: boolean }) {
   const [data, setData] = useState<WalletData | null>(null);
   const [momo, setMomo] = useState({ number: '', name: '' });
   const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => void api<WalletData>('/me/wallet').then((d) => {
     setData(d);
@@ -59,11 +60,36 @@ export function WalletCard({ full }: { full?: boolean }) {
     }
   };
 
+  const withdraw = async () => {
+    setBusy(true);
+    try {
+      await api('/me/wallet/withdraw', { body: { amount: Number(amount), momoNumber: momo.number, momoName: momo.name } });
+      setAmount('');
+      toast({ title: t('Withdrawal asked'), description: `${t('Paid on')} ${payday}.` });
+      load();
+    } catch (error) {
+      toast({ variant: 'destructive', title: t('Not asked'), description: friendlyError(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancel = async (id: string) => {
+    setBusy(true);
+    try {
+      await api(`/me/wallet/withdraw/${id}`, { method: 'DELETE' });
+      load();
+    } catch (error) {
+      toast({ variant: 'destructive', title: t('Not done'), description: friendlyError(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Card className="rounded-2xl">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-5 w-5 text-primary" /> {t('My balance')}</CardTitle>
-        <CardDescription>{t('Everything you earn on Saligue, in dollars. Paid every month on payday once it reaches')} {formatPrice(data.minimum)}.</CardDescription>
+        <CardDescription>{t('Everything you earn on Saligue, in dollars. Withdraw from')} {formatPrice(data.minimum)}; {t('withdrawals are paid on the 15th of each month.')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <div className="rounded-2xl bg-primary p-4 text-primary-foreground">
@@ -72,26 +98,34 @@ export function WalletCard({ full }: { full?: boolean }) {
           {coming > 0 && <p className="mt-2 flex items-center gap-1 text-xs opacity-90"><Clock className="h-3.5 w-3.5" /> {formatPrice(coming)} {t('still on its way (this month, sales not delivered yet)')}</p>}
         </div>
 
-        {/* What happens on payday, in one line: paid, held (and why), or carried over. */}
-        <div className="flex gap-3 rounded-xl bg-muted p-3">
-          <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0">
-            {data.open ? (
-              <p>{t('Being sent to')} {data.open.momoNumber}: <b>{formatPrice(data.open.amount)}</b></p>
-            ) : (
-              <>
-                <p className="font-semibold">{t('Next payday')}: {payday}</p>
-                <p className="text-muted-foreground">
-                  {short > 0
-                    ? `${formatPrice(short)} ${t('more to reach the minimum. What you earn carries over to the next payday.')}`
-                    : data.held
-                      ? data.held.message
-                      : `${formatPrice(data.balance)} ${t('will be paid to your Mobile Money, nothing to do.')}`}
-                </p>
-              </>
-            )}
+        {/* A withdrawal asked for: paid on payday, cancellable until then. Otherwise the form to ask for one. */}
+        {data.open ? (
+          <div className="flex gap-3 rounded-xl bg-muted p-3">
+            <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{formatPrice(data.open.amount)} → {data.open.momoNumber}</p>
+              <p className="text-muted-foreground">{data.open.scheduled ? `${t('Paid on')} ${payday}.` : t('Being sent now.')}{data.held ? ` ${data.held.message}` : ''}</p>
+            </div>
+            {data.open.scheduled && <Button size="sm" variant="ghost" disabled={busy} onClick={() => cancel(data.open!.id)}>{t('Cancel')}</Button>}
           </div>
-        </div>
+        ) : data.canWithdraw ? (
+          <div className="space-y-2 rounded-xl border p-3">
+            <p className="text-xs font-semibold">{t('How much do you want to withdraw?')}</p>
+            <div className="flex gap-2">
+              <Input type="number" inputMode="decimal" min={data.minimum} max={data.balance} step="0.01" placeholder={`${formatPrice(data.minimum)} – ${formatPrice(data.balance)}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <Button type="button" variant="outline" onClick={() => setAmount(String(data.balance))}>{t('All')}</Button>
+            </div>
+            {Number(amount) > 0 && <p className="text-xs text-muted-foreground">{local(Number(amount)).trim()}</p>}
+            <Button className="h-11 w-full rounded-full" disabled={busy || !(Number(amount) >= data.minimum && Number(amount) <= data.balance) || (!data.momo && momo.number.replace(/\D/g, '').length < 9)} onClick={withdraw}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowDownToLine className="mr-2 h-4 w-4" />} {t('Withdraw')}
+            </Button>
+            <p className="text-xs text-muted-foreground">{t('Paid on')} {payday}{data.held ? ` · ${data.held.message}` : ''}</p>
+          </div>
+        ) : (
+          <p className="flex gap-3 rounded-xl bg-muted p-3 text-muted-foreground">
+            <CalendarClock className="h-5 w-5 shrink-0 text-primary" /> {formatPrice(short)} {t('more and you can withdraw. Withdrawals are paid on the 15th.')}
+          </p>
+        )}
 
         {/* Where the money goes. */}
         {editing || !data.momo ? (

@@ -2538,10 +2538,10 @@ describe('Learning ads', () => {
   });
 });
 
-// The Saligue balance (server/wallet.mjs): earnings are kept in the account in dollars and, like YouTube, paid on
-// payday to everyone who is due — nobody asks, nobody approves.
+// The Saligue balance (server/wallet.mjs): earnings are kept in the account in dollars. People withdraw the amount
+// they want, any time from $50; every withdrawal is paid on payday (the 15th) — nobody approves.
 describe('the Saligue balance', () => {
-  test('on payday everyone at $50 or more is paid in full; the rest carries over or is held', async () => {
+  test('a chosen amount is asked for, set aside, and paid on payday without approval', async () => {
     const { DatabaseSync } = await import('node:sqlite');
     const sql = (statement, ...args) => {
       const db = new DatabaseSync(join(data, 'saligue.db'));
@@ -2551,45 +2551,57 @@ describe('the Saligue balance', () => {
     const fan = await register('Payday Fan');
     const tip = (to, share) => sql("insert into tips (id, from_user, to_user, amount, share, status, reference, created_at, paid_at) values (?, ?, ?, ?, ?, 'paid', 'T', ?, ?)",
       `tip-${Math.random()}`, fan.id, to, share, share, new Date().toISOString(), new Date().toISOString());
-    const [paidOne, failedOne, noNumber, small] = await Promise.all(['Payday Paid', 'Payday Failed', 'Payday No Number', 'Payday Small'].map((n) => register(n)));
-    tip(paidOne.id, 63); tip(failedOne.id, 80); tip(noNumber.id, 55); tip(small.id, 30);
-    for (const p of [paidOne, failedOne, small]) {
-      assert.equal((await call('/me/wallet/momo', { method: 'PUT', token: p.token, body: { momoNumber: '0788000111', momoName: 'Payday Person' } })).status, 200);
-    }
-    const before = (await call('/me/wallet', { token: paidOne.token })).json;
-    assert.equal(before.balance, 63);
-    assert.equal(before.minimum, 50);
-    assert.match(before.nextPayday, /^\d{4}-\d{2}-\d{2}$/);
-    assert.equal(before.held, null, 'nothing stops it');
-    assert.equal((await call('/me/wallet', { token: noNumber.token })).json.held.code, 'no_momo', 'told before payday');
-    assert.equal((await call('/me/wallet/withdraw', { token: paidOne.token, body: {} })).status, 404, 'nothing to ask for');
+    const [earner, other, quiet] = await Promise.all(['Payday Earner', 'Payday Other', 'Payday Quiet'].map((n) => register(n)));
+    tip(earner.id, 120); tip(other.id, 70); tip(quiet.id, 90);
+
+    const wallet = (await call('/me/wallet', { token: earner.token })).json;
+    assert.equal(wallet.balance, 120);
+    assert.equal(wallet.minimum, 50);
+    assert.equal(wallet.canWithdraw, true);
+    assert.match(wallet.nextPayday, /-15$/, 'payday is the 15th');
+
+    const ask = (who, body) => call('/me/wallet/withdraw', { token: who.token, body });
+    const momo = { momoNumber: '0788000111', momoName: 'Payday Person' };
+    assert.equal((await ask(earner, { amount: 40, ...momo })).json.error.code, 'minimum');
+    assert.equal((await ask(earner, { amount: 130, ...momo })).json.error.code, 'balance');
+    assert.equal((await ask(earner, { amount: 60 })).json.error.code, 'no_momo');
+    const asked = await ask(earner, { amount: 75, ...momo });
+    assert.equal(asked.status, 200, JSON.stringify(asked.json));
+    assert.equal(asked.json.balance, 45, 'the amount is set aside at once');
+    assert.equal(asked.json.open.scheduled, true);
+    assert.equal((await ask(earner, { amount: 50, ...momo })).json.error.code, 'open', 'one at a time');
+
+    // Cancelled before payday: the money comes back; asked again with another amount.
+    assert.equal((await call(`/me/wallet/withdraw/${asked.json.withdrawal.id}`, { method: 'DELETE', token: earner.token })).json.balance, 120);
+    const again = await ask(earner, { amount: 100 });
+    assert.equal(again.status, 200, 'the number is remembered');
+    assert.equal((await ask(other, { amount: 70, ...momo })).status, 200);
 
     const admin = await register('Payday Admin');
     sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
-    assert.equal((await call('/admin/wallet', { method: 'PUT', token: admin.token, body: { payday: Math.min(28, new Date().getUTCDate()) } })).status, 200);
-    assert.equal((await call('/admin/wallet/run', { method: 'POST', token: admin.token })).status, 200);
+    // Before payday there is nothing to send, only what is queued.
+    const before = (await call('/admin/withdrawals', { token: admin.token })).json;
+    assert.equal(before.waiting.filter((w) => [earner.id, other.id].includes(w.userId)).length, 0);
+    assert.ok(before.queued.n >= 2);
 
+    // Payday: every withdrawal asked for is paid, with no decision. Someone who asked nothing is paid nothing.
+    assert.equal((await call('/admin/wallet', { method: 'PUT', token: admin.token, body: { payday: Math.min(28, new Date().getUTCDate()) } })).status, 200);
+    await call('/admin/wallet/run', { method: 'POST', token: admin.token });
     const list = (await call('/admin/withdrawals', { token: admin.token })).json.waiting;
     const mine = (u) => list.find((w) => w.userId === u.id);
-    assert.equal(mine(paidOne)?.amount, 63, 'paid in full, without asking');
-    assert.equal(mine(failedOne)?.amount, 80);
-    assert.equal(mine(noNumber), undefined, 'held: no number');
-    assert.equal(mine(small), undefined, 'below $50: carried over');
-    assert.equal((await call('/me/wallet', { token: small.token })).json.balance, 30);
-    assert.equal((await call('/me/wallet', { token: paidOne.token })).json.balance, 0);
+    assert.equal(mine(earner)?.amount, 100);
+    assert.equal(mine(other)?.amount, 70);
+    assert.equal(mine(quiet), undefined, 'nothing asked, nothing paid');
+    assert.equal((await call(`/me/wallet/withdraw/${again.json.withdrawal.id}`, { method: 'DELETE', token: earner.token })).json.error.code, 'too_late');
 
-    // Recorded as sent, or as failed (the money comes back for the next payday). There is no "refuse".
-    assert.equal((await call(`/admin/withdrawals/${mine(paidOne).id}`, { token: admin.token, body: { decision: 'paid', reference: 'MP1' } })).status, 200);
-    assert.equal((await call(`/admin/withdrawals/${mine(failedOne).id}`, { token: admin.token, body: { decision: 'reject' } })).status, 400);
-    assert.equal((await call(`/admin/withdrawals/${mine(failedOne).id}`, { token: admin.token, body: { decision: 'failed', note: 'Wrong number' } })).status, 200);
-    assert.equal((await call('/me/wallet', { token: failedOne.token })).json.balance, 80, 'back for the next payday');
-    assert.equal((await call('/me/wallet', { token: paidOne.token })).json.withdrawals[0].status, 'paid');
-
-    // Once a month: running again pays nobody twice.
-    await call('/admin/wallet/run', { method: 'POST', token: admin.token });
-    assert.equal((await call('/admin/withdrawals', { token: admin.token })).json.waiting.filter((w) => [paidOne.id, failedOne.id].includes(w.userId)).length, 0);
+    // Recorded as sent, or as failed (the money comes back). There is no approve or refuse.
+    assert.equal((await call(`/admin/withdrawals/${mine(earner).id}`, { token: admin.token, body: { decision: 'paid', reference: 'MP1' } })).status, 200);
+    assert.equal((await call(`/admin/withdrawals/${mine(other).id}`, { token: admin.token, body: { decision: 'failed', note: 'Wrong number' } })).status, 200);
+    assert.equal((await call('/me/wallet', { token: earner.token })).json.balance, 20);
+    assert.equal((await call('/me/wallet', { token: earner.token })).json.withdrawals[0].status, 'paid');
+    assert.equal((await call('/me/wallet', { token: other.token })).json.balance, 70, 'a failed payment comes back');
     // Money still in the balance blocks deleting the account.
-    assert.equal((await call('/auth/me/delete', { token: noNumber.token, body: { confirm: 'DELETE' } })).json.error.code, 'balance');
+    assert.equal((await call('/auth/me/delete', { token: quiet.token, body: { confirm: 'DELETE' } })).json.error.code, 'balance');
     sql("delete from app_config where key in ('payouts', 'wallet', 'wallet_last_run')");
   });
 });

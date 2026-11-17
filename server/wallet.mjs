@@ -1,15 +1,14 @@
-// The Saligue balance: what a person has earned, kept in their account in dollars and paid out the way YouTube pays
-// its creators — on a set day, to everyone who is due, with nobody asking and nobody approving:
+// The Saligue balance: what a person has earned, kept in their account in dollars.
 //   - earnings become final and enter the balance (each exactly once, by its unique `ref`):
 //       tip:<id> a paid tip · share:<id> a delivered, paid Share & earn sale · payout:<id> a closed month
 //       (a monetized creator's share, or a teacher's part of Learning ads; months close on the 1st);
-//   - on payday (the 21st unless an admin changes it) every account whose balance has reached the minimum ($50) is
-//     paid all of it to the Mobile Money number on its account (runPayday). Below the minimum, it carries over;
-//   - a payment is held, never lost, while something is missing: no Mobile Money number, a suspended account, or a
-//     payout rule (compliance.mjs: payouts open, identity checked, monthly limit). It goes out on the next payday;
-//   - with automatic sending on, the money goes out through the payment partner by itself; otherwise the list waits
-//     for whoever sends Mobile Money, who only records what was sent. A payment that fails (wrong number) comes back
-//     to the balance and is tried again next payday.
+//   - the person asks to withdraw whenever they like, choosing the amount: at least the minimum ($50), at most their
+//     balance. The amount is set aside at once (withdraw:<id>) and can be cancelled until payday;
+//   - payday is the 15th of each month (Admin → Money → Payday can move it). Every withdrawal asked before it is paid
+//     that day — nobody approves anything (runPayday). One that a payout rule stops (compliance.mjs: payouts open,
+//     identity, monthly limit) or whose account is suspended waits for the next payday instead;
+//   - with automatic sending on, the money goes out through the payment partner by itself; otherwise whoever sends
+//     Mobile Money only records what was sent. A payment that fails (wrong number) comes back to the balance.
 import { randomUUID } from 'node:crypto';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { earnedRewards } from './shares.mjs';
@@ -51,7 +50,7 @@ export function walletRules() {
   const saved = parse(db.prepare("select value from app_config where key = 'wallet'").get()?.value) ?? {};
   return {
     minimum: Number(saved.minimum ?? 50),
-    payday: Math.min(28, Math.max(1, Math.floor(Number(saved.payday ?? 21)))),
+    payday: Math.min(28, Math.max(1, Math.floor(Number(saved.payday ?? 15)))),
     // Money goes out through the payment partner by itself (payments.mjs → sendMobileMoney) when switched on.
     autoSend: saved.autoSend === true,
     currency: 'USD',
@@ -108,7 +107,7 @@ export function syncWallets() {
 export const balanceOf = (userId) => r2(db.prepare('select coalesce(sum(amount), 0) as n from wallet_entries where user_id = ?').get(userId).n);
 
 const KIND = { tip: 'Tip', share: 'Share & earn', creator: 'Monetization', teacher: 'Learning ads', withdrawal: 'Payment', refund: 'Payment returned' };
-const withdrawalOut = (w) => ({ id: w.id, amount: w.amount, status: w.status, momoNumber: w.momo_number, momoName: w.momo_name, reference: w.reference, note: w.note, createdAt: w.created_at, decidedAt: w.decided_at });
+const withdrawalOut = (w) => ({ id: w.id, amount: w.amount, status: w.status, scheduled: w.status === 'requested' && !w.run, momoNumber: w.momo_number, momoName: w.momo_name, reference: w.reference, note: w.note, createdAt: w.created_at, decidedAt: w.decided_at });
 
 /** A person's balance, its lines and their withdrawals. */
 export function walletOf(userId) {
@@ -121,6 +120,7 @@ export function walletOf(userId) {
   return {
     balance, minimum, currency, earned,
     nextPayday: nextPayday(),
+    canWithdraw: balance >= minimum && !open,
     open,
     entries: db.prepare('select amount, kind, note, created_at from wallet_entries where user_id = ? order by created_at desc limit 100').all(userId)
       .map((e) => ({ amount: e.amount, kind: e.kind, label: KIND[e.kind] ?? e.kind, note: e.note, at: e.created_at })),
@@ -128,59 +128,83 @@ export function walletOf(userId) {
   };
 }
 
-/**
- * Why this account would not be paid on payday, or null. `refused` is compliance.mjs's payoutRefused; `momoOf` finds
- * the Mobile Money number on the account.
- */
-export function heldBecause(userId, amount, { refused, momoOf }) {
+/** Why a withdrawal of this account would wait past payday, or null. `refused` is compliance.mjs's payoutRefused. */
+export function heldBecause(userId, amount, refused) {
   const u = db.prepare('select suspended from users where id = ?').get(userId);
   if (!u) return { code: 'gone', message: 'This account no longer exists.' };
-  if (u.suspended) return { code: 'suspended', message: 'Payments are held while the account is suspended.' };
-  if (!momoOf(userId)) return { code: 'no_momo', message: 'Add your Mobile Money number to be paid.' };
+  if (u.suspended) return { code: 'suspended', message: 'Payments wait while the account is suspended.' };
   const why = refused(userId, amount);
   return why ? { code: why.code, message: why.message.replace(/ Nothing was paid\.?/, '') } : null;
 }
 
+const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
+
 /**
- * Payday: once a month, on or after the payday, every balance that reached the minimum is paid in full. Returns
- * { ran, paid: [...], held: [...] }. Safe to call every hour; it runs once per month.
+ * Asks to withdraw `amount` (dollars) to a Mobile Money number, paid on the next payday. The amount leaves the
+ * balance at once, so it cannot be spent twice. Throws an Error carrying { status, code }.
  */
-export function runPayday({ refused, momoOf, today = new Date() }) {
-  const { payday, minimum } = walletRules();
+export function requestWithdrawal(userId, amount, momo) {
+  syncWallets();
+  const balance = balanceOf(userId);
+  const { minimum } = walletRules();
+  const want = r2(Number(amount));
+  if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(userId)) throw refuse(400, 'open', 'You already asked for a withdrawal. It is paid on payday; cancel it first to change the amount.');
+  if (!(want >= minimum)) throw refuse(400, 'minimum', `The minimum withdrawal is $${minimum.toFixed(2)}.`);
+  if (want > balance + 0.001) throw refuse(400, 'balance', `Your balance is $${balance.toFixed(2)}.`);
+  if (!momo?.number || String(momo.number).replace(/\D/g, '').length < 9 || !momo.name) throw refuse(400, 'no_momo', 'Add the Mobile Money number and the name on it.');
+  const id = randomUUID();
+  transaction(() => {
+    db.prepare('insert into withdrawals (id, user_id, amount, momo_number, momo_name, created_at) values (?, ?, ?, ?, ?, ?)').run(id, userId, want, String(momo.number).slice(0, 30), String(momo.name).slice(0, 80), now());
+    credit(userId, -want, 'withdrawal', `withdraw:${id}`, `To ${momo.number}`);
+  });
+  return withdrawalOut(db.prepare('select * from withdrawals where id = ?').get(id));
+}
+
+/** Cancels a withdrawal that payday has not taken yet: the amount comes back to the balance. */
+export function cancelWithdrawal(userId, id) {
+  const w = db.prepare("select * from withdrawals where id = ? and user_id = ? and status = 'requested' and run is null").get(id, userId);
+  if (!w) throw refuse(400, 'too_late', 'This withdrawal is already being paid.');
+  transaction(() => {
+    db.prepare("update withdrawals set status = 'rejected', note = 'Cancelled by you', decided_at = ?, decided_by = ? where id = ?").run(now(), userId, id);
+    credit(userId, w.amount, 'refund', `withdraw-back:${w.id}`, 'Withdrawal cancelled');
+  });
+}
+
+/**
+ * Payday: once a month, on or after the payday, every withdrawal asked for before it is paid — nobody approves.
+ * Returns { ran, paid, held }. Safe to call every hour; it runs once per month.
+ */
+export function runPayday({ refused, today = new Date() }) {
+  const { payday } = walletRules();
   const run = month(today);
   if (today.getUTCDate() < payday || lastRun() === run) return { ran: false, paid: [], held: [] };
-  syncWallets();
   const paid = [], held = [];
-  const due = db.prepare('select user_id, sum(amount) as balance from wallet_entries group by user_id having sum(amount) >= ?').all(minimum - 0.001);
   transaction(() => {
-    for (const { user_id: userId, balance: raw } of due) {
-      const amount = r2(raw);
-      if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(userId)) continue;
-      const why = heldBecause(userId, amount, { refused, momoOf });
+    for (const w of db.prepare("select * from withdrawals where status = 'requested' and run is null order by created_at").all()) {
+      const why = heldBecause(w.user_id, w.amount, refused);
       if (why) {
-        held.push({ userId, amount, ...why });
+        held.push({ id: w.id, userId: w.user_id, amount: w.amount, ...why });
         continue;
       }
-      const momo = momoOf(userId);
-      const id = randomUUID();
-      db.prepare('insert into withdrawals (id, user_id, amount, momo_number, momo_name, run, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, userId, amount, String(momo.number).slice(0, 30), String(momo.name).slice(0, 80), run, now());
-      credit(userId, -amount, 'withdrawal', `withdraw:${id}`, `Payday ${run}, to ${momo.number}`);
-      paid.push({ id, userId, amount, momoNumber: momo.number });
+      db.prepare('update withdrawals set run = ? where id = ?').run(run, w.id);
+      paid.push({ id: w.id, userId: w.user_id, amount: w.amount, momoNumber: w.momo_number });
     }
     db.prepare("insert into app_config (key, value) values ('wallet_last_run', ?) on conflict(key) do update set value = excluded.value").run(run);
   });
   return { ran: true, paid, held };
 }
 
-/** Payments of this payday not sent automatically yet. */
-export const waitingToSend = () => db.prepare("select * from withdrawals where status = 'requested' and transfer_id is null order by created_at").all();
+/** This payday's payments not handed to the partner yet. */
+export const waitingToSend = () => db.prepare("select * from withdrawals where status = 'requested' and run is not null and transfer_id is null order by created_at").all();
 /** Payments handed to the partner, waiting for its answer. */
 export const beingSent = () => db.prepare("select * from withdrawals where status = 'requested' and transfer_id is not null").all();
 export const markSending = (id, transferId) => db.prepare('update withdrawals set transfer_id = ? where id = ?').run(String(transferId), id);
+/** Withdrawals asked for and waiting for the next payday. */
+export const queuedForPayday = () => db.prepare("select count(*) as n, coalesce(sum(amount), 0) as amount from withdrawals where status = 'requested' and run is null").get();
 
 /** Withdrawals waiting to be sent, oldest first (Admin → Money). */
 export const withdrawalsWaiting = () =>
-  db.prepare("select w.*, u.display_name, u.email from withdrawals w join users u on u.id = w.user_id where w.status = 'requested' order by w.created_at").all()
+  db.prepare("select w.*, u.display_name, u.email from withdrawals w join users u on u.id = w.user_id where w.status = 'requested' and w.run is not null order by w.created_at").all()
     .map((w) => ({ ...withdrawalOut(w), userId: w.user_id, name: w.display_name || w.email, email: w.email }));
 
 /** The money arrived (`paid`, with its reference), or it could not be sent (`rejected`: it comes back to the balance). */

@@ -16,7 +16,7 @@ import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, recorderReady, recordingStatus, removeParticipant, startRecording, stopRecording } from './live.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
-import { balanceOf, beingSent, decideWithdrawal, heldBecause, markSending, nextPayday, runPayday, saveWalletRules, syncWallets, waitingToSend, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
+import { balanceOf, beingSent, cancelWithdrawal, decideWithdrawal, heldBecause, markSending, nextPayday, queuedForPayday, requestWithdrawal, runPayday, saveWalletRules, syncWallets, waitingToSend, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
 import { connectSignIns, recordSignIn, signInOverview, signInsOf } from './signins.mjs';
 import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
@@ -883,7 +883,7 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   syncWallets();
   if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(user.id)) fail(409, 'open_withdrawal', 'A payment is still being sent to you. Wait until it arrives, then delete your account.');
   const balance = balanceOf(user.id);
-  if (balance >= walletRules().minimum) fail(409, 'balance', `You still have ${money(balance)} in your Saligue balance. It is paid to you on ${nextPayday()}; delete your account after that.`);
+  if (balance >= walletRules().minimum) fail(409, 'balance', `You still have ${money(balance)} in your Saligue balance. Withdraw it first (Wallet); it is paid on ${nextPayday()}.`);
   eraseAccount(user);
   return { ok: true };
 });
@@ -5752,8 +5752,8 @@ route('GET', '/api/teacher/earnings', ({ user }) => {
   return { share: adSettings().teacherShare, points: LESSON_POINTS, thisMonth: teacherEarnings(user.id, period()), lastMonth: teacherEarnings(user.id, period(-1)) };
 });
 
-// The Saligue balance (wallet.mjs): every earning in dollars, paid on payday to everyone who is due — like YouTube,
-// nobody asks and nobody approves.
+// The Saligue balance (wallet.mjs): every earning in dollars. The person asks to withdraw the amount they want, any
+// time; every withdrawal is paid on payday (the 15th) with nobody approving it.
 const momoOf = (userId) => db.prepare('select momo_number as number, momo_name as name from tip_accounts where user_id = ?').get(userId)
   ?? db.prepare('select momo_number as number, momo_name as name from creators where user_id = ?').get(userId) ?? null;
 route('GET', '/api/me/wallet', ({ user }) => {
@@ -5764,14 +5764,41 @@ route('GET', '/api/me/wallet', ({ user }) => {
   const { rate, currency } = paymentSettings();
   return {
     ...wallet,
-    // What would stop payment on the next payday, said now so it can be fixed in time.
-    held: wallet.balance >= wallet.minimum ? heldBecause(user.id, wallet.balance, { refused: payoutRefused, momoOf }) : null,
+    // What would make a withdrawal wait past the next payday, said now so it can be fixed in time.
+    held: heldBecause(user.id, wallet.open?.amount ?? wallet.minimum, payoutRefused),
     // Still on its way: this month's estimates, and Share & earn sales not delivered or checked yet.
     coming: { monetization: month, teaching, shares: sharesOf(user.id).pending },
     momo: momoOf(user.id),
     local: { currency, rate },
   };
 });
+// Asks to withdraw an amount (from the minimum up to the balance); paid on the next payday, without approval.
+route('POST', '/api/me/wallet/withdraw', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const momo = body.momoNumber ? { number: String(body.momoNumber).trim(), name: String(body.momoName ?? '').trim() } : momoOf(user.id);
+  let w;
+  try {
+    w = requestWithdrawal(user.id, body.amount, momo);
+  } catch (error) {
+    if (error.code) fail(error.status ?? 400, error.code, error.message);
+    throw error;
+  }
+  // The number used is remembered for next time.
+  db.prepare('insert into tip_accounts (user_id, momo_number, momo_name) values (?, ?, ?) on conflict(user_id) do update set momo_number = excluded.momo_number, momo_name = excluded.momo_name').run(user.id, w.momoNumber, w.momoName);
+  return { withdrawal: w, ...walletOf(user.id) };
+});
+// Changed one's mind before payday: the amount comes back to the balance.
+route('DELETE', '/api/me/wallet/withdraw/([\\w-]+)', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  try {
+    cancelWithdrawal(user.id, params[0]);
+  } catch (error) {
+    if (error.code) fail(error.status ?? 400, error.code, error.message);
+    throw error;
+  }
+  return walletOf(user.id);
+});
+
 // Where the money goes: the Mobile Money number on the account (also used for tips).
 route('PUT', '/api/me/wallet/momo', ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
@@ -5787,6 +5814,8 @@ route('GET', '/api/admin/withdrawals', ({ user }) => {
   const { rate, currency } = paymentSettings();
   return {
     rules: walletRules(), nextPayday: nextPayday(), transfersReady: transfersReady(), payout: payoutState(), local: { currency, rate },
+    // Asked for and waiting for the next payday (nothing to do with them before it).
+    queued: queuedForPayday(),
     waiting: withdrawalsWaiting().map((w) => ({ ...w, sending: !!db.prepare('select transfer_id from withdrawals where id = ?').get(w.id)?.transfer_id })),
   };
 });
@@ -5827,10 +5856,10 @@ async function payday() {
   if (paydayBusy) return;
   paydayBusy = true;
   try {
-    const { ran, paid, held } = runPayday({ refused: payoutRefused, momoOf });
+    const { ran, paid, held } = runPayday({ refused: payoutRefused });
     if (ran) {
       for (const p of paid) notify(p.userId, { type: 'sale', title: `Payday: ${money(p.amount)} is on its way`, body: `To your Mobile Money ${p.momoNumber}.`, link: '/wallet' });
-      for (const h of held) notify(h.userId, { type: 'sale', title: `Payday: ${money(h.amount)} is waiting for you`, body: `${h.message} It goes out on the next payday.`, link: '/wallet' });
+      for (const h of held) notify(h.userId, { type: 'sale', title: `Payday: your ${money(h.amount)} withdrawal waits`, body: `${h.message} It goes out on the next payday.`, link: '/wallet' });
       if (paid.length) {
         for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%money%')").all()) {
           notify(id, { type: 'sale', title: `Payday: ${paid.length} payment(s), ${money(paid.reduce((t, p) => t + p.amount, 0))}`, body: walletRules().autoSend ? 'Sent through the payment partner.' : 'Send them by Mobile Money and record each one (Admin → Money).', link: '/admin', email: true });
