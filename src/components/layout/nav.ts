@@ -1,9 +1,7 @@
-import { Compass, Flame, PlusSquare, Store, User, Wand2 } from 'lucide-react';
+import { Compass, Flame, PlusSquare, User, Wand2 } from 'lucide-react';
 
 // The app's main destinations. Each appears once: in the side menu on computers, the bottom bar on phones.
-// One account per person: the same menu for shopping and selling. Someone with a shop keeps Explore and the Fitting
-// Room (shop owners shop too); Sell becomes their Seller Center — the same name as the card on Me and the Center
-// itself, so one place never has two names.
+// One account per person: the same menu for shopping and selling.
 export const SHOPPER_NAV = [
   { href: '/', label: 'For You', icon: Flame },
   { href: '/search', label: 'Explore', icon: Compass },
@@ -12,7 +10,9 @@ export const SHOPPER_NAV = [
   { href: '/me', label: 'Me', icon: User },
 ] as const;
 
-export const SELLER_NAV = SHOPPER_NAV.map((d) => (d.href === '/sell' ? { href: '/dashboard', label: 'Seller Center', icon: Store } : d));
+// The same five for everyone: Me is the one door to the account and every Center in it (My Saligue, Seller Center,
+// Admin Center), so the menu never offers two doors to the same place. Sell is always "add an item".
+export const SELLER_NAV = SHOPPER_NAV;
 
 // Visitors who haven't logged in: browsing and trying on only. Selling, messages and the account come after logging in.
 export const GUEST_NAV = SHOPPER_NAV.filter((d) => d.href !== '/sell' && d.href !== '/me');
@@ -26,7 +26,8 @@ export const NAV = SHOPPER_NAV;
 export function isActive(href: string, pathname: string) {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (href === '/') return path === '/';
-  if (href === '/me') return ['/me', '/my-account', '/wishlist', '/cart', '/checkout', '/orders', '/notifications'].some((p) => path.endsWith(p) || path.includes(`${p}/`));
-  if (href === '/dashboard') return path.endsWith('/dashboard') || path.includes('/dashboard/') || path.endsWith('/sell') || path.endsWith('/edit-product');
+  // Me stays lit inside every Center it opens, so the menu always says where you are.
+  if (href === '/me') return ['/me', '/my-account', '/dashboard', '/admin', '/wishlist', '/orders', '/notifications'].some((p) => path.endsWith(p) || path.includes(`${p}/`));
+  if (href === '/sell') return path.endsWith('/sell') || path.endsWith('/edit-product');
   return path.endsWith(href) || path.includes(`${href}/`);
 }
