@@ -4361,7 +4361,7 @@ function tipPaid(tipId) {
   const tip = db.prepare('select * from tips where id = ?').get(tipId);
   if (!tip) return;
   const from = db.prepare('select display_name, email, is_guest from users where id = ?').get(tip.from_user);
-  notify(tip.to_user, { type: 'account', title: `${personNameOf(from)} sent you a tip of ${money(tip.amount)}`, body: tip.message || 'Thank you for teaching and sharing!', link: '/tips' });
+  notify(tip.to_user, { type: 'account', title: `${personNameOf(from)} sent you a tip of ${money(tip.amount)}`, body: tip.message || 'Thank you for teaching and sharing!', link: '/my-account/wallet' });
 }
 
 // ---------------------------------------------------------------------------
@@ -4549,7 +4549,7 @@ route('POST', '/api/admin/tips/payout/([\\w-]+)', ({ user, params }) => {
     db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, paid_at, created_at) values (?, ?, ?, ?, ?, 'paid', ?, ?)").run(id, params[0], `tips-${now()}`, amount, json({ tips: rows.length }), now(), now());
     for (const r of rows) db.prepare('update tips set payout_id = ? where id = ?').run(id, r.id);
   });
-  notify(params[0], { type: 'account', title: `Your tips were paid: ${money(amount)}`, body: 'Sent to your Mobile Money.', link: '/tips' });
+  notify(params[0], { type: 'account', title: `Your tips were paid: ${money(amount)}`, body: 'Sent to your Mobile Money.', link: '/my-account/wallet' });
   return { ok: true, amount };
 });
 
@@ -5845,8 +5845,8 @@ function finishPayment(id, decision, { reference = null, note = null, by }) {
   const w = decideWithdrawal(id, decision, { reference, note, by });
   if (!w) return;
   notify(w.userId, decision === 'paid'
-    ? { type: 'sale', title: `${money(w.amount)} paid to your Mobile Money`, body: `To ${w.momoNumber}${reference ? ` · reference ${reference}` : ''}.`, link: '/wallet' }
-    : { type: 'sale', title: 'Your payment could not be sent', body: `${note ?? 'Please check your Mobile Money number and name.'} ${money(w.amount)} is back in your balance and goes out on the next payday.`, link: '/wallet' });
+    ? { type: 'sale', title: `${money(w.amount)} paid to your Mobile Money`, body: `To ${w.momoNumber}${reference ? ` · reference ${reference}` : ''}.`, link: '/my-account/wallet' }
+    : { type: 'sale', title: 'Your payment could not be sent', body: `${note ?? 'Please check your Mobile Money number and name.'} ${money(w.amount)} is back in your balance and goes out on the next payday.`, link: '/my-account/wallet' });
 }
 
 // Payday, checked every hour: once a month, everyone due is paid; then, with automatic sending on, each payment goes
@@ -5858,8 +5858,8 @@ async function payday() {
   try {
     const { ran, paid, held } = runPayday({ refused: payoutRefused });
     if (ran) {
-      for (const p of paid) notify(p.userId, { type: 'sale', title: `Payday: ${money(p.amount)} is on its way`, body: `To your Mobile Money ${p.momoNumber}.`, link: '/wallet' });
-      for (const h of held) notify(h.userId, { type: 'sale', title: `Payday: your ${money(h.amount)} withdrawal waits`, body: `${h.message} It goes out on the next payday.`, link: '/wallet' });
+      for (const p of paid) notify(p.userId, { type: 'sale', title: `Payday: ${money(p.amount)} is on its way`, body: `To your Mobile Money ${p.momoNumber}.`, link: '/my-account/wallet' });
+      for (const h of held) notify(h.userId, { type: 'sale', title: `Payday: your ${money(h.amount)} withdrawal waits`, body: `${h.message} It goes out on the next payday.`, link: '/my-account/wallet' });
       if (paid.length) {
         for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%money%')").all()) {
           notify(id, { type: 'sale', title: `Payday: ${paid.length} payment(s), ${money(paid.reduce((t, p) => t + p.amount, 0))}`, body: walletRules().autoSend ? 'Sent through the payment partner.' : 'Send them by Mobile Money and record each one (Admin → Money).', link: '/admin', email: true });

@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Bookmark, Coins, Gift, History, Home, LifeBuoy, MessageCircle, Settings, ShoppingBag } from 'lucide-react';
+import { Bell, Bookmark, Coins, History, Home, LifeBuoy, MessageCircle, Settings, ShoppingBag, Wallet } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Hub } from '@/components/layout/hub';
@@ -50,8 +50,9 @@ export default function MySaligueLayout({ children }: { children: React.ReactNod
     { key: '/my-account/messages', icon: MessageCircle, label: 'Messages', count: unreadMessages },
     { key: '/my-account/saved', icon: Bookmark, label: 'Saved' },
     { key: '/my-account/history', icon: History, label: 'History' },
+    // All money in one place: the balance, withdrawals and tips received.
+    { key: '/my-account/wallet', icon: Wallet, label: 'Wallet' },
     { key: '/my-account/coins', icon: Coins, label: 'Coins' },
-    { key: '/my-account/tips', icon: Gift, label: 'Tips received' },
     { key: '/my-account/notifications', icon: Bell, label: 'Notifications', count: unreadNotifications },
     { key: '/my-account/settings', icon: Settings, label: 'Settings' },
     { key: '/my-account/support', icon: LifeBuoy, label: 'Help' },

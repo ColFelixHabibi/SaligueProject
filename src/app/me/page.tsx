@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, Coins, FileText, HandCoins, Layers, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Settings, ShieldCheck, Store, TrendingUp, UserPlus } from 'lucide-react';
+import { Bookmark, ChevronRight, FileText, HandCoins, Layers, LogOut, Package, PlusSquare, Radio, Settings, ShieldCheck, ShoppingBag, Store, UserPlus } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { BadgeCheck, Eye, GraduationCap, Share2, Smartphone, Wallet } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -43,6 +43,38 @@ function Tile({ href, icon: Icon, label, onClick, tone }: { href?: string; icon:
     </>
   );
   return href ? <Link href={href} className={className}>{body}</Link> : <button type="button" onClick={onClick} className={className}>{body}</button>;
+}
+
+const CENTER_TONE = {
+  shop: 'bg-gradient-to-r from-primary to-secondary text-primary-foreground',
+  plain: 'border bg-card',
+  admin: 'bg-neutral-950 text-white',
+  subadmin: 'bg-sky-600 text-white',
+} as const;
+
+/** One Center (a place with its own menu): a big row that opens it. */
+function CenterCard({ href, icon: Icon, title, text, tone }: { href: string; icon: typeof Package; title: string; text: string; tone: keyof typeof CENTER_TONE }) {
+  const plain = tone === 'plain';
+  return (
+    <Link href={href} className={cn('flex items-center gap-4 rounded-2xl p-4 text-left shadow-sm transition hover:shadow-md', CENTER_TONE[tone])}>
+      <span className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', plain ? 'bg-primary/10 text-primary' : 'bg-white/20')}><Icon className="h-6 w-6" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-lg font-extrabold">{title}</span>
+        <span className={cn('block truncate text-sm', plain ? 'text-muted-foreground' : 'opacity-85')}>{text}</span>
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 opacity-70" />
+    </Link>
+  );
+}
+
+/** A small titled group of tiles. */
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">{title}</h2>
+      <div className="grid grid-cols-4 gap-2">{children}</div>
+    </section>
+  );
 }
 
 /** "Me": one place for saved items, cart, orders, shop and account. */
@@ -98,65 +130,55 @@ export default function MePage() {
         </Card>
       )}
 
-      {/* Each kind of account has its own dashboard (like Instagram's Professional dashboard). */}
+      {/* The Centers this account has, each once and by one name — the same name as in the side menu and on the
+          Center itself: My Saligue (buying), Seller Center (selling) or Start selling, and Admin Center. */}
       {user && (
-        <Link href={role === 'seller' ? '/dashboard' : '/my-account'} className={cn('flex items-center gap-4 rounded-2xl p-4 text-left shadow-sm transition hover:shadow-md', role === 'seller' ? 'bg-gradient-to-r from-primary to-secondary text-primary-foreground' : 'border bg-card')}>
-          <span className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', role === 'seller' ? 'bg-white/20' : 'bg-primary/10 text-primary')}>{role === 'seller' ? <Store className="h-6 w-6" /> : <LayoutDashboard className="h-6 w-6" />}</span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-lg font-extrabold">{role === 'seller' ? 'Seller Center' : 'My Saligue'}</span>
-            <span className={cn('block truncate text-sm', role === 'seller' ? 'text-white/85' : 'text-muted-foreground')}>{role === 'seller' ? 'Orders, products, messages, ads, earnings' : 'Orders, messages, saved, coins, tips'}</span>
-          </span>
-          <ChevronRight className="h-5 w-5 shrink-0 opacity-70" />
-        </Link>
-      )}
-      {user && admin && (
-        <Link href="/admin" className={cn('flex items-center gap-4 rounded-2xl p-4 text-left shadow-sm transition hover:shadow-md', adminLevel === 1 ? 'bg-neutral-950 text-white' : 'bg-sky-600 text-white')}>
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15"><ShieldCheck className="h-6 w-6" /></span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-lg font-extrabold">Admin dashboard</span>
-            <span className="block truncate text-sm text-white/80">{adminLevel === 1 ? 'Main admin · everything' : adminLevel === 2 ? 'Sub-admin · your rights' : 'Moderation, money, settings'}</span>
-          </span>
-          <ChevronRight className="h-5 w-5 shrink-0 opacity-70" />
-        </Link>
+        <div className="space-y-2">
+          {role === 'seller' ? (
+            <CenterCard href="/dashboard" icon={Store} title={t('Seller Center')} text={t('Items, orders, sales, ads, earnings')} tone="shop" />
+          ) : (
+            <CenterCard href="/sell" icon={Store} title={t('Start selling')} text={t('Open your shop and list your first item')} tone="plain" />
+          )}
+          <CenterCard href="/my-account" icon={ShoppingBag} title={t('My Saligue')} text={t('Orders, saved, wallet, coins, history')} tone="plain" />
+          {admin && (
+            <CenterCard href="/admin" icon={ShieldCheck} title={t('Admin Center')} text={adminLevel === 1 ? t('Main admin · everything') : adminLevel === 2 ? t('Sub-admin · your rights') : t('Moderation, money, settings')} tone={adminLevel === 1 ? 'admin' : 'subadmin'} />
+          )}
+        </div>
       )}
 
       {user && <PushCard />}
       {user && on('weekly') && <WeekCard />}
 
-      <div className="grid grid-cols-4 gap-2">
-        {/* One account: the shopping side for everyone, the shop's tools added when there is a shop. */}
-        {user && (
-          <>
-            <Tile href="/my-account/orders" icon={Package} label="Orders" />
-            <Tile href="/my-account/saved" icon={Bookmark} label="Saved" />
-            <Tile href="/messages" icon={MessageCircle} label="Messages" />
-            <Tile href="/my-account/coins" icon={Coins} label="Coins" />
-          </>
-        )}
-        {user && role === 'seller' && (
-          <>
-            <Tile href="/sell" icon={PlusSquare} label="Add item" />
-            <Tile href="/live/studio" icon={Radio} label="Go live" />
-            <Tile href="/dashboard/analytics" icon={TrendingUp} label="Stats" />
-          </>
-        )}
-        {!user && (
-          <>
-            <Tile href="/orders" icon={Package} label="My orders" />
-            <Tile href="/wishlist" icon={Bookmark} label="Saved" />
-          </>
-        )}
-        {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
-        {user && <Tile href="/wallet" icon={Wallet} label="Wallet" />}
-        {user && on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
-        {user && <Tile href="/invite" icon={UserPlus} label="Bring a shop" />}
-        {user && on('lessons') && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
-        {user && <Tile href="/verify" icon={BadgeCheck} label="Get verified" />}
-        {user && role !== 'seller' && <Tile href="/sell" icon={Store} label="Start selling" />}
-        <Tile href="/download" icon={Smartphone} label="Android app" />
-        <Tile href="/policies" icon={FileText} label="Policies" />
-        {user && <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />}
-      </div>
+      {/* Only what lives nowhere else: orders, saved, coins and history are in My Saligue; stats are in Seller Center;
+          messages are in the top bar and the side menu. */}
+      {user ? (
+        <>
+          <Group title={t('Create')}>
+            {role === 'seller' && <Tile href="/sell" icon={PlusSquare} label="Add item" />}
+            {role === 'seller' && on('live') && <Tile href="/live/studio" icon={Radio} label="Go live" />}
+            {on('lessons') && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
+            {on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
+          </Group>
+          <Group title={t('Earn')}>
+            <Tile href="/my-account/wallet" icon={Wallet} label="Wallet" />
+            {on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
+            <Tile href="/invite" icon={UserPlus} label="Bring a shop" />
+            <Tile href="/verify" icon={BadgeCheck} label="Get verified" />
+          </Group>
+          <Group title={t('More')}>
+            <Tile href="/download" icon={Smartphone} label="Android app" />
+            <Tile href="/policies" icon={FileText} label="Policies" />
+            <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />
+          </Group>
+        </>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          <Tile href="/orders" icon={Package} label="My orders" />
+          <Tile href="/wishlist" icon={Bookmark} label="Saved" />
+          <Tile href="/download" icon={Smartphone} label="Android app" />
+          <Tile href="/policies" icon={FileText} label="Policies" />
+        </div>
+      )}
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />
       <RegisterDialog open={registerOpen} onOpenChange={setRegisterOpen} onSwitchToLogin={() => { setRegisterOpen(false); setTimeout(() => setLoginOpen(true), 150); }} />

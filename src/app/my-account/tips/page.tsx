@@ -1,7 +1,8 @@
 'use client';
 
-import { TipsView } from '@/components/tips-view';
+import { GoTo } from '@/components/go-to';
 
-export default function MyTips() {
-  return <TipsView embedded />;
+/** Moved: tips and the balance are one page now, My Saligue → Wallet. */
+export default function Moved() {
+  return <GoTo to="/my-account/wallet" />;
 }

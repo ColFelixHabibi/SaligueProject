@@ -1,8 +1,9 @@
-import { Compass, Flame, LayoutDashboard, PlusSquare, User, Wand2 } from 'lucide-react';
+import { Compass, Flame, PlusSquare, Store, User, Wand2 } from 'lucide-react';
 
 // The app's main destinations. Each appears once: in the side menu on computers, the bottom bar on phones.
 // One account per person: the same menu for shopping and selling. Someone with a shop keeps Explore and the Fitting
-// Room (shop owners shop too); Sell becomes their Dashboard, where items, orders and earnings are.
+// Room (shop owners shop too); Sell becomes their Seller Center — the same name as the card on Me and the Center
+// itself, so one place never has two names.
 export const SHOPPER_NAV = [
   { href: '/', label: 'For You', icon: Flame },
   { href: '/search', label: 'Explore', icon: Compass },
@@ -11,7 +12,7 @@ export const SHOPPER_NAV = [
   { href: '/me', label: 'Me', icon: User },
 ] as const;
 
-export const SELLER_NAV = SHOPPER_NAV.map((d) => (d.href === '/sell' ? { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard } : d));
+export const SELLER_NAV = SHOPPER_NAV.map((d) => (d.href === '/sell' ? { href: '/dashboard', label: 'Seller Center', icon: Store } : d));
 
 // Visitors who haven't logged in: browsing and trying on only. Selling, messages and the account come after logging in.
 export const GUEST_NAV = SHOPPER_NAV.filter((d) => d.href !== '/sell' && d.href !== '/me');

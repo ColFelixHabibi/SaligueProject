@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { ArrowDownToLine, CalendarClock, Clock, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -88,7 +89,10 @@ export function WalletCard({ full }: { full?: boolean }) {
   return (
     <Card className="rounded-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-5 w-5 text-primary" /> {t('My balance')}</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-5 w-5 text-primary" /> {t('My balance')}
+          {/* Shown in Seller Center → Earnings too: it is the same Wallet, which opens from here. */}
+          {!full && <Link href="/my-account/wallet" className="ml-auto text-xs font-semibold text-primary hover:underline">{t('Open Wallet')}</Link>}
+        </CardTitle>
         <CardDescription>{t('Everything you earn on Saligue, in dollars. Withdraw from')} {formatPrice(data.minimum)}; {t('withdrawals are paid on the 15th of each month.')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">

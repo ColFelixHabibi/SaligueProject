@@ -1,14 +1,8 @@
 'use client';
 
-import { TipsView } from '@/components/tips-view';
-import { ToMySaligue } from '@/components/to-my-saligue';
+import { GoTo } from '@/components/go-to';
 
-/** Tips I received from supporters, and the Mobile Money number they're paid to. */
-export default function TipsPage() {
-  return (
-    <>
-      <ToMySaligue to="/my-account/tips" />
-      <TipsView />
-    </>
-  );
+/** Moved: tips and the balance are one page now, My Saligue → Wallet. */
+export default function Moved() {
+  return <GoTo to="/my-account/wallet" />;
 }
