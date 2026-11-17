@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { BarChart3, Eye, Loader2, Megaphone, MousePointerClick, Pause, Play, Plus, ShieldCheck, ShoppingBag, Trash2, Wallet } from 'lucide-react';
+import { BarChart3, Eye, GraduationCap, Loader2, Megaphone, MousePointerClick, Pause, Play, Plus, ShieldCheck, ShoppingBag, Trash2, Wallet } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,7 +45,7 @@ type Campaign = {
 };
 type Balance = { balance: number; history: { amount: number; reason: string; campaignId: string | null; createdAt: string }[] };
 type DayRow = { day: string; impressions: number; clicks: number; spent: number; orders: number; sales: number };
-type Settings = { cpm: number; minBudget: number; maxDays: number; onlinePayment: boolean; currency: string; rate: number; momoNumber: string | null; momoName: string };
+type Settings = { cpm: number; learnCpm: number; learnMultiplier: number; teacherShare: number; minBudget: number; maxDays: number; onlinePayment: boolean; currency: string; rate: number; momoNumber: string | null; momoName: string };
 
 const STATUS: Record<Campaign['status'], { label: string; tone: string }> = {
   pending_payment: { label: 'Waiting for payment', tone: 'border-amber-500 text-amber-600' },
@@ -66,7 +66,8 @@ export default function AdsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ productId: '', budget: 10, days: 7, headline: '', feed: true, explore: true });
+  // Learning is an ad of its own (its own price, and the teachers are paid), so it is chosen instead of the other two.
+  const [form, setForm] = useState({ productId: '', budget: 10, days: 7, headline: '', feed: true, explore: true, learn: false });
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState<{ reference: string; amount: number; creditUsed?: number; momoNumber: string | null; momoName: string } | null>(null);
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -115,7 +116,7 @@ export default function AdsPage() {
     e.preventDefault();
     setBusy('create');
     try {
-      const placements = [form.feed && 'feed', form.explore && 'explore'].filter(Boolean);
+      const placements = form.learn ? ['learn'] : [form.feed && 'feed', form.explore && 'explore'].filter(Boolean);
       const campaign = await api<Campaign>('/ads/campaigns', { body: { productId: form.productId, budget: form.budget, days: form.days, headline: form.headline, placements } });
       setCreating(false);
       await load();
@@ -137,7 +138,7 @@ export default function AdsPage() {
   };
 
   const local = (usd: number) => (settings && settings.currency !== 'USD' && settings.rate > 0 ? ` (≈ ${Math.ceil(usd * settings.rate).toLocaleString()} ${settings.currency})` : '');
-  const estimate = settings ? Math.floor((form.budget / settings.cpm) * 1000) : 0;
+  const estimate = settings ? Math.floor((form.budget / (form.learn ? settings.learnCpm : settings.cpm)) * 1000) : 0;
   const totals = (campaigns ?? []).reduce((t, c) => ({ views: t.views + c.impressions, clicks: t.clicks + c.clicks, spent: t.spent + c.spent, orders: t.orders + c.orders, sales: t.sales + c.sales }), { views: 0, clicks: 0, spent: 0, orders: 0, sales: 0 });
 
   return (
@@ -197,6 +198,7 @@ export default function AdsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate font-semibold">{c.product?.name ?? 'Item removed'}</p>
                     <Badge variant="outline" className={STATUS[c.status].tone}>{STATUS[c.status].label}</Badge>
+                    {c.placements.includes('learn') && <Badge variant="outline" className="border-amber-500 text-amber-600"><GraduationCap className="mr-1 h-3 w-3" /> Learning</Badge>}
                   </div>
                   <Progress value={(c.spent / c.budget) * 100} className="h-2" />
                   <p className="text-xs text-muted-foreground">
@@ -261,11 +263,19 @@ export default function AdsPage() {
             </div>
             <div className="space-y-2">
               <Label className="font-semibold">Where</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {([['feed', 'For You'], ['explore', 'Explore']] as const).map(([k, label]) => (
-                  <button key={k} type="button" onClick={() => setForm({ ...form, [k]: !form[k] })} className={cn('h-10 rounded-full border px-4 text-sm font-semibold', form[k] ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}>{form[k] ? '✓ ' : ''}{label}</button>
+                  <button key={k} type="button" onClick={() => setForm({ ...form, learn: false, [k]: form.learn ? true : !form[k] })} className={cn('h-10 rounded-full border px-4 text-sm font-semibold', form[k] && !form.learn ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}>{form[k] && !form.learn ? '✓ ' : ''}{label}</button>
                 ))}
+                <button type="button" onClick={() => setForm({ ...form, learn: !form.learn })} className={cn('flex h-10 items-center gap-1.5 rounded-full border px-4 text-sm font-semibold', form.learn ? 'border-amber-500 bg-amber-400/15 text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+                  <GraduationCap className="h-4 w-4" /> {form.learn ? '✓ ' : ''}Learning
+                </button>
               </div>
+              {form.learn && settings && (
+                <p className="rounded-xl bg-amber-400/10 p-3 text-xs text-muted-foreground">
+                  Shown full screen between lessons, to people learning about fashion. It costs {settings.learnMultiplier}× a usual ad ({formatPrice(settings.learnCpm)} per 1,000 views instead of {formatPrice(settings.cpm)}), and {Math.round(settings.teacherShare * 100)}% of each view goes to the teacher whose lesson it follows.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="ad-headline" className="font-semibold">Headline <span className="font-normal text-muted-foreground">(optional)</span></Label>
@@ -275,7 +285,7 @@ export default function AdsPage() {
               <p className="flex items-center gap-2 font-semibold"><Eye className="h-4 w-4 text-primary" /> About {estimate.toLocaleString()} views</p>
               <p className="mt-1 text-muted-foreground">You pay {formatPrice(form.budget)}{local(form.budget)} once{balance?.balance ? `, ${formatPrice(Math.min(balance.balance, form.budget))} of it from your ad balance` : ''}. It stops after {form.days} days or when the budget is used; what isn’t used comes back to your ad balance.</p>
             </div>
-            <Button type="submit" size="lg" className="h-12 w-full" disabled={busy === 'create' || !form.productId || (!form.feed && !form.explore)}>
+            <Button type="submit" size="lg" className="h-12 w-full" disabled={busy === 'create' || !form.productId || (!form.learn && !form.feed && !form.explore)}>
               {busy === 'create' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Continue to payment
             </Button>
           </form>

@@ -1,6 +1,7 @@
 
 'use client';
 
+import { MentionSuggestions } from '@/components/mention-suggestions';
 import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { VideoField, uploadItemVideo } from '@/components/video-field';
@@ -21,8 +22,8 @@ import type { ProductInput } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField } from '@/components/item-photo-field';
 import { WriteWithAi } from '@/components/write-with-ai';
-import { SoundField, type ChosenSound } from '@/components/sound-field';
-import { makeClip, saveProductSound } from '@/lib/audio';
+import { SoundField, isShared, type ChosenSound } from '@/components/sound-field';
+import { applySharedSound, makeClip, saveProductSound } from '@/lib/audio';
 import { formatPrice, salePrice } from '@/lib/orders';
 
 
@@ -142,10 +143,14 @@ export default function EditProductView({ id }: { id: string | null }) {
                 createdAt: product.createdAt || new Date().toISOString(),
             };
 
-            if (sound) {
+            if (isShared(sound)) {
+                // A sound already on Saligue, used as it is.
+                const used = await applySharedSound(product.id, sound.key);
+                updatedProduct.sound = { name: used.name, duration: used.duration, key: used.key };
+            } else if (sound) {
                 const clip = await makeClip(sound.buffer, sound.start);
-                updatedProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
-                await saveProductSound(product.id, sound.name, clip);
+                const saved = await saveProductSound(product.id, sound.name, clip);
+                updatedProduct.sound = { name: sound.name, duration: Math.round(clip.duration), key: saved.key };
             } else if (product.sound) {
                 updatedProduct.sound = product.sound;
             }
@@ -227,6 +232,7 @@ export default function EditProductView({ id }: { id: string | null }) {
                       />
                   </div>
                   <Textarea id="description" placeholder="Describe your item, its condition, material, etc." className="min-h-[120px] text-base" required value={formValues.description} onChange={handleInputChange} />
+                  <MentionSuggestions value={formValues.description} onChange={(description) => setFormValues((prev) => ({ ...prev, description }))} />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

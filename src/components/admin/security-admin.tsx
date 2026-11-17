@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { cn } from '@/lib/utils';
+import { SignInsAdmin } from '@/components/admin/sign-ins-admin';
 
 type Event = { id: number; kind: string; ip: string | null; country: string | null; user_id: string | null; detail: string; alerted: number; created_at: string };
 type Blocked = { ip: string; reason: string; until: string | null; by: string; created_at: string };
@@ -100,6 +101,8 @@ export function SecurityAdmin() {
         </div>
         <p className="text-xs text-muted-foreground">You get a push and an email for anything serious: an admin or server sign-in from a new place, admin changes, fake payments, attacks that got blocked. Every morning at 9:00 (Kigali) comes a summary.</p>
       </section>
+
+      <SignInsAdmin onBlock={block} />
 
       <Card>
         <CardHeader>

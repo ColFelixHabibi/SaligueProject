@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
 import { LESSON_TOPICS, createChallenge, timeLeft, topicOf, useChallenges } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
+import { ChallengeHow } from '@/components/community/challenge-parts';
 
 /** Fashion challenges: a theme and a deadline; anyone joins with a short lesson video. */
 export default function ChallengesPage() {
@@ -25,6 +26,7 @@ export default function ChallengesPage() {
         <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Trophy className="h-7 w-7 text-amber-500" /> Challenges</h1>
         {canCreate && <Button className="rounded-full" onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" /> New</Button>}
       </div>
+      <ChallengeHow />
       {list === null && <Skeleton className="h-40 rounded-2xl" />}
       {list?.length === 0 && <p className="py-10 text-center text-muted-foreground">No challenges right now. Come back soon!</p>}
       {/* Wider screens hold three per row, so the page does not sit in a third of the window. */}
@@ -46,6 +48,8 @@ export default function ChallengesPage() {
                   <span className="flex items-center gap-1"><Users className="h-4 w-4" /> {c.entries}</span>
                   <span className={cn('font-semibold', c.open ? 'text-primary' : '')}>{timeLeft(c.endsAt)}</span>
                 </p>
+                {!c.open && c.winners?.[0] && <p className="truncate text-sm font-semibold">🥇 {c.winners[0].name}</p>}
+                {c.open && <p className="text-sm font-semibold text-primary">Join with a short video →</p>}
               </div>
             </Link>
           );

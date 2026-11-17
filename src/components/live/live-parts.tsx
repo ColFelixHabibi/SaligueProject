@@ -258,7 +258,7 @@ export function useDoubleTapHeart(onHeart: () => void) {
   return { onPointerUp, layer };
 }
 
-/** The item the host is showing right now, with Buy and Try on (live shopping). */
+/** The item the host is showing right now, with Buy and Wear it (live shopping). */
 export function PinnedProduct({ product, onBuy, onTryOn, deal, compact }: { product: Product; onBuy?: () => void; onTryOn?: () => void; deal?: { price: number; was: number; until: string }; compact?: boolean }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-white/95 p-2 pr-3 text-foreground shadow-lg">
@@ -276,9 +276,9 @@ export function PinnedProduct({ product, onBuy, onTryOn, deal, compact }: { prod
             <ShoppingBag className="h-3.5 w-3.5" /> Buy
           </button>
           {onTryOn ? (
-            <button type="button" onClick={onTryOn} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Try on</button>
+            <button type="button" onClick={onTryOn} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Wear it</button>
           ) : (
-            <Link href={`/mirror?item=${product.id}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Try on</Link>
+            <Link href={`/mirror?item=${product.id}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary"><Wand2 className="h-3.5 w-3.5" /> Wear it</Link>
           )}
         </div>
       )}
@@ -380,7 +380,7 @@ export function PollBubble({ poll, myVote, onVote, onManage, lower }: { poll: Li
   );
 }
 
-/** Every item in the live as a strip that scrolls sideways, each with Buy and Try on (live shopping). */
+/** Every item in the live as a strip that scrolls sideways, each with Buy and Wear it (live shopping). */
 export function ProductStrip({ products, pinnedId, onBuy, onTryOn, deals }: { products: Product[]; pinnedId?: string | null; onBuy: (id: string) => void; onTryOn?: (p: Product) => void; deals?: Live['deals'] }) {
   return (
     <div className="-mx-3 flex snap-x snap-mandatory gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -396,8 +396,8 @@ export function ProductStrip({ products, pinnedId, onBuy, onTryOn, deals }: { pr
           <div className="mt-1.5 grid grid-cols-2 gap-1">
             <button type="button" onClick={() => onBuy(p.id)} disabled={p.stock === 0} aria-label={`Buy ${p.name}`} title={`Buy ${p.name}`} className="flex items-center justify-center rounded-full bg-primary py-1.5 text-primary-foreground disabled:opacity-50"><ShoppingBag className="h-4 w-4" /></button>
             {onTryOn
-              ? <button type="button" onClick={() => onTryOn(p)} aria-label={`Try on ${p.name}`} title={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></button>
-              : <Link href={`/mirror?item=${p.id}`} aria-label={`Try on ${p.name}`} title={`Try on ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>}
+              ? <button type="button" onClick={() => onTryOn(p)} aria-label={`Wear ${p.name}`} title={`Wear ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></button>
+              : <Link href={`/mirror?item=${p.id}`} aria-label={`Wear ${p.name}`} title={`Wear ${p.name}`} className="flex items-center justify-center rounded-full bg-primary/10 py-1.5 text-primary"><Wand2 className="h-4 w-4" /></Link>}
           </div>
         </div>
       ))}

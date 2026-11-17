@@ -16,16 +16,18 @@ import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, recorderReady, recordingStatus, removeParticipant, startRecording, stopRecording } from './live.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
+import { balanceOf, decideWithdrawal, requestWithdrawal, syncWallets, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
+import { connectSignIns, recordSignIn, signInOverview, signInsOf } from './signins.mjs';
 import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
 import { INTERACTION_WEIGHTS, feedFor, train } from './recommend.mjs';
 import { launchNumbers, markActive } from './launch.mjs';
-import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, blockIp, clearSecurityCounts, connectSecurity, handleServerCheck, guestStarted, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
+import { accountLocked, chatSpam, adminChange, adminDenied, adminSignedIn, blockIp, isBlocked, clearSecurityCounts, connectSecurity, handleServerCheck, guestStarted, loginFailed, resetRequested, screenBody, screenRequest, securityOverview, signedUp, startSecurityWatch, unblockIp, webhookForged } from './security.mjs';
 import { sweepWatermarked, watermarked } from './download.mjs';
 import { CHAT_LIMITS, attachmentLabel, chatFileUrl, removeChatFiles, serveChatFile, storeChatFile } from './chat-media.mjs';
 import { decideShare, earnedUnpaid, recordShareRewards, recordShareVisit, shareRules, sharesDue, sharesOf, sharesToReview } from './shares.mjs';
 import { controller, dpia, paidThisMonth, payoutRefused, payoutRules, payoutState, processingRecord, saveController, savePayoutRules } from './compliance.mjs';
-import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, whenCredited } from './ads.mjs';
+import { adBalance, adIncome, adSales, adSettings, addCredit, campaignOut, closeMonth, creditUnused, earnings, eligibility, expireCampaigns, LESSON_POINTS, learnIncome, pickAds, recordAdEvents, recordConversions, requirements, startCampaign, teacherEarnings, whenCredited } from './ads.mjs';
 import { aiComplete, aiKeySummary, checkAiKey, jsonObject, recheckAiKey, removeAiKey, resealAiKeys, saveAiKey } from './ai-keys.mjs';
 import { aiLearningSummary, noteDescriptionUsed, noteLookFeedback, noteStyleFollowed, noteWritten, writeExamples } from './ai-learn.mjs';
 import { style } from './stylist.mjs';
@@ -99,9 +101,15 @@ function tidySessions(userId, at) {
 // an HttpOnly cookie (scripts can't read it), which signs in live updates and works when storage is blocked.
 const SESSION_DAYS = 60;
 const COOKIE = 'saligue_session';
-// A suspended account is permanently deleted after this long, unless it is restored first. The person is told the
-// day when it happens, and Admin → Accounts shows it too.
-const SUSPEND_DELETE_DAYS = 90;
+// An account is closed in three steps, never in one (Admin → Accounts):
+//   1. suspended for a set time (SUSPEND_DAYS; 0 = until an admin reviews it). A timed one ends by itself;
+//   2. closure asked for: the person is told the day, and has CLOSURE_NOTICE_DAYS to ask for a review;
+//   3. closed for good — only when an admin confirms it after the notice is over, and that admin must be a second
+//      pair of eyes (not the one who asked for it), unless it is the main admin.
+// Nothing is ever erased by a timer alone.
+const SUSPEND_DAYS = [1, 3, 7, 30, 0];
+const CLOSURE_NOTICE_DAYS = 14;
+const HOUR_MS = 3_600_000;
 
 // Sessions from before hashing still hold the token itself until they are next used, and one that is never used
 // again would sit readable in saligue.db for the rest of its 60 days. Hash them all once at start: userOf looks a
@@ -632,13 +640,28 @@ function noteFailedAttempt(key) {
 
 // What a suspended person is told when they try to sign in: the reason, and the day their account is emptied for
 // good if nobody restores it first. Both sign-in paths say exactly the same thing.
-const suspendRefusal = (account) =>
-  `This account is suspended${account.suspend_reason ? `: ${account.suspend_reason}` : ''}.${account.delete_after ? ` If it is not restored, the account and everything in it is permanently deleted on ${account.delete_after.slice(0, 10)}.` : ''} Contact Saligue support.`;
+const suspendRefusal = (account) => {
+  const reason = account.suspend_reason ? `: ${account.suspend_reason}` : '';
+  const when = account.closure_requested_at
+    ? ` Saligue is reviewing it for permanent closure, which cannot happen before ${account.delete_after.slice(0, 10)}.`
+    : account.suspended_until ? ` It opens again on ${account.suspended_until.slice(0, 10)}.` : ' It stays closed until Saligue has reviewed it.';
+  const appeal = account.suspend_appeal_at ? ' Your request for a review was received.' : ' You can ask for a review below.';
+  return `This account is suspended${reason}.${when}${appeal}`;
+};
+
+// A timed suspension whose days are over ends by itself — at sign-in, and in the hourly sweep below — unless an admin
+// has since asked for the account to be closed. Returns the account as it is now.
+function liftIfOver(account) {
+  if (!account?.suspended || !account.suspended_until || account.closure_requested_at || account.suspended_until > now()) return account;
+  db.prepare('update users set suspended = 0, suspend_reason = null, suspended_at = null, suspended_until = null, suspend_appeal = null, suspend_appeal_at = null where id = ? and suspended = 1').run(account.id);
+  notify(account.id, { type: 'account', title: 'Your Saligue account is open again', body: 'Your suspension has ended. Please keep to the Terms of Service.', link: '/' });
+  return db.prepare('select * from users where id = ?').get(account.id);
+}
 
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
   if (tooManyAttempts(email)) fail(429, 'too_many_attempts', 'Too many tries. Wait 15 minutes or reset your password.');
-  const account = db.prepare('select * from users where email = ?').get(email);
+  const account = liftIfOver(db.prepare('select * from users where email = ?').get(email));
   if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', suspendRefusal(account));
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
     noteFailedAttempt(email);
@@ -656,22 +679,27 @@ const googleClientId = () =>
 
 route('GET', '/api/auth/google', () => ({ clientId: googleClientId() }));
 
-route('POST', '/api/auth/google', async ({ req, user, body }) => {
+// Who a Google ID token belongs to. Google checks the signature and expiry for us.
+async function googleIdentity(credential) {
   const clientId = googleClientId();
   if (!clientId) fail(503, 'google_not_configured', 'Google sign-in is not switched on yet.');
-  // Google checks the signature and expiry of the ID token for us.
-  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(String(body.credential ?? ''))}`);
+  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(String(credential ?? ''))}`);
   const info = response.ok ? await response.json() : null;
   if (!info || info.aud !== clientId || !['accounts.google.com', 'https://accounts.google.com'].includes(info.iss)) {
     fail(401, 'invalid_credentials', 'Google sign-in failed. Please try again.');
   }
   if (info.email_verified !== 'true' && info.email_verified !== true) fail(401, 'unverified_email', 'Your Google email is not verified.');
+  return info;
+}
+
+route('POST', '/api/auth/google', async ({ req, user, body }) => {
+  const info = await googleIdentity(body.credential);
   const email = String(info.email).toLowerCase();
   const name = String(info.name || email.split('@')[0]).slice(0, 80);
   // One account per person: a new Google account can shop and sell like any other.
   const role = 'seller';
 
-  const account = db.prepare('select * from users where email = ?').get(email);
+  const account = liftIfOver(db.prepare('select * from users where email = ?').get(email));
   if (account) {
     // The same refusal the password sign-in gives: an admin who suspended this account (Admin → Accounts) must
     // not be told "signed in" here either.
@@ -783,43 +811,64 @@ route('GET', '/api/auth/me/export', ({ user, res }) => {
   res.end(JSON.stringify(data, null, 2));
 });
 
-// Deleting your account. Orders stay (the other side needs them for delivery and accounts), so the account is
-// emptied rather than removed: no name, email, photo, username, shop or password, and it can never sign in again.
-// What the person made or did on Saligue goes: comments, questions, likes, follows, looks, searches, history;
-// a shop's items and a teacher's lessons are taken down. The same emptying happens when a suspension's 90 days
-// are up (eraseExpiredAccounts below), so a suspended account is not left behind for ever.
+// Deleting an account — by its owner, or by Saligue after a confirmed closure — deletes it with everything related:
+// the shop's items, lessons, lives and replays, statuses, sounds, comments, likes, follows, chats (with their photos,
+// videos and voice notes), looks, ads, history, earnings and every file. Each table that points at the account is
+// found from the database itself (its foreign keys), so a table added later is never forgotten.
+// Money records are the one thing kept (RECORDS): orders, which the other side needs for delivery, refunds and its
+// accounts, and every payment, payout, withdrawal, tip and balance line, which are Saligue's books. Orders lose the
+// person's name, contact and address; while any record remains, an empty row stands in for the account (no email,
+// name, password or data) so those records still hold together. Without any, the account row itself is deleted.
+const RECORDS = ['orders', 'payments', 'payouts', 'withdrawals', 'wallet_entries', 'tips', 'coin_orders', 'shop_settlements', 'ad_credits'];
 function eraseAccount(user, note = 'Account deleted by its owner') {
   const id = user.id;
-  // What is being erased and is a file of its own: their profile photo and their statuses' photos and voice notes.
-  // They are removed once the rows are gone — unless an item, a lesson or someone else's status shows the same file.
-  const theirFiles = [user.avatar, ...db.prepare('select media from stories where user_id = ?').all(id).map((s) => s.media)];
+  // Every /media/ file their rows point at: removed once the rows are gone, unless something else still uses it.
+  const links = (rows) => rows.flatMap((r) => [...JSON.stringify(r).matchAll(/\/media\/[A-Za-z0-9_.-]{1,120}/g)].map((m) => m[0]));
+  const files = [
+    user.avatar,
+    ...links(db.prepare('select image, cutout, video, video_poster from products where seller_id = ?').all(id)),
+    ...links(db.prepare('select video, poster, captions from lessons where user_id = ?').all(id)),
+    ...links(db.prepare('select * from lives where seller_id = ?').all(id)),
+    ...links(db.prepare('select media from stories where user_id = ?').all(id)),
+  ];
+  // Chats they were in go for both sides, so every photo, video and voice note in them goes too.
+  for (const m of db.prepare('select m.attachment from messages m join conversations c on c.id = m.conversation_id where (c.buyer_id = ? or c.seller_id = ?) and m.attachment is not null').all(id, id)) removeChatFiles(m.attachment);
+  const tables = new Set(db.prepare("select name from sqlite_master where type = 'table'").all().map((t) => t.name));
+  const keepsOrders = RECORDS.filter((t) => tables.has(t)).some((t) =>
+    db.prepare(`pragma foreign_key_list("${t}")`).all().filter((fk) => fk.table === 'users').some((fk) => db.prepare(`select 1 from "${t}" where "${fk.from}" = ? limit 1`).get(id)));
   transaction(() => {
     for (const { product_id } of db.prepare('select product_id from reposts where user_id = ?').all(id)) {
       db.prepare('update products set repost_count = max(0, repost_count - 1) where id = ?').run(product_id);
     }
-    db.prepare('delete from reposts where user_id = ?').run(id);
-    // Their chat messages (with photos, videos and voice notes) are deleted; the other person sees "Message unsent".
-    for (const m of db.prepare('select id, attachment from messages where sender_id = ? and attachment is not null').all(id)) removeChatFiles(m.attachment);
-    db.prepare("update messages set text = '', attachment = null, product_id = null, deleted_at = ? where sender_id = ? and deleted_at is null").run(now(), id);
-    for (const table of ['sessions', 'push_targets', 'interactions', 'searches', 'wishlists', 'cart_items', 'cart_history', 'likes', 'lesson_likes', 'lesson_done', 'live_engagement', 'tip_accounts', 'notifications', 'looks', 'stories', 'story_views', 'view_history', 'product_questions', 'password_resets', 'share_visits', 'user_ai_keys', 'active_days']) {
-      db.prepare(`delete from ${table} where user_id = ?`).run(id);
-    }
-    db.prepare('delete from follows where follower_id = ? or seller_id = ?').run(id, id);
-    db.prepare('delete from comments where user_id = ?').run(id);
-    db.prepare('delete from lesson_comments where user_id = ?').run(id);
-    // Their past orders (all finished) keep the items and amounts for the shop's accounts, not who or where.
+    // Orders stay for the other side, without who or where.
     for (const o of db.prepare('select id, delivery from orders where buyer_id = ?').all(id)) {
       const d = parse(o.delivery) ?? {};
       db.prepare("update orders set buyer_name = 'Deleted account', buyer_email = '', delivery = ? where id = ?").run(json({ city: d.city ?? null }), o.id);
     }
-    db.prepare("update products set status = 'archived', hidden = 1 where seller_id = ?").run(id);
-    db.prepare('update lessons set hidden = 1 where user_id = ?').run(id);
-    db.prepare("update lives set replay_status = 'none', replay_video = null, replay_poster = null where seller_id = ?").run(id);
-    // The suspension dates go too: nothing is waiting to be deleted once the account is already empty.
-    db.prepare(`update users set email = ?, display_name = 'Deleted account', username = null, password_hash = null, avatar = null, bio = null, shop = null,
-      admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = ?, suspended_at = null, delete_after = null where id = ?`).run(`deleted-${id}@deleted.saligue`, note, id);
+    // Their items, lessons and lives first: each takes its own likes, comments, views, sounds and ads with it.
+    db.prepare('delete from products where seller_id = ?').run(id);
+    db.prepare('delete from lessons where user_id = ?').run(id);
+    db.prepare('delete from lives where seller_id = ?').run(id);
+    // Then every row in every other table that points at the account.
+    for (const { name } of db.prepare("select name from sqlite_master where type = 'table' and name not like 'sqlite_%'").all()) {
+      if (name === 'users' || RECORDS.includes(name)) continue;
+      for (const fk of db.prepare(`pragma foreign_key_list("${name}")`).all()) {
+        if (fk.table === 'users') db.prepare(`delete from "${name}" where "${fk.from}" = ?`).run(id);
+      }
+    }
+    // Rows that only name the account in a column without a foreign key.
+    db.prepare('delete from security_events where user_id = ?').run(id);
+    db.prepare('delete from sign_ins where user_id = ?').run(id);
+    if (keepsOrders) {
+      db.prepare(`update users set email = ?, display_name = 'Deleted account', username = null, password_hash = null, avatar = null, bio = null, shop = null,
+        admin = 0, admin_level = 0, admin_perms = '[]', verified = 0, suspended = 1, suspend_reason = ?, suspended_at = null, delete_after = null, suspended_until = null,
+        closure_requested_at = null, closure_requested_by = null, suspend_appeal = null, suspend_appeal_at = null where id = ?`).run(`deleted-${id}@deleted.saligue`, note, id);
+    } else {
+      db.prepare('delete from users where id = ?').run(id);
+    }
   });
-  releaseMedia(theirFiles);
+  releaseMedia(files);
+  productsChanged();
   broadcast('products');
   broadcast('lessons');
 }
@@ -830,6 +879,11 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   if (user.admin_level === 1) fail(403, 'main_admin', 'The main admin can’t delete their account. Give main admin to someone else first.');
   const open = db.prepare("select count(*) as n from orders where (buyer_id = ? or seller_id = ?) and status in ('placed', 'confirmed', 'shipped')").get(user.id, user.id).n;
   if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
+  // Money that is theirs is not deleted with the account: they withdraw it first.
+  syncWallets();
+  if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(user.id)) fail(409, 'open_withdrawal', 'A withdrawal is still being sent to you. Wait until it arrives, then delete your account.');
+  const balance = balanceOf(user.id);
+  if (balance >= walletRules().minimum) fail(409, 'balance', `You still have ${money(balance)} in your Saligue balance. Withdraw it first (Wallet), then delete your account.`);
   eraseAccount(user);
   return { ok: true };
 });
@@ -1770,27 +1824,77 @@ route('DELETE', '/api/products/([\\w-]+)/video', ({ user, params }) => {
   return { ok: true };
 });
 
-// Item sounds
+// Item sounds: up to 30 seconds of music, the sound of a video, or a sound already on another item. Each is known
+// by its fingerprint (soundKey), so one sound used on many items is one sound: it has a page listing those items
+// (/sound?k=) and anyone can put it on their own item from there or from the sound picker.
+const soundKey = (data) => createHash('sha256').update(String(data)).digest('hex').slice(0, 24);
+{
+  const unkeyed = db.prepare('select product_id, data, name, duration from product_audio where key is null').all();
+  if (unkeyed.length) {
+    transaction(() => {
+      for (const r of unkeyed) {
+        const key = soundKey(r.data);
+        db.prepare('update product_audio set key = ? where product_id = ?').run(key, r.product_id);
+        db.prepare('update products set sound = ? where id = ?').run(json({ name: r.name, duration: Math.round(r.duration), key }), r.product_id);
+      }
+    });
+  }
+  db.exec('create index if not exists product_audio_key on product_audio(key)');
+}
+
 route('GET', '/api/products/([\\w-]+)/sound', ({ params }) => {
-  const row = db.prepare('select data, name, duration from product_audio where product_id = ?').get(params[0]);
+  const row = db.prepare('select data, name, duration, key from product_audio where product_id = ?').get(params[0]);
   if (!row) fail(404, 'not_found', 'This item has no sound.');
   return row;
 });
 
+// Sets an item's sound: a new clip (`data`), or a sound already on Saligue (`from`: its key).
 route('PUT', '/api/products/([\\w-]+)/sound', ({ user, params, body }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
   ownProduct(user, params[0]);
-  const data = String(body.data ?? '');
-  if (!data.startsWith('data:audio/') || data.length > 1_200_000) fail(400, 'invalid_sound', 'This sound could not be saved.');
-  const name = String(body.name ?? 'Sound').slice(0, 80);
-  const duration = Math.min(30, Math.max(0, Number(body.duration) || 0));
+  let data, name, duration;
+  if (body.from) {
+    const source = db.prepare(`select a.data, a.name, a.duration from product_audio a join products p on p.id = a.product_id
+      where a.key = ? and p.status = 'active' and p.hidden = 0 order by p.created_at limit 1`).get(String(body.from));
+    if (!source) fail(404, 'not_found', 'This sound is no longer on Saligue.');
+    ({ data, name, duration } = source);
+  } else {
+    data = String(body.data ?? '');
+    if (!data.startsWith('data:audio/') || data.length > 1_200_000) fail(400, 'invalid_sound', 'This sound could not be saved.');
+    name = String(body.name ?? 'Sound').slice(0, 80);
+    duration = Math.min(30, Math.max(0, Number(body.duration) || 0));
+  }
+  const key = soundKey(data);
   transaction(() => {
-    db.prepare('insert into product_audio (product_id, data, name, duration) values (?, ?, ?, ?) on conflict(product_id) do update set data = excluded.data, name = excluded.name, duration = excluded.duration')
-      .run(params[0], data, name, duration);
-    db.prepare('update products set sound = ? where id = ?').run(json({ name, duration: Math.round(duration) }), params[0]);
+    db.prepare('insert into product_audio (product_id, data, name, duration, key) values (?, ?, ?, ?, ?) on conflict(product_id) do update set data = excluded.data, name = excluded.name, duration = excluded.duration, key = excluded.key')
+      .run(params[0], data, name, duration, key);
+    db.prepare('update products set sound = ? where id = ?').run(json({ name, duration: Math.round(duration), key }), params[0]);
   });
   broadcast('products');
-  return { ok: true };
+  return { ok: true, key, name, duration: Math.round(duration) };
+});
+
+// Sounds on Saligue, most used first (searchable by name): each with how many items use it and who used it first.
+route('GET', '/api/sounds', ({ url }) => {
+  const q = `%${String(url.searchParams.get('q') ?? '').trim().toLowerCase().slice(0, 60)}%`;
+  return db.prepare(`select a.key, count(*) as uses, max(p.created_at) as latest from product_audio a join products p on p.id = a.product_id
+    where p.status = 'active' and p.hidden = 0 and a.key is not null group by a.key
+    having sum(lower(a.name) like ?) > 0 order by uses desc, latest desc limit 40`).all(q)
+    .map((r) => soundOut(r.key, r.uses));
+});
+function soundOut(key, uses) {
+  // The first item to use the sound gives its name and its "original by".
+  const first = db.prepare(`select a.name, a.duration, p.id, p.seller_id, u.display_name, u.shop, u.role, u.email, u.username from product_audio a join products p on p.id = a.product_id
+    left join users u on u.id = p.seller_id where a.key = ? and p.status = 'active' and p.hidden = 0 order by p.created_at limit 1`).get(key);
+  if (!first) return null;
+  return { key, name: first.name, duration: Math.round(first.duration), uses, by: first.role === 'seller' ? shopNameOf(first) : personNameOf(first), byId: first.seller_id, firstItem: first.id };
+}
+// One sound: its clip (to listen to before using it) and the items that use it.
+route('GET', '/api/sounds/([\\w-]+)', ({ params }) => {
+  const items = db.prepare("select p.id from product_audio a join products p on p.id = a.product_id where a.key = ? and p.status = 'active' and p.hidden = 0 order by p.like_count desc, p.created_at desc limit 200").all(params[0]).map((r) => r.id);
+  const out = soundOut(params[0], items.length);
+  if (!out) fail(404, 'not_found', 'This sound is no longer on Saligue.');
+  return { ...out, data: db.prepare('select data from product_audio where key = ? limit 1').get(params[0]).data, items };
 });
 
 // Cart and saved items (per account; guests have accounts too)
@@ -4031,24 +4135,63 @@ route('POST', '/api/lessons/([\\w-]+)/like', ({ user, params }) => {
       db.prepare('update lessons set like_count = max(0, like_count - 1) where id = ?').run(l.id);
       return false;
     }
-    db.prepare('insert into lesson_likes (lesson_id, user_id) values (?, ?)').run(l.id, user.id);
+    db.prepare('insert into lesson_likes (lesson_id, user_id, created_at) values (?, ?, ?)').run(l.id, user.id, now());
     db.prepare('update lessons set like_count = like_count + 1 where id = ?').run(l.id);
     return true;
   });
   return { liked, likeCount: db.prepare('select like_count from lessons where id = ?').get(l.id).like_count };
 });
 
-// Challenges: Saligue (admins, INDECIANA) sets a fashion theme and a deadline; anyone joins with a lesson video.
+// Challenges: Saligue (admins, INDECIANA) sets a fashion theme and a deadline; anyone joins with a lesson video, and
+// likes decide. Everyone active is told when one starts; when it ends the top three are written down once
+// (closeChallenges), and the winners and everyone who joined are told.
 const challengeOut = (c) => {
   const entries = db.prepare('select count(*) as n, count(distinct user_id) as people from lessons where challenge_id = ? and video is not null and hidden = 0').get(c.id);
   const top = db.prepare('select poster from lessons where challenge_id = ? and video is not null and hidden = 0 order by like_count desc limit 3').all(c.id).map((r) => r.poster);
-  return { id: c.id, title: c.title, description: c.description, topic: c.topic, endsAt: c.ends_at, open: c.ends_at > now(), entries: entries.n, people: entries.people, posters: top, createdAt: c.created_at };
+  return { id: c.id, title: c.title, description: c.description, topic: c.topic, endsAt: c.ends_at, open: c.ends_at > now(), entries: entries.n, people: entries.people, posters: top, winners: parse(c.winners) ?? null, createdAt: c.created_at };
 };
 
-route('GET', '/api/challenges', () =>
-  db.prepare('select * from challenges where ends_at > ? order by ends_at desc limit 30').all(new Date(Date.now() - 30 * 86_400_000).toISOString()).map(challengeOut));
+/** The top three entries of a challenge by likes (earliest first on a tie), as kept when it closes. */
+const challengeTop = (id) =>
+  db.prepare(`select l.id, l.title, l.poster, l.like_count, l.user_id, u.display_name, u.shop, u.role, u.email, u.username from lessons l join users u on u.id = l.user_id
+    where l.challenge_id = ? and l.video is not null and l.hidden = 0 order by l.like_count desc, l.created_at asc limit 3`).all(id)
+    .map((l, i) => ({ place: i + 1, lessonId: l.id, title: l.title, poster: l.poster, likes: l.like_count, userId: l.user_id, name: l.role === 'seller' ? shopNameOf(l) : personNameOf(l) }));
+
+function closeChallenges() {
+  for (const c of db.prepare('select * from challenges where ends_at <= ? and closed_at is null').all(now())) {
+    const winners = challengeTop(c.id);
+    if (!db.prepare('update challenges set winners = ?, closed_at = ? where id = ? and closed_at is null').run(json(winners), now(), c.id).changes) continue;
+    const medal = ['🥇', '🥈', '🥉'];
+    for (const w of winners) {
+      notify(w.userId, { type: 'message', title: `${medal[w.place - 1]} You placed #${w.place} in "${c.title}"`, body: `"${w.title}" got ${w.likes} like${w.likes === 1 ? '' : 's'}. Well done!`, link: `/challenge?id=${c.id}`, email: true });
+    }
+    const winnerIds = new Set(winners.map((w) => w.userId));
+    for (const { user_id } of db.prepare('select distinct user_id from lessons where challenge_id = ? and video is not null').all(c.id)) {
+      if (!winnerIds.has(user_id)) notify(user_id, { type: 'message', title: `"${c.title}" has ended`, body: winners.length ? `Winner: ${winners[0].name}. Thank you for taking part!` : 'Thank you for taking part!', link: `/challenge?id=${c.id}`, email: false });
+    }
+  }
+}
+setInterval(() => {
+  try {
+    closeChallenges();
+  } catch (error) {
+    console.error('Closing challenges:', error);
+  }
+}, 10 * 60_000).unref();
+setTimeout(() => {
+  try {
+    closeChallenges();
+  } catch (error) {
+    console.error('Closing challenges:', error);
+  }
+}, 5_000).unref();
+
+// Opening challenges closes any that just ended first, so their winners show at once, not at the next sweep.
+route('GET', '/api/challenges', () => (closeChallenges(),
+  db.prepare('select * from challenges where ends_at > ? order by ends_at desc limit 30').all(new Date(Date.now() - 30 * 86_400_000).toISOString()).map(challengeOut)));
 
 route('GET', '/api/challenges/([\\w-]+)', ({ params }) => {
+  closeChallenges();
   const c = db.prepare('select * from challenges where id = ?').get(params[0]);
   if (!c) fail(404, 'not_found', 'This challenge does not exist.');
   return challengeOut(c);
@@ -4065,6 +4208,11 @@ route('POST', '/api/challenges', ({ user, body }) => {
   db.prepare('insert into challenges (id, title, description, topic, created_by, ends_at, created_at) values (?, ?, ?, ?, ?, ?, ?)')
     .run(id, title, String(body.description ?? '').trim().slice(0, 600), body.topic, user.id, new Date(Date.now() + days * 86_400_000).toISOString(), now());
   broadcast('lessons');
+  // Everyone who used Saligue in the last month hears about it (on their phone, not by email): a challenge nobody
+  // knows about has no entries.
+  for (const { id: who } of db.prepare('select id from users where is_guest = 0 and suspended = 0 and last_seen > ? and id != ?').all(new Date(Date.now() - 30 * 86_400_000).toISOString(), user.id)) {
+    notify(who, { type: 'message', title: `🏆 New challenge: ${title}`, body: `Post a short lesson video before ${new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)}. The most liked three win.`, link: `/challenge?id=${id}`, email: false });
+  }
   return challengeOut(db.prepare('select * from challenges where id = ?').get(id));
 });
 
@@ -4161,11 +4309,15 @@ route('POST', '/api/lessons/([\\w-]+)/thanks', ({ user, params }) => {
 // A view counts once per person per lesson per day.
 const lessonViews = new Map();
 route('POST', '/api/lessons/([\\w-]+)/view', ({ user, params }) => {
-  const key = `${params[0]}|${user?.id ?? 'anon'}|${new Date().toISOString().slice(0, 10)}`;
-  if (user && !lessonViews.has(key)) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `${params[0]}|${user?.id ?? 'anon'}|${day}`;
+  // The teacher watching their own lesson is not a view: views decide what teachers earn from Learning ads.
+  const lesson = user ? db.prepare('select user_id from lessons where id = ?').get(params[0]) : null;
+  if (user && lesson && lesson.user_id !== user.id && !lessonViews.has(key)) {
     lessonViews.set(key, 1);
     if (lessonViews.size > 50_000) lessonViews.clear();
     db.prepare('update lessons set view_count = view_count + 1 where id = ?').run(params[0]);
+    db.prepare('insert into lesson_view_days (lesson_id, day, views) values (?, ?, 1) on conflict(lesson_id, day) do update set views = views + 1').run(params[0], day);
   }
   return { ok: true };
 });
@@ -4405,6 +4557,12 @@ route('GET', '/api/admin/me', ({ user }) => {
 // The first tab of the admin dashboard: the platform at a glance, and what is waiting for this admin
 // (only the queues their rights cover).
 // Security watch (security.mjs): alerts go to the main admins and admins with the Platform right, by push and email.
+// Where each sign-in came from (signins.mjs): owners are told of a new place, or of someone else guessing.
+connectSignIns({
+  country: (ip) => countryOfIp(ip),
+  blocked: (ip) => isBlocked(ip),
+  notify: (userId, { title, body }) => notify(userId, { type: 'account', title, body, link: '/my-account', email: true }),
+});
 connectSecurity({
   country: (ip) => countryOfIp(ip),
   alert: ({ title, body }) => {
@@ -4417,6 +4575,25 @@ if (process.env.SALIGUE_SECURITY_WATCH !== '0') startSecurityWatch();
 route('GET', '/api/admin/security', ({ user }) => {
   requireAdmin(user, 'platform');
   return securityOverview();
+});
+// Who tried to sign in this week, by country: the owners themselves, new places, and attackers (signins.mjs).
+route('GET', '/api/admin/security/sign-ins', ({ user, url }) => {
+  requireAdmin(user, 'platform');
+  const verdict = url.searchParams.get('verdict');
+  return signInOverview(['you', 'new_place', 'suspicious', 'attacker'].includes(verdict) ? verdict : null);
+});
+
+// The account's own sign-ins and attempts (where from, which device, and whether it looked like them).
+route('GET', '/api/me/sign-ins', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  return signInsOf(user.id);
+});
+// Signs this account out on every other phone and computer; this one stays signed in.
+route('POST', '/api/me/sign-out-others', ({ req, user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const token = tokenOf(req);
+  const removed = db.prepare('delete from sessions where user_id = ? and token != ? and token != ?').run(user.id, sessionHash(token ?? ''), String(token ?? '')).changes;
+  return { ok: true, removed };
 });
 route('POST', '/api/admin/security/block', ({ user, body }) => {
   requireAdmin(user, 'platform');
@@ -4461,13 +4638,19 @@ route('GET', '/api/admin/overview', ({ user }) => {
   const n = (sql, ...args) => db.prepare(sql).get(...args).n;
   const week = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const waiting = [];
-  if (can(user, 'users')) waiting.push({ key: 'verifications', tab: 'accounts', count: n("select count(*) as n from verifications where status in ('pending_payment', 'in_review')") });
+  if (can(user, 'users')) {
+    waiting.push({ key: 'verifications', tab: 'accounts', count: n("select count(*) as n from verifications where status in ('pending_payment', 'in_review')") });
+    // Suspended people asking for a review, and closures whose notice is over and wait for a second look.
+    waiting.push({ key: 'reviews', tab: 'accounts', count: n("select count(*) as n from users where suspended = 1 and suspend_appeal_at is not null and email not like 'deleted-%'") });
+    waiting.push({ key: 'closures', tab: 'accounts', count: n("select count(*) as n from users where suspended = 1 and closure_requested_at is not null and delete_after <= ? and email not like 'deleted-%'", now()) });
+  }
   if (can(user, 'moderation')) {
     waiting.push({ key: 'appeals', tab: 'moderation', count: n("select count(*) as n from appeals where status = 'open'") });
     waiting.push({ key: 'hidden', tab: 'moderation', count: n('select count(*) as n from products where hidden = 1') + n('select count(*) as n from lessons where hidden = 1') });
   }
   if (can(user, 'ads')) waiting.push({ key: 'ads', tab: 'money', count: n("select count(*) as n from ad_campaigns where status in ('in_review', 'pending_payment')") });
   if (can(user, 'money')) {
+    waiting.push({ key: 'withdrawals', tab: 'money', count: n("select count(*) as n from withdrawals where status = 'requested'") });
     waiting.push({ key: 'creators', tab: 'money', count: n("select count(*) as n from creators where status = 'applied'") });
     waiting.push({ key: 'tips', tab: 'money', count: n("select count(*) as n from tips where status = 'pending_payment' and created_at > ?", new Date(Date.now() - 14 * 86_400_000).toISOString()) });
     waiting.push({ key: 'coins', tab: 'money', count: n("select count(*) as n from coin_orders where status = 'pending_payment' and created_at > ?", new Date(Date.now() - 14 * 86_400_000).toISOString()) });
@@ -4800,39 +4983,135 @@ route('POST', '/api/admin/settlements/([\\w-]+)', ({ user, params, body }) => {
 route('GET', '/api/admin/users', ({ user, url }) => {
   requireAdmin(user, 'users');
   const q = `%${String(url.searchParams.get('q') ?? '').trim().toLowerCase()}%`;
-  return db.prepare("select * from users where is_guest = 0 and (lower(email) like ? or lower(display_name) like ? or lower(coalesce(shop, '')) like ?) order by created_at desc limit 50").all(q, q, q).map((u) => ({
+  // "suspended" lists every account in one of the three steps, most urgent first, instead of a name search.
+  const rows = url.searchParams.get('only') === 'suspended'
+    ? db.prepare("select * from users where suspended = 1 and email not like 'deleted-%' order by (closure_requested_at is null), (suspend_appeal_at is null), suspended_at desc limit 100").all()
+    : db.prepare("select * from users where is_guest = 0 and (lower(email) like ? or lower(display_name) like ? or lower(coalesce(shop, '')) like ?) order by created_at desc limit 50").all(q, q, q);
+  return rows.map((u) => adminAccountOut(u, user));
+});
+
+function adminAccountOut(u, viewer) {
+  const askedBy = u.closure_requested_by ? db.prepare('select display_name, email from users where id = ?').get(u.closure_requested_by) : null;
+  return {
     id: u.id, name: u.role === 'seller' ? shopNameOf(u) : personNameOf(u), email: u.email, role: u.role, official: !!u.official, adminLevel: u.admin_level ?? 0,
     suspended: !!u.suspended, suspendReason: u.suspend_reason, createdAt: u.created_at,
-    // When a suspended account is emptied for good if it is not restored (90 days after it was suspended).
-    suspendedAt: u.suspended_at ?? null, deleteAfter: u.delete_after ?? null,
+    suspendedAt: u.suspended_at ?? null,
+    // Step 1: when the suspension ends by itself (null = until reviewed).
+    suspendedUntil: u.suspended_until ?? null,
+    // Step 2: closure asked for, by whom, and the end of the notice (the earliest day it can be confirmed).
+    closureRequestedAt: u.closure_requested_at ?? null,
+    closureRequestedBy: u.closure_requested_at ? (askedBy ? askedBy.display_name || askedBy.email : 'Saligue') : null,
+    deleteAfter: u.delete_after ?? null,
+    // Step 3: whether this admin may confirm it now (notice over, and a second pair of eyes or the main admin).
+    canConfirmClosure: !!u.closure_requested_at && !!u.delete_after && u.delete_after <= now()
+      && (u.closure_requested_by !== viewer.id || viewer.admin_level === 1),
+    // What the person wrote when they asked for a review.
+    appeal: u.suspend_appeal ?? null, appealAt: u.suspend_appeal_at ?? null,
     items: db.prepare('select count(*) as n from products where seller_id = ?').get(u.id).n,
     orders: db.prepare('select count(*) as n from orders where buyer_id = ?').get(u.id).n,
-  }));
-});
-route('POST', '/api/admin/users/([\\w-]+)/suspend', ({ user, params, body }) => {
-  requireAdmin(user, 'users');
-  const target = db.prepare('select * from users where id = ?').get(params[0]);
-  if (!target) fail(404, 'not_found', 'Account not found.');
+  };
+}
+
+const accountTarget = (user, id) => {
+  const target = db.prepare('select * from users where id = ?').get(id);
+  if (!target || target.email?.startsWith('deleted-')) fail(404, 'not_found', 'Account not found.');
   if (target.id === user.id) fail(400, 'self', 'You can’t suspend yourself.');
   if (target.admin_level === 1 || (target.admin_level === 2 && user.admin_level !== 1)) fail(403, 'forbidden', 'Only the main admin can suspend an admin, and the main admin can’t be suspended.');
+  return target;
+};
+
+// Step 1: suspend for a number of days (1, 3, 7, 30; 0 = until reviewed), or restore — which also cancels a closure.
+route('POST', '/api/admin/users/([\\w-]+)/suspend', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const target = accountTarget(user, params[0]);
   const suspend = body.suspended !== false;
-  const reason = suspend ? String(body.reason ?? '').trim().slice(0, 200) || null : null;
-  // A suspension comes with a deadline: unless the account is restored first, it is emptied for good after 90 days
-  // (eraseExpiredAccounts below). Restoring clears both dates again.
-  const deleteAfter = suspend ? new Date(Date.now() + SUSPEND_DELETE_DAYS * 86_400_000).toISOString() : null;
-  db.prepare('update users set suspended = ?, suspend_reason = ?, suspended_at = ?, delete_after = ? where id = ?').run(suspend ? 1 : 0, reason, suspend ? now() : null, deleteAfter, target.id);
-  if (suspend) db.prepare('delete from sessions where user_id = ?').run(target.id);
-  if (suspend) {
-    // The person is told what is happening and when it happens, by email and on their phone: an account that is
-    // emptied without ever having said so would be a surprise.
+  if (!suspend) {
+    db.prepare(`update users set suspended = 0, suspend_reason = null, suspended_at = null, suspended_until = null, delete_after = null,
+      closure_requested_at = null, closure_requested_by = null, suspend_appeal = null, suspend_appeal_at = null where id = ?`).run(target.id);
+    if (target.suspended) notify(target.id, { type: 'account', title: 'Your Saligue account is open again', body: 'Saligue reviewed your account and restored it.', link: '/' });
+    logAdmin(user, 'restored', target.email);
+    return { ok: true };
+  }
+  const days = body.days === undefined ? 7 : Number(body.days);
+  if (!SUSPEND_DAYS.includes(days)) fail(400, 'invalid_days', 'Choose 1, 3, 7 or 30 days, or until reviewed.');
+  const reason = String(body.reason ?? '').trim().slice(0, 200) || null;
+  const until = days ? new Date(Date.now() + days * 86_400_000).toISOString() : null;
+  db.prepare(`update users set suspended = 1, suspend_reason = ?, suspended_at = ?, suspended_until = ?, delete_after = null,
+    closure_requested_at = null, closure_requested_by = null, suspend_appeal = null, suspend_appeal_at = null where id = ?`).run(reason, now(), until, target.id);
+  db.prepare('delete from sessions where user_id = ?').run(target.id);
+  // Told what is happening and until when, by email and on their phone.
+  notify(target.id, {
+    type: 'account',
+    title: 'Your Saligue account is suspended',
+    body: `${reason ? `Reason: ${reason}. ` : ''}${until ? `It opens again on ${until.slice(0, 10)}.` : 'It stays closed until Saligue has reviewed it.'} You can ask for a review from the sign-in screen.`,
+    link: '/login',
+  });
+  logAdmin(user, 'suspended', `${target.email} for ${days ? `${days} day(s)` : 'until reviewed'}${reason ? `: ${reason}` : ''}`);
+  return { ok: true };
+});
+
+// Steps 2 and 3: ask for a permanent closure (the person gets a notice period to ask for a review), cancel it (the
+// account stays suspended until reviewed), or confirm it — only after the notice, and by a second admin unless the
+// main admin. Confirming empties the account exactly as deleting it would.
+route('POST', '/api/admin/users/([\\w-]+)/closure', ({ user, params, body }) => {
+  requireAdmin(user, 'users');
+  const target = accountTarget(user, params[0]);
+  if (!target.suspended) fail(400, 'not_suspended', 'Suspend the account first.');
+  if (body.action === 'request') {
+    if (target.closure_requested_at) fail(400, 'already', 'Closure is already being reviewed.');
+    const reason = String(body.reason ?? '').trim().slice(0, 200) || target.suspend_reason;
+    const noticeEnds = new Date(Date.now() + CLOSURE_NOTICE_DAYS * 86_400_000).toISOString();
+    db.prepare('update users set closure_requested_at = ?, closure_requested_by = ?, delete_after = ?, suspended_until = null, suspend_reason = ? where id = ?')
+      .run(now(), user.id, noticeEnds, reason, target.id);
     notify(target.id, {
       type: 'account',
-      title: 'Your Saligue account is suspended',
-      body: `${reason ? `Reason: ${reason}. ` : ''}Your account will be permanently deleted on ${deleteAfter.slice(0, 10)} unless it is restored first.`,
-      link: '/support',
+      title: 'Saligue may close your account',
+      body: `${reason ? `Reason: ${reason}. ` : ''}It will not be closed before ${noticeEnds.slice(0, 10)}. If you think this is a mistake, ask for a review from the sign-in screen.`,
+      link: '/login',
     });
+    logAdmin(user, 'asked to close', `${target.email}${reason ? `: ${reason}` : ''}`);
+    return { ok: true, noticeEnds };
   }
-  logAdmin(user, suspend ? 'suspended' : 'restored', `${target.email}${reason ? `: ${reason}` : ''}`);
+  if (body.action === 'cancel') {
+    if (!target.closure_requested_at) return { ok: true };
+    db.prepare('update users set closure_requested_at = null, closure_requested_by = null, delete_after = null where id = ?').run(target.id);
+    logAdmin(user, 'kept (closure cancelled)', target.email);
+    return { ok: true };
+  }
+  if (body.action === 'confirm') {
+    if (!target.closure_requested_at) fail(400, 'not_requested', 'Ask for the closure first.');
+    if (target.delete_after > now()) fail(400, 'notice', `The person has until ${target.delete_after.slice(0, 10)} to ask for a review.`);
+    if (target.closure_requested_by === user.id && user.admin_level !== 1) fail(403, 'second_admin', 'Another admin must confirm a closure you asked for.');
+    eraseAccount(target, `Closed by Saligue after review${target.suspend_reason ? `: ${target.suspend_reason}` : ''}`);
+    logAdmin(user, 'closed for good', target.email);
+    return { ok: true };
+  }
+  fail(400, 'invalid', 'Choose request, cancel or confirm.');
+});
+
+// A suspended person asks for a review from the sign-in screen. They prove the account is theirs the way they sign
+// in (password, or Google), and can write once per suspension; every admin who looks after accounts is told.
+const reviewAsks = new Map();
+route('POST', '/api/auth/suspension-appeal', async ({ req, body }) => {
+  const ip = clientIp(req);
+  const recent = (reviewAsks.get(ip) ?? []).filter((t) => t > Date.now() - HOUR_MS);
+  if (recent.length >= 5) fail(429, 'too_many', 'Too many tries. Wait an hour.');
+  if (reviewAsks.size > 10_000) reviewAsks.clear();
+  reviewAsks.set(ip, [...recent, Date.now()]);
+  const text = String(body.text ?? '').trim().slice(0, 1000);
+  if (text.length < 10) fail(400, 'too_short', 'Tell Saligue in a few words why your account should be restored.');
+  let account;
+  if (body.credential) account = db.prepare('select * from users where email = ?').get(String((await googleIdentity(body.credential)).email).toLowerCase());
+  else {
+    account = db.prepare('select * from users where email = ?').get(String(body.email ?? '').trim().toLowerCase());
+    if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) fail(401, 'invalid_credentials', 'Email or password is incorrect.');
+  }
+  if (!account?.suspended || account.email.startsWith('deleted-')) fail(400, 'not_suspended', 'This account is not suspended.');
+  if (account.suspend_appeal_at) fail(400, 'already', 'Your request for a review was already received.');
+  db.prepare('update users set suspend_appeal = ?, suspend_appeal_at = ? where id = ?').run(text, now(), account.id);
+  for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%users%')").all()) {
+    notify(id, { type: 'account', title: `Review asked: ${account.display_name || account.email}`, body: text.slice(0, 140), link: '/admin', email: false });
+  }
   return { ok: true };
 });
 
@@ -5301,7 +5580,8 @@ function adPaid(campaignId) {
 route('GET', '/api/ads/settings', () => {
   const a = adSettings();
   const pay = paymentSettings();
-  return { cpm: a.cpm, minBudget: a.minBudget, maxDays: a.maxDays, onlinePayment: paymentsEnabled(), currency: pay.currency, rate: pay.rate, momoNumber: a.momoNumber, momoName: a.momoName };
+  // Learning ads cost `learnMultiplier` times as much per view, and `teacherShare` of it goes to the teachers.
+  return { cpm: a.cpm, learnCpm: a.cpm * a.learnMultiplier, learnMultiplier: a.learnMultiplier, teacherShare: a.teacherShare, minBudget: a.minBudget, maxDays: a.maxDays, onlinePayment: paymentsEnabled(), currency: pay.currency, rate: pay.rate, momoNumber: a.momoNumber, momoName: a.momoName };
 });
 
 route('GET', '/api/ads/campaigns', ({ user }) => {
@@ -5320,11 +5600,14 @@ route('POST', '/api/ads/campaigns', ({ user, body }) => {
   const days = Math.floor(Number(body.days));
   if (!(budget >= a.minBudget && budget <= 100_000)) fail(400, 'invalid_budget', `The budget must be at least ${money(a.minBudget)}.`);
   if (!(days >= 1 && days <= a.maxDays)) fail(400, 'invalid_days', `Choose 1 to ${a.maxDays} days.`);
-  const placements = (Array.isArray(body.placements) ? body.placements : ['feed', 'explore']).filter((x) => ['feed', 'explore'].includes(x));
+  const placements = (Array.isArray(body.placements) ? body.placements : ['feed', 'explore']).filter((x) => ['feed', 'explore', 'learn'].includes(x));
   if (!placements.length) fail(400, 'invalid_placements', 'Choose where the ad appears.');
+  // A Learning ad is an ad of its own: it has its own price, and its views pay the teachers.
+  const learn = placements.includes('learn');
+  if (learn && placements.length > 1) fail(400, 'invalid_placements', 'A Learning ad is its own ad. Make a second one for For You and Explore.');
   const id = randomUUID();
   db.prepare('insert into ad_campaigns (id, seller_id, product_id, headline, budget, cpm, days, placements, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, product.id, String(body.headline ?? '').trim().slice(0, 80), budget, a.cpm, days, json(placements), now());
+    .run(id, user.id, product.id, String(body.headline ?? '').trim().slice(0, 80), budget, learn ? a.cpm * a.learnMultiplier : a.cpm, days, json(placements), now());
   return campaignOut(db.prepare('select * from ad_campaigns where id = ?').get(id));
 });
 
@@ -5410,11 +5693,13 @@ route('GET', '/api/ads/campaigns/([\\w-]+)/stats', ({ user, params }) => {
 
 // Ads to show, and their views/clicks (views are billed).
 route('GET', '/api/ads', ({ req, user, url }) => {
-  const placement = url.searchParams.get('placement') === 'explore' ? 'explore' : 'feed';
+  const asked = url.searchParams.get('placement');
+  const placement = ['explore', 'learn'].includes(asked) ? asked : 'feed';
   const count = Math.min(5, Math.max(1, Number(url.searchParams.get('count')) || 2));
   if (!featureOn('ads')) return [];
   const { viewer, ip } = adViewer(req, user);
-  return pickAds(viewer, ip, user?.id ?? null, count, placement);
+  // In Learn, the lesson the ad follows (its teacher is paid for the view).
+  return pickAds(viewer, ip, user?.id ?? null, count, placement, url.searchParams.get('lesson'));
 });
 route('POST', '/api/ads/events', ({ req, user, body }) => {
   const { viewer, ip } = adViewer(req, user);
@@ -5451,6 +5736,92 @@ route('GET', '/api/creator', ({ user }) => {
       .map((p) => ({ id: p.id, period: p.period, amount: p.amount, status: p.status, paidAt: p.paid_at, breakdown: parse(p.breakdown) })),
   };
 });
+
+// A teacher's part of the Learning ads pool: this month so far (an estimate) and last month, with the points behind it.
+// It goes into their Saligue balance when the month closes.
+route('GET', '/api/teacher/earnings', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  return { share: adSettings().teacherShare, points: LESSON_POINTS, thisMonth: teacherEarnings(user.id, period()), lastMonth: teacherEarnings(user.id, period(-1)) };
+});
+
+// The Saligue balance (wallet.mjs): every earning in dollars, withdrawn by Mobile Money at any time from the minimum.
+const momoOf = (userId) => db.prepare('select momo_number as number, momo_name as name from tip_accounts where user_id = ?').get(userId)
+  ?? db.prepare('select momo_number as number, momo_name as name from creators where user_id = ?').get(userId) ?? null;
+route('GET', '/api/me/wallet', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const month = earnings(period()).rows.find((r) => r.userId === user.id)?.amount ?? 0;
+  const teaching = teacherEarnings(user.id, period()).amount;
+  const { rate, currency } = paymentSettings();
+  return {
+    ...walletOf(user.id),
+    // Still on its way: this month's estimates, and Share & earn sales not delivered or checked yet.
+    coming: { monetization: month, teaching, shares: sharesOf(user.id).pending },
+    momo: momoOf(user.id),
+    payout: payoutState(),
+    local: { currency, rate },
+  };
+});
+route('POST', '/api/me/wallet/withdraw', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const momo = body.momoNumber ? { number: String(body.momoNumber).trim(), name: String(body.momoName ?? '').trim() } : momoOf(user.id);
+  let w;
+  try {
+    w = requestWithdrawal(user.id, body.amount, momo, payoutRefused);
+  } catch (error) {
+    if (error.code) fail(error.status ?? 400, error.code, error.message);
+    throw error;
+  }
+  // The number used is remembered for next time.
+  db.prepare('insert into tip_accounts (user_id, momo_number, momo_name) values (?, ?, ?) on conflict(user_id) do update set momo_number = excluded.momo_number, momo_name = excluded.momo_name').run(user.id, w.momoNumber, w.momoName);
+  for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%money%')").all()) {
+    notify(id, { type: 'sale', title: `Withdrawal asked: ${money(w.amount)}`, body: `${personNameOf(user)} → ${w.momoNumber}`, link: '/admin', email: false });
+  }
+  return { withdrawal: w, ...walletOf(user.id) };
+});
+route('GET', '/api/admin/withdrawals', ({ user }) => {
+  requireAdmin(user, 'money');
+  const { rate, currency } = paymentSettings();
+  return {
+    payout: payoutState(), minimum: walletRules().minimum, local: { currency, rate },
+    waiting: withdrawalsWaiting().map((w) => {
+      const refused = payoutRefused(w.userId, w.amount);
+      return { ...w, balanceAfter: balanceOf(w.userId), blocked: refused?.code ?? null, why: refused?.message ?? null };
+    }),
+  };
+});
+route('POST', '/api/admin/withdrawals/([\\w-]+)', ({ user, params, body }) => {
+  requireAdmin(user, 'money');
+  const decision = { paid: 'paid', reject: 'rejected' }[body.decision];
+  if (!decision) fail(400, 'invalid', 'Choose paid or reject.');
+  const waiting = withdrawalsWaiting().find((w) => w.id === params[0]);
+  if (!waiting) fail(404, 'not_found', 'This withdrawal is not waiting.');
+  if (decision === 'paid') {
+    const refused = payoutRefused(waiting.userId, waiting.amount);
+    if (refused) fail(400, refused.code, refused.message);
+  }
+  const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
+  const note = String(body.note ?? '').trim().slice(0, 300) || null;
+  const w = decideWithdrawal(params[0], decision, { reference, note, by: user.id });
+  logAdmin(user, decision === 'paid' ? 'withdrawal sent' : 'withdrawal refused', `${waiting.email}: ${money(waiting.amount)}${reference ? ` (${reference})` : ''}`);
+  notify(w.userId, decision === 'paid'
+    ? { type: 'sale', title: `${money(w.amount)} sent to your Mobile Money`, body: `To ${w.momoNumber}${reference ? ` · reference ${reference}` : ''}.`, link: '/wallet' }
+    : { type: 'sale', title: 'Your withdrawal was not sent', body: `${note ?? 'Please check your Mobile Money details.'} ${money(w.amount)} is back in your balance.`, link: '/wallet' });
+  return { ok: true };
+});
+
+// Months close by themselves: on any day of a new month, last month's creator and teacher shares are written down
+// (once) and moved into their balances, with tips and Share & earn rewards that became final.
+function closeMonthsAndSync() {
+  try {
+    const created = closeMonth(period(-1));
+    if (created) console.log(`Closed ${period(-1)}: ${created} earning(s) written.`);
+    syncWallets();
+  } catch (error) {
+    console.error('Closing the month / balances:', error);
+  }
+}
+setTimeout(closeMonthsAndSync, 20_000).unref();
+setInterval(closeMonthsAndSync, HOUR_MS).unref();
 
 route('POST', '/api/creator/apply', ({ user, body }) => {
   needFeature('monetization');
@@ -5536,12 +5907,16 @@ route('POST', '/api/admin/creators/([\\w-]+)', ({ user, params, body }) => {
 route('GET', '/api/admin/payouts', ({ user, url }) => {
   requireAdmin(user, 'money');
   const p = /^\d{4}-\d{2}$/.test(url.searchParams.get('period') ?? '') ? url.searchParams.get('period') : period(-1);
-  const rows = db.prepare('select p.*, c.momo_number, c.momo_name, u.display_name, u.shop from payouts p left join creators c on c.user_id = p.user_id join users u on u.id = p.user_id where p.period = ? order by p.amount desc').all(p);
+  // Creators' payouts and teachers' Learning-ad payouts for the month; a teacher is paid on their tips number.
+  const rows = db.prepare(`select p.*, coalesce(c.momo_number, t.momo_number) as momo_number, coalesce(c.momo_name, t.momo_name) as momo_name, u.display_name, u.shop
+    from payouts p left join creators c on c.user_id = p.user_id left join tip_accounts t on t.user_id = p.user_id join users u on u.id = p.user_id
+    where p.period in (?, ?) order by p.amount desc`).all(p, `${p}-learn`);
   return {
     period: p,
     adIncome: Math.round(adIncome(p) * 100) / 100,
+    learn: learnIncome(p),
     estimate: p === period() ? earnings(p) : null,
-    payouts: rows.map((r) => ({ id: r.id, shop: shopNameOf(r), amount: r.amount, status: r.status, momoNumber: r.momo_number, momoName: r.momo_name, paidAt: r.paid_at, reference: r.reference })),
+    payouts: rows.map((r) => ({ id: r.id, shop: shopNameOf(r), amount: r.amount, status: r.status, momoNumber: r.momo_number, momoName: r.momo_name, paidAt: r.paid_at, reference: r.reference, kind: r.period.endsWith('-learn') ? 'learn' : 'creator' })),
   };
 });
 
@@ -5560,7 +5935,7 @@ route('POST', '/api/admin/payouts/([\\w-]+)/paid', ({ user, params, body }) => {
   const refused = payoutRefused(payout.user_id, payout.amount);
   if (refused) fail(400, refused.code, refused.message);
   db.prepare("update payouts set status = 'paid', paid_at = ?, reference = ? where id = ?").run(now(), String(body.reference ?? '').slice(0, 80) || null, payout.id);
-  notify(payout.user_id, { type: 'sale', title: `Payout sent: ${money(payout.amount)}`, body: `Your Saligue earnings for ${payout.period} were sent by Mobile Money.`, link: '/dashboard/earnings' });
+  notify(payout.user_id, { type: 'sale', title: `Payout sent: ${money(payout.amount)}`, body: `Your Saligue earnings for ${payout.period.replace('-learn', ' (Learning ads)')} were sent by Mobile Money.`, link: '/dashboard/earnings' });
   return { ok: true };
 });
 
@@ -6273,8 +6648,11 @@ function readBody(req) {
 
 // What the security watch learns from answered and refused requests (security.mjs).
 const ADMIN_CHANGES = { 'main admin added': 'added a main admin', 'sub-admin added': 'added an admin', 'sub-admin rights': 'changed an admin’s rights', 'sub-admin removed': 'removed an admin' };
-function afterRequest(ip, path, method, body, user, result) {
+function afterRequest(ip, path, method, body, user, result, userAgent) {
   try {
+    if ((path === '/api/auth/login' || path === '/api/auth/google' || path === '/api/auth/register') && result?.user?.id) {
+      recordSignIn({ userId: result.user.id, email: result.user.email ?? '', ip, userAgent, method: path === '/api/auth/google' ? 'google' : 'password', outcome: 'ok' });
+    }
     if (path === '/api/auth/register' && result?.token) signedUp(ip);
     else if (path === '/api/auth/guest' && result?.created) guestStarted(ip);
     else if (path === '/api/auth/forgot') resetRequested(ip, String(body.email ?? '').slice(0, 120));
@@ -6286,10 +6664,15 @@ function afterRequest(ip, path, method, body, user, result) {
     console.error('Security watch:', error);
   }
 }
-function afterRefusal(ip, path, error, body, user) {
+function afterRefusal(ip, path, error, body, user, userAgent) {
   try {
     if (path === '/api/auth/login') {
       const email = String(body.email ?? '').trim().toLowerCase().slice(0, 120);
+      const outcome = { invalid_credentials: 'wrong_password', too_many_attempts: 'locked', suspended: 'suspended' }[error.code];
+      if (outcome && email) {
+        const owner = db.prepare('select id from users where email = ?').get(email);
+        recordSignIn({ userId: owner?.id ?? null, email, ip, userAgent, outcome: owner ? outcome : 'no_account' });
+      }
       if (error.code === 'invalid_credentials') loginFailed(ip, email, { admin: !!db.prepare('select admin from users where email = ?').get(email)?.admin });
       else if (error.code === 'too_many_attempts') accountLocked(ip, email);
     } else if (path === '/api/payments/webhook' && error.status === 401) webhookForged(ip);
@@ -6344,7 +6727,8 @@ const server = http.createServer(async (req, res) => {
     } catch {
       // The APK is not on disk (the version file survived a move): the page just leaves the size out.
     }
-    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, url: `${downloadOrigin(req)}/download/saligue.apk`, ...(bytes ? { bytes } : {}) } : null);
+    // minVersionCode: an installed app older than this must update before it can be used (scripts/build-app.mjs --required).
+    return send(res, 200, latest ? { versionCode: latest.versionCode, versionName: latest.versionName, minVersionCode: Number(latest.minVersionCode) || 0, url: `${downloadOrigin(req)}/download/saligue.apk`, ...(bytes ? { bytes } : {}) } : null);
   }
   // The Android app, built by `node scripts/build-app.mjs --apk` into data/downloads/.
   if (url.pathname === '/download/saligue.apk') {
@@ -6550,7 +6934,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname !== CSP_REPORT_PATH) screenBody(ip, user?.id ?? null, body);
     // The visitor's country (from their address) travels with the request: per-country features, "near you".
     const result = await requestContext.run({ country: countryOf(req), ip }, () => match.handler({ req, res, url, params, body, user }));
-    afterRequest(ip, url.pathname, req.method, body, user, result);
+    afterRequest(ip, url.pathname, req.method, body, user, result, req.headers['user-agent']);
     // A route that answered by itself (a file) is done; never answer twice.
     if (res.writableEnded || res.headersSent) return;
     if (typeof result?.token === 'string') res.setHeader('Set-Cookie', sessionCookie(req, result.token));
@@ -6559,7 +6943,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     if (res.headersSent) return console.error(error);
     if (error instanceof HttpError) {
-      afterRefusal(ip, url.pathname, error, body, user);
+      afterRefusal(ip, url.pathname, error, body, user, req.headers['user-agent']);
       return send(res, error.status, { error: { code: error.code, message: error.message } });
     }
     console.error(error);
@@ -6648,22 +7032,31 @@ const dropOldSessions = () => db.prepare('delete from sessions where created_at 
 dropOldSessions();
 setInterval(dropOldSessions, 86_400_000).unref();
 
-// A suspended account whose 90 days are up is emptied for good, exactly as if its owner had deleted it (and their
-// orders stay readable for the shops). Run at start-up too, so a server that was off for a while catches up at once.
-// The main admin can never be shown a deadline (it cannot be suspended), and one that is already empty is skipped.
-function eraseExpiredAccounts() {
-  const due = db.prepare('select * from users where delete_after is not null and delete_after <= ? and is_guest = 0 and coalesce(admin_level, 0) != 1').all(now());
-  for (const account of due) {
+// The hourly sweep: timed suspensions whose days are over open again by themselves (liftIfOver), and the admins are
+// told once when a closure's notice is over and it is waiting for their confirmation. Nothing is erased here.
+const closureReadyTold = new Set();
+function sweepSuspensions() {
+  for (const account of db.prepare('select * from users where suspended = 1 and suspended_until is not null and suspended_until <= ? and closure_requested_at is null').all(now())) {
     try {
-      eraseAccount(account, 'Suspended account deleted after 90 days');
-      console.log(`Suspended account ${account.id} was permanently deleted (its 90 days were up).`);
+      liftIfOver(account);
     } catch (error) {
-      console.error(`Could not delete the suspended account ${account.id}:`, error.message);
+      console.error(`Could not end the suspension of ${account.id}:`, error.message);
+    }
+  }
+  const ready = db.prepare("select id, display_name, email from users where suspended = 1 and closure_requested_at is not null and delete_after <= ? and email not like 'deleted-%'").all(now());
+  for (const a of ready) {
+    if (closureReadyTold.has(a.id)) continue;
+    closureReadyTold.add(a.id);
+    for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%users%')").all()) {
+      notify(id, { type: 'account', title: `Closure waiting for your check: ${a.display_name || a.email}`, body: 'The notice period is over. Confirm the closure or restore the account in Admin → Accounts.', link: '/admin', email: false });
     }
   }
 }
-eraseExpiredAccounts();
-setInterval(eraseExpiredAccounts, 86_400_000).unref();
+// Accounts suspended before closures needed a second look carry a 90-day deadline but no request: they become
+// closure requests "from Saligue" with that same date, so any admin can confirm them — and none is erased unseen.
+db.prepare("update users set closure_requested_at = coalesce(suspended_at, ?) where suspended = 1 and delete_after is not null and closure_requested_at is null and email not like 'deleted-%'").run(now());
+sweepSuspensions();
+setInterval(sweepSuspensions, HOUR_MS).unref();
 
 server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);

@@ -2318,43 +2318,344 @@ describe('discounts on posts', () => {
   });
 });
 
-// Suspending an account comes with a deadline: unless an admin restores it first, the account and everything in it
-// is permanently deleted ninety days later (server/index.mjs → eraseExpiredAccounts).
+// Closing an account takes three steps, never one (server/index.mjs): a suspension for a set time that ends by itself;
+// a closure asked for, with a notice in which the person can ask for a review; and the closure itself, confirmed only
+// after the notice and by a second admin (or the main admin).
 describe('a suspended account', () => {
-  test('is signed out, refused with the day it will be deleted, and the deadline is cleared on restore', async () => {
-    const admin = await register('Suspend Admin');
+  const sql = async (statement, ...args) => {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(join(data, 'saligue.db'));
-    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.prepare(statement).run(...args);
     db.close();
+  };
+  const listed = async (admin, id) => (await call('/admin/users?only=suspended', { token: admin.token })).json.find((u) => u.id === id);
+
+  test('is suspended for a set time, refused with the day it opens, and opens again by itself', async () => {
+    const admin = await register('Suspend Admin');
+    await sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
     const person = await register('Suspended Shopper');
     const email = person.user.email;
 
-    const done = await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: true, reason: 'Selling counterfeit items' } });
+    const done = await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: true, reason: 'Selling counterfeit items', days: 7 } });
     assert.equal(done.status, 200, JSON.stringify(done.json));
-    // Signed out everywhere at once.
+    assert.equal((await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: true, days: 5 } })).status, 400, 'only the offered lengths');
+    // Signed out everywhere at once, and refused at the door with the reason and the day it opens again.
     assert.equal((await call('/auth/me', { token: person.token })).status, 401);
-    // Refused at the door, with the reason and the day.
     const refused = await call('/auth/login', { body: { email, password: 'Test12345!' } });
     assert.equal(refused.status, 403, JSON.stringify(refused.json));
     assert.equal(refused.json.error.code, 'suspended');
     assert.match(refused.json.error.message, /Selling counterfeit items/);
-    assert.match(refused.json.error.message, /permanently deleted on \d{4}-\d{2}-\d{2}/);
+    assert.match(refused.json.error.message, /opens again on \d{4}-\d{2}-\d{2}/);
+    assert.doesNotMatch(refused.json.error.message, /deleted/, 'a suspension is not a deletion');
 
-    // The admin's list carries both dates, the deadline ninety days out.
-    const listed = (await call(`/admin/users?q=${encodeURIComponent(email)}`, { token: admin.token })).json.find((u) => u.id === person.id);
-    assert.ok(listed.suspended);
-    assert.ok(listed.suspendedAt, 'when it was suspended');
-    const days = (new Date(listed.deleteAfter).getTime() - Date.now()) / 86_400_000;
-    assert.ok(days > 89.9 && days <= 90, `about ninety days (${days})`);
+    const row = await listed(admin, person.id);
+    const days = (Date.parse(row.suspendedUntil) - Date.now()) / 86_400_000;
+    assert.ok(days > 6.9 && days <= 7, `about seven days (${days})`);
+    assert.equal(row.deleteAfter, null, 'nothing is waiting to be deleted');
 
-    // Restored before the deadline: both dates are cleared and the account signs in again.
-    assert.equal((await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: false } })).status, 200);
-    const back = (await call(`/admin/users?q=${encodeURIComponent(email)}`, { token: admin.token })).json.find((u) => u.id === person.id);
-    assert.equal(back.suspended, false);
-    assert.equal(back.suspendedAt, null);
-    assert.equal(back.deleteAfter, null, 'nothing is waiting to be deleted');
+    // The days are over: the next sign-in finds the account open again.
+    await sql('update users set suspended_until = ? where id = ?', new Date(Date.now() - 60_000).toISOString(), person.id);
     assert.equal((await call('/auth/login', { body: { email, password: 'Test12345!' } })).status, 200);
+  });
+
+  test('a review can be asked for once, by the owner, and an admin restores it', async () => {
+    const admin = await register('Review Admin');
+    await sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
+    const person = await register('Asks For Review');
+    const email = person.user.email;
+    await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: true, reason: 'Spam', days: 0 } });
+    const refused = await call('/auth/login', { body: { email, password: 'Test12345!' } });
+    assert.match(refused.json.error.message, /until Saligue has reviewed it/);
+
+    const text = 'Those messages were sent by my cousin, I am sorry.';
+    assert.equal((await call('/auth/suspension-appeal', { body: { email, password: 'wrong-password', text } })).status, 401, 'only the owner');
+    assert.equal((await call('/auth/suspension-appeal', { body: { email, password: 'Test12345!', text } })).status, 200);
+    assert.equal((await call('/auth/suspension-appeal', { body: { email, password: 'Test12345!', text } })).status, 400, 'once per suspension');
+    const row = await listed(admin, person.id);
+    assert.equal(row.appeal, text);
+    assert.match((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.error.message, /review was received/);
+
+    assert.equal((await call(`/admin/users/${person.id}/suspend`, { token: admin.token, body: { suspended: false } })).status, 200);
+    assert.equal((await call('/auth/login', { body: { email, password: 'Test12345!' } })).status, 200);
+  });
+
+  test('is closed for good only after the notice, and by a second pair of eyes', async () => {
+    const main = await register('Main Closure Admin');
+    await sql('update users set admin = 1, admin_level = 1 where id = ?', main.id);
+    const sub = await register('Sub Closure Admin');
+    await sql(`update users set admin = 1, admin_level = 2, admin_perms = '["users"]' where id = ?`, sub.id);
+    const person = await register('To Be Closed');
+    const email = person.user.email;
+
+    assert.equal((await call(`/admin/users/${person.id}/closure`, { token: sub.token, body: { action: 'request' } })).status, 400, 'suspend first');
+    await call(`/admin/users/${person.id}/suspend`, { token: sub.token, body: { suspended: true, reason: 'Fraud', days: 30 } });
+    const asked = await call(`/admin/users/${person.id}/closure`, { token: sub.token, body: { action: 'request' } });
+    assert.equal(asked.status, 200, JSON.stringify(asked.json));
+    const row = await listed(main, person.id);
+    const notice = (Date.parse(row.deleteAfter) - Date.now()) / 86_400_000;
+    assert.ok(notice > 13.9 && notice <= 14, `a fourteen-day notice (${notice})`);
+    assert.equal(row.suspendedUntil, null, 'a closure under review does not open by itself');
+    assert.match((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.error.message, /permanent closure, which cannot happen before/);
+
+    // Not during the notice, by anyone.
+    assert.equal((await call(`/admin/users/${person.id}/closure`, { token: main.token, body: { action: 'confirm' } })).status, 400);
+    await sql('update users set delete_after = ? where id = ?', new Date(Date.now() - 60_000).toISOString(), person.id);
+    // Nothing is erased by the clock: the account is still there, waiting for a check.
+    assert.ok((await listed(main, person.id)).canConfirmClosure);
+    assert.equal((await listed(sub, person.id)).canConfirmClosure, false, 'not by the admin who asked');
+    assert.equal((await call(`/admin/users/${person.id}/closure`, { token: sub.token, body: { action: 'confirm' } })).status, 403);
+    assert.equal((await call(`/admin/users/${person.id}/closure`, { token: main.token, body: { action: 'confirm' } })).status, 200);
+    assert.equal((await call('/auth/login', { body: { email, password: 'Test12345!' } })).status, 401, 'gone for good');
+    assert.equal(await listed(main, person.id), undefined);
+  });
+});
+
+// Item sounds can be reused: the same sound on many items is one sound (its key), with a page of the items using it
+// and "Use this sound" (server/index.mjs → /api/sounds).
+describe('shared item sounds', () => {
+  test('a sound put on one item can be used on another, and is listed with both', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    const [first, second] = (await call('/products?limit=2')).json;
+    const a = await register('Sound Maker', 'seller');
+    const b = await register('Sound Borrower', 'seller');
+    sql('update products set seller_id = ? where id = ?', a.id, first.id);
+    sql('update products set seller_id = ? where id = ?', b.id, second.id);
+
+    const made = await call(`/products/${first.id}/sound`, { method: 'PUT', token: a.token, body: { data: `data:audio/mpeg;base64,${Buffer.from(`beat-${Date.now()}`).toString('base64')}`, name: 'Kigali Nights', duration: 12 } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal((await call(`/products/${second.id}/sound`, { method: 'PUT', token: b.token, body: { from: 'not-a-sound' } })).status, 404);
+    const used = await call(`/products/${second.id}/sound`, { method: 'PUT', token: b.token, body: { from: made.json.key } });
+    assert.equal(used.status, 200, JSON.stringify(used.json));
+    assert.equal(used.json.key, made.json.key, 'the same sound');
+    assert.equal(used.json.name, 'Kigali Nights');
+
+    const listed = (await call('/sounds?q=kigali')).json.find((x) => x?.key === made.json.key);
+    assert.equal(listed.uses, 2);
+    const page = (await call(`/sounds/${made.json.key}`)).json;
+    assert.deepEqual(new Set(page.items), new Set([first.id, second.id]));
+    assert.match(page.data, /^data:audio\/mpeg/);
+    assert.equal((await call(`/products/${second.id}`)).json.sound.key, made.json.key, 'the item carries the key');
+  });
+});
+
+// Challenges: when one ends, its three most liked entries are written down once, shown on the challenge, and the
+// winners are told (server/index.mjs → closeChallenges).
+describe('challenges', () => {
+  test('a finished challenge names its top three, most liked first', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    const admin = await register('Challenge Admin');
+    sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
+    const made = await call('/challenges', { token: admin.token, body: { title: '#KitengeWeek', topic: 'styling', days: 7 } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal(made.json.winners, null, 'no winners while it is open');
+    const people = await Promise.all(['Entrant A', 'Entrant B', 'Entrant C', 'Entrant D'].map((n) => register(n)));
+    const likes = [3, 9, 1, 5];
+    people.forEach((p, i) => sql("insert into lessons (id, user_id, title, topic, video, challenge_id, like_count, created_at) values (?, ?, ?, 'styling', '/media/x.mp4', ?, ?, ?)",
+      `ch-${i}-${Date.now()}`, p.id, `Look ${i}`, made.json.id, likes[i], new Date().toISOString()));
+    sql('update challenges set ends_at = ? where id = ?', new Date(Date.now() - 1000).toISOString(), made.json.id);
+
+    const ended = (await call(`/challenges/${made.json.id}`)).json;
+    assert.equal(ended.open, false);
+    assert.deepEqual(ended.winners.map((w) => w.likes), [9, 5, 3]);
+    assert.deepEqual(ended.winners.map((w) => w.place), [1, 2, 3]);
+    assert.equal(ended.winners[0].userId, people[1].id);
+    const told = (await call('/me/notifications', { token: people[1].token })).json;
+    assert.ok(JSON.stringify(told).includes('placed #1'), 'the winner is told');
+  });
+});
+
+// Learning ads (server/ads.mjs): an ad of its own at five times the price, shown between lessons. Each month 60% of
+// what they earned is shared among teachers by their lessons' popularity (views, watched to the end, likes, thanks),
+// kept out of the creators' pool so nothing is paid twice.
+describe('Learning ads', () => {
+  test('cost five times as much, and 60% is shared among teachers by popularity', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    sql(`insert into app_config (key, value) values ('ads', '{"cpm":100}') on conflict(key) do update set value = excluded.value`);
+    const shop = await register('Learn Ad Shop', 'seller');
+    const item = (await call('/products?limit=1')).json[0];
+    sql('update products set seller_id = ? where id = ?', shop.id, item.id);
+
+    assert.equal((await call('/ads/campaigns', { token: shop.token, body: { productId: item.id, budget: 10, days: 7, placements: ['learn', 'feed'] } })).status, 400, 'a Learning ad is its own ad');
+    const made = await call('/ads/campaigns', { token: shop.token, body: { productId: item.id, budget: 10, days: 7, placements: ['learn'] } });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    assert.equal(made.json.cpm, 500, 'five times the usual 100 per 1,000 views');
+    sql("update ad_campaigns set status = 'active', starts_at = ?, ends_at = ? where id = ?", new Date().toISOString(), new Date(Date.now() + 7 * 86_400_000).toISOString(), made.json.id);
+
+    const popular = await register('Popular Teacher');
+    const quiet = await register('Quiet Teacher');
+    const stamp = Date.now();
+    const popularLesson = `lesson-p-${stamp}`, quietLesson = `lesson-q-${stamp}`;
+    for (const [id, who] of [[popularLesson, popular.id], [quietLesson, quiet.id]]) {
+      sql("insert into lessons (id, user_id, title, topic, video, created_at) values (?, ?, 'Tie a headwrap', 'styling', '/media/x.mp4', ?)", id, who, new Date().toISOString());
+    }
+
+    // The teacher watching their own lesson is shown no ad, and their own view does not count.
+    assert.deepEqual((await call(`/ads?placement=learn&lesson=${popularLesson}`, { token: popular.token })).json, []);
+    await call(`/lessons/${popularLesson}/view`, { token: popular.token, body: {} });
+    // Three people watch the popular lesson (one likes it), one watches the quiet one.
+    const viewers = await Promise.all(['Learner A', 'Learner B', 'Learner C'].map((n) => register(n)));
+    for (const v of viewers) await call(`/lessons/${popularLesson}/view`, { token: v.token, body: {} });
+    await call(`/lessons/${popularLesson}/like`, { token: viewers[0].token, body: {} });
+    await call(`/lessons/${quietLesson}/view`, { token: viewers[1].token, body: {} });
+
+    // One billed Learning ad view: 500 per 1,000 = 0.50, of which 60% (0.30) goes to the teachers.
+    const [ad] = (await call(`/ads?placement=learn&lesson=${quietLesson}`, { token: viewers[2].token })).json;
+    assert.equal(ad?.campaignId, made.json.id);
+    assert.ok(!(await call('/ads?placement=feed&count=5', { token: viewers[2].token })).json.some((a) => a.campaignId === made.json.id), 'bought for Learn only');
+    await new Promise((r) => setTimeout(r, 1100));
+    assert.equal((await call('/ads/events', { token: viewers[2].token, body: { events: [{ serveId: ad.serveId, kind: 'impression', ms: 1500 }] } })).json.recorded, 1);
+
+    const p = (await call('/teacher/earnings', { token: popular.token })).json.thisMonth;
+    const q = (await call('/teacher/earnings', { token: quiet.token })).json.thisMonth;
+    assert.equal(p.views, 3, 'three views, not the teacher’s own');
+    assert.equal(p.likes, 1);
+    assert.equal(p.points, 3 + 5);
+    assert.equal(q.points, 1);
+    assert.equal(p.pool, 0.3);
+    assert.ok(p.amount > q.amount * 7, `shared by popularity, not by where the ad was (${p.amount} vs ${q.amount})`);
+    assert.ok(p.amount + q.amount <= 0.3 + 1e-9);
+
+    const admin = await register('Learn Ads Admin');
+    sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
+    const month = new Date().toISOString().slice(0, 7);
+    const books = (await call(`/admin/payouts?period=${month}`, { token: admin.token })).json;
+    assert.equal(books.learn.spent, 0.5);
+    assert.equal(books.learn.teachers, 0.3);
+    assert.equal(books.adIncome, 0, 'not in the creators pool');
+    sql("delete from app_config where key = 'ads'");
+  });
+});
+
+// The Saligue balance (server/wallet.mjs): earnings are kept in the account in dollars and withdrawn from $50.
+describe('the Saligue balance', () => {
+  test('earnings land in the balance, and a withdrawal needs $50 and can be refused or sent', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    sql(`insert into app_config (key, value) values ('payouts', '{"mode":"partner","partner":"Test MoMo partner"}') on conflict(key) do update set value = excluded.value`);
+    const earner = await register('Wallet Earner');
+    const fan = await register('Wallet Fan');
+    sql("insert into tips (id, from_user, to_user, amount, share, status, reference, created_at, paid_at) values (?, ?, ?, 70, 63, 'paid', 'T1', ?, ?)", `tip-${Date.now()}`, fan.id, earner.id, new Date().toISOString(), new Date().toISOString());
+
+    const wallet = (await call('/me/wallet', { token: earner.token })).json;
+    assert.equal(wallet.balance, 63);
+    assert.equal(wallet.minimum, 50);
+    assert.equal(wallet.canWithdraw, true);
+    assert.equal((await call('/me/wallet', { token: earner.token })).json.balance, 63, 'counted once');
+
+    const ask = (body) => call('/me/wallet/withdraw', { token: earner.token, body });
+    assert.equal((await ask({ amount: 40, momoNumber: '0788000111', momoName: 'Wallet Earner' })).json.error.code, 'minimum');
+    assert.equal((await ask({ amount: 80, momoNumber: '0788000111', momoName: 'Wallet Earner' })).json.error.code, 'balance');
+    assert.equal((await ask({ amount: 55 })).json.error.code, 'no_momo');
+    const asked = await ask({ amount: 55, momoNumber: '0788000111', momoName: 'Wallet Earner' });
+    assert.equal(asked.status, 200, JSON.stringify(asked.json));
+    assert.equal(asked.json.balance, 8);
+    assert.equal((await ask({ amount: 50 })).json.error.code, 'open', 'one at a time');
+
+    const admin = await register('Wallet Admin');
+    sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
+    const waiting = (await call('/admin/withdrawals', { token: admin.token })).json.waiting.find((w) => w.userId === earner.id);
+    assert.equal(waiting.amount, 55);
+    assert.equal((await call(`/admin/withdrawals/${waiting.id}`, { token: admin.token, body: { decision: 'reject', note: 'Wrong number' } })).status, 200);
+    assert.equal((await call('/me/wallet', { token: earner.token })).json.balance, 63, 'a refused withdrawal comes back');
+
+    // The number used last time is remembered.
+    const again = await ask({});
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    assert.equal(again.json.withdrawal.amount, 63, 'the whole balance by default');
+    const second = (await call('/admin/withdrawals', { token: admin.token })).json.waiting.find((w) => w.userId === earner.id);
+    assert.equal((await call(`/admin/withdrawals/${second.id}`, { token: admin.token, body: { decision: 'paid', reference: 'MP123' } })).status, 200);
+    const after = (await call('/me/wallet', { token: earner.token })).json;
+    assert.equal(after.balance, 0);
+    assert.equal(after.withdrawals[0].status, 'paid');
+    // Money in the balance blocks deleting the account; an empty one does not.
+    sql("insert into tips (id, from_user, to_user, amount, share, status, reference, created_at, paid_at) values (?, ?, ?, 60, 54, 'paid', 'T2', ?, ?)", `tip2-${Date.now()}`, fan.id, earner.id, new Date().toISOString(), new Date().toISOString());
+    assert.equal((await call('/auth/me/delete', { token: earner.token, body: { confirm: 'DELETE' } })).json.error.code, 'balance');
+    sql("delete from app_config where key = 'payouts'");
+  });
+});
+
+// Deleting an account deletes everything related; only money records stay, without the person.
+describe('deleting an account', () => {
+  test('removes the shop, its items, lessons, comments and follows; keeps orders without the name', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = () => new DatabaseSync(join(data, 'saligue.db'));
+    const run = (statement, ...args) => { const d = db(); try { return d.prepare(statement).run(...args); } finally { d.close(); } };
+    const get = (statement, ...args) => { const d = db(); try { return d.prepare(statement).get(...args); } finally { d.close(); } };
+    const shop = await register('Shop To Delete', 'seller');
+    const fan = await register('Follower Of Shop');
+    const item = (await call('/products?limit=1')).json[0];
+    run('update products set seller_id = ? where id = ?', shop.id, item.id);
+    run("insert into lessons (id, user_id, title, topic, video, created_at) values (?, ?, 'Gone lesson', 'styling', '/media/gone.mp4', ?)", `gone-${Date.now()}`, shop.id, new Date().toISOString());
+    await call(`/follow/${shop.id}`, { token: fan.token, body: {} });
+
+    assert.equal((await call('/auth/me/delete', { token: shop.token, body: { confirm: 'DELETE' } })).status, 200);
+    assert.equal(get('select count(*) as n from products where seller_id = ?', shop.id).n, 0, 'items deleted, not hidden');
+    assert.equal(get('select count(*) as n from lessons where user_id = ?', shop.id).n, 0, 'lessons deleted');
+    assert.equal(get('select count(*) as n from follows where seller_id = ?', shop.id).n, 0);
+    assert.equal(get('select count(*) as n from users where id = ?', shop.id).n, 0, 'no money records: the account row itself is gone');
+    assert.equal((await call(`/products/${item.id}`)).status, 404);
+  });
+});
+
+// Every sign-in and attempt is kept with where it came from, and judged against the account's own history
+// (server/signins.mjs): the owner mistyping at home is told apart from a stranger guessing.
+describe('sign-in places', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const from = (ip, ua) => ({ 'X-Forwarded-For': ip, ...(ua ? { 'User-Agent': ua } : {}) });
+
+  test('tells the owner from a new place and from attackers, and signs out other devices', async () => {
+    const owner = await register('Place Owner');
+    const email = owner.user.email;
+    // A new address on a new device: it works, and is marked as a new place.
+    const elsewhere = await call('/auth/login', { body: { email, password: 'Test12345!' }, headers: from('198.51.100.7', iphone) });
+    assert.equal(elsewhere.status, 200);
+    // A typo from the place the account was made: that is the owner.
+    assert.equal((await call('/auth/login', { body: { email, password: 'typo-typo' } })).status, 401);
+    // One address guessing on three other accounts, then on this one: an attacker.
+    for (const name of ['Victim One', 'Victim Two', 'Victim Three']) {
+      const victim = await register(name);
+      await call('/auth/login', { body: { email: victim.user.email, password: 'guess-1234' }, headers: from('203.0.113.9') });
+    }
+    await call('/auth/login', { body: { email, password: 'guess-1234' }, headers: from('203.0.113.9') });
+
+    const mine = (await call('/me/sign-ins', { token: owner.token })).json;
+    const verdicts = mine.map((r) => `${r.outcome}:${r.verdict}`);
+    assert.ok(verdicts.includes('ok:new_place'), verdicts.join(' '));
+    assert.ok(verdicts.includes('wrong_password:you'), verdicts.join(' '));
+    assert.ok(verdicts.includes('wrong_password:attacker'), verdicts.join(' '));
+    assert.equal(mine.find((r) => r.verdict === 'new_place').device, 'iPhone · Safari');
+    assert.ok(mine.every((r) => !('ip' in r)), 'the owner list carries no addresses');
+
+    // Emails with no account, tried one after another from one address: an attacker by the third.
+    for (const n of [1, 2, 3]) await call('/auth/login', { body: { email: `nobody${n}${Date.now()}@example.com`, password: 'x-123456' }, headers: from('203.0.113.10') });
+    const admin = await register('Sign-in Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const seen = (await call('/admin/security/sign-ins?verdict=attacker', { token: admin.token })).json;
+    assert.ok(seen.latest.some((r) => r.ip === '203.0.113.10' && r.outcome === 'no_account'));
+    assert.ok(seen.latest.some((r) => r.ip === '203.0.113.9' && r.account === email));
+
+    // Sign out everywhere else: the other session ends, this one stays.
+    assert.equal((await call('/me/sign-out-others', { method: 'POST', token: elsewhere.json.token })).status, 200);
+    assert.equal((await call('/auth/me', { token: owner.token })).status, 401);
+    assert.equal((await call('/auth/me', { token: elsewhere.json.token })).status, 200);
   });
 });
 

@@ -14,7 +14,7 @@ import { formatPrice } from '@/lib/orders';
 
 type AdRow = { id: string; shop: string; reference: string; status: string; budget: number; spent: number; days: number; impressions: number; product: { name: string; image: string } | null; headline: string; creditUsed: number; toPay: number };
 type CreatorRow = { userId: string; shop: string; email: string; status: string; momoNumber: string; momoName: string; followers: number; eligible: boolean; checks: { key: string; label: string; value: number; target: number; met: boolean }[] };
-type Payouts = { period: string; adIncome: number; estimate: { pool: number } | null; payouts: { id: string; shop: string; amount: number; status: string; momoNumber: string | null; momoName: string | null }[] };
+type Payouts = { period: string; adIncome: number; learn?: { spent: number; teachers: number }; estimate: { pool: number } | null; payouts: { id: string; shop: string; amount: number; status: string; momoNumber: string | null; momoName: string | null; kind?: 'creator' | 'learn' }[] };
 
 const lastMonth = () => {
   const d = new Date();
@@ -124,11 +124,11 @@ export function MonetizationAdmin() {
             <Button variant="outline" onClick={() => act(() => api('/admin/payouts/close', { body: { period } }), 'Month closed')}>Close month</Button>
           </div>
           {payouts && (
-            <p className="text-sm">Ad income: <b>{formatPrice(payouts.adIncome)}</b>{payouts.estimate && <> · creators’ share so far: <b>{formatPrice(payouts.estimate.pool)}</b></>}</p>
+            <p className="text-sm">Ad income: <b>{formatPrice(payouts.adIncome)}</b>{payouts.estimate && <> · creators’ share so far: <b>{formatPrice(payouts.estimate.pool)}</b></>}{payouts.learn && payouts.learn.spent > 0 && <> · Learning ads: <b>{formatPrice(payouts.learn.spent)}</b>, of which teachers <b>{formatPrice(payouts.learn.teachers)}</b></>}</p>
           )}
           {payouts?.payouts.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
-              <span className="min-w-0 break-words"><b>{p.shop}</b> · {formatPrice(p.amount)} → MoMo {p.momoNumber ?? '—'} ({p.momoName ?? ''})</span>
+              <span className="min-w-0 break-words"><b>{p.shop}</b>{p.kind === 'learn' ? ' (teacher, Learning ads)' : ''} · {formatPrice(p.amount)} → MoMo {p.momoNumber ?? '—'} ({p.momoName ?? ''})</span>
               {p.status === 'paid' ? <Badge variant="outline" className="border-emerald-500 text-emerald-600">Paid</Badge> : (
                 <Button size="sm" onClick={() => act(() => api(`/admin/payouts/${p.id}/paid`, { body: {} }), 'Marked as paid')}>Mark paid</Button>
               )}

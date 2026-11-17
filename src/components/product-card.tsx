@@ -62,7 +62,7 @@ function ShopTile({ product, className, sponsoredBy }: { product: Product; class
           <Heart className={cn('h-5 w-5', liked ? 'fill-primary text-primary' : 'text-foreground')} />
         </button>
         <Link href={`/mirror?item=${product.id}`} className="absolute bottom-2 right-2 flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-semibold text-primary-foreground shadow transition hover:bg-primary/90">
-          <Wand2 className="h-4 w-4" /> Try on
+          <Wand2 className="h-4 w-4" /> Wear it
         </Link>
         {product.official && (
           <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-foreground/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-background">

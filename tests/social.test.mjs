@@ -188,7 +188,9 @@ describe('history, discounts and the 90-day deletion', () => {
     const one = routeBody("'/api/history/([\\\\w-]+)'");
     assert.match(one, /delete from view_history where user_id = \? and product_id = \?/);
     // Deleting the account deletes the list, and the history is in the account file.
-    assert.match(server, /'story_views', 'view_history',/);
+    // (eraseAccount deletes from every table whose foreign key points at the account, view_history among them.)
+    assert.match(server, /if \(fk\.table === 'users'\) db\.prepare\(`delete from "\$\{name\}" where "\$\{fk\.from\}" = \?`\)\.run\(id\);/);
+    assert.ok(columns('view_history').includes('user_id'));
     assert.match(server, /history: all\('select product_id, seen_at, times from view_history where user_id = \?/);
   });
 
@@ -209,26 +211,32 @@ describe('history, discounts and the 90-day deletion', () => {
     assert.match(server, /if \(!\(percent >= 0 && percent <= 90\)\) fail\(400, 'invalid_discount'/);
   });
 
-  test('a suspension has a deadline, and an expired one is emptied for good', () => {
-    assert.match(server, /const SUSPEND_DELETE_DAYS = 90;/);
+  // Closing an account takes three steps (server/index.mjs): a timed suspension that ends by itself, a closure asked
+  // for with a notice period, and the closure confirmed by a second admin. The behaviour is walked end to end in
+  // tests/api.test.mjs; this pins the rule that must never quietly come back: a clock erasing accounts on its own.
+  test('a suspension is timed, and only a confirmed closure empties an account', () => {
+    assert.match(server, /const SUSPEND_DAYS = \[1, 3, 7, 30, 0\];/);
+    assert.match(server, /const CLOSURE_NOTICE_DAYS = 14;/);
+    for (const column of ['suspended_at', 'suspended_until', 'closure_requested_at', 'closure_requested_by', 'delete_after', 'suspend_appeal']) {
+      assert.ok(columns('users').includes(column), column);
+    }
     const suspend = routeBody("'/api/admin/users/([\\\\w-]+)/suspend'");
-    assert.match(suspend, /const deleteAfter = suspend \? new Date\(Date\.now\(\) \+ SUSPEND_DELETE_DAYS \* 86_400_000\)\.toISOString\(\) : null;/);
-    assert.match(suspend, /suspended_at = \?, delete_after = \?/);
-    // Signed out everywhere at once, and told the day in the notification.
+    // Signed out everywhere at once, and told until when.
     assert.match(suspend, /delete from sessions where user_id = \?/);
-    assert.match(suspend, /permanently deleted on \$\{deleteAfter\.slice\(0, 10\)\}/);
-    assert.equal(columns('users').includes('suspended_at'), true);
-    assert.equal(columns('users').includes('delete_after'), true);
-    // The person is told the same thing at the door.
-    assert.match(server, /If it is not restored, the account and everything in it is permanently deleted on/);
-    // The sweep runs at start-up and once a day, skips the main admin, and empties the account through the one
-    // routine that deletes an account (so a suspended account is erased exactly like one its owner deleted).
-    assert.match(server, /function eraseExpiredAccounts\(\) \{/);
-    assert.match(server, /where delete_after is not null and delete_after <= \? and is_guest = 0 and coalesce\(admin_level, 0\) != 1/);
-    assert.match(server, /eraseAccount\(account, 'Suspended account deleted after 90 days'\);/);
-    assert.match(server, /eraseExpiredAccounts\(\);\nsetInterval\(eraseExpiredAccounts, 86_400_000\)\.unref\(\);/);
-    // An emptied account carries no deadline any more.
-    assert.match(server, /suspended = 1, suspend_reason = \?, suspended_at = null, delete_after = null where id = \?/);
+    assert.match(suspend, /It opens again on/);
+    const closure = routeBody("'/api/admin/users/([\\\\w-]+)/closure'");
+    // Not during the notice, and not by the admin who asked (unless the main admin).
+    assert.match(closure, /if \(target\.delete_after > now\(\)\) fail\(400, 'notice'/);
+    assert.match(closure, /if \(target\.closure_requested_by === user\.id && user\.admin_level !== 1\) fail\(403, 'second_admin'/);
+    // The one routine that empties an account is reached from the owner deleting it and from a confirmed closure only.
+    const erasures = [...server.matchAll(/\beraseAccount\((?!user, note)/g)].length;
+    assert.equal(erasures, 2, 'eraseAccount is called from exactly two places');
+    assert.match(closure, /eraseAccount\(target, `Closed by Saligue after review/);
+    assert.doesNotMatch(server, /function eraseExpiredAccounts/, 'no timer erases accounts');
+    // The hourly sweep only lifts suspensions that are over, and tells admins a closure waits for them.
+    assert.match(server, /function sweepSuspensions\(\) \{/);
+    // An emptied account carries no dates any more.
+    assert.match(server, /suspended = 1, suspend_reason = \?, suspended_at = null, delete_after = null, suspended_until = null,\s+closure_requested_at = null, closure_requested_by = null, suspend_appeal = null, suspend_appeal_at = null where id = \?/);
   });
 
   test('the app records what was seen, shows it, and shows both prices', () => {

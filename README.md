@@ -83,6 +83,36 @@ because a loop that stops half-way is the one bug nobody would notice.
 
 Models are downloaded on first use and cached by the browser. Product photos and their cut-outs are stored with the product in Supabase; try-on photos remain on the shopper's device.
 
+## Learn: ads, challenges, tags and sounds
+
+**Learning ads** (`server/ads.mjs`) are an ad of their own, shown full screen between lessons — after the third, then
+one in every five, never over a lesson that plays — at five times the usual price per view. Each month 60% of what they
+earned is shared among teachers by how popular their lessons were that month, the way a video platform pays its
+creators (`teacherPool`): 1 point per view, 3 per lesson watched to the end, 5 per like, 10 per thank-you, all from
+other people. Saligue keeps 40%. That money is never part of the creators' pool, a teacher's own views and likes never
+count, and a shop's ad never follows its own lesson.
+
+**The Saligue balance** (`server/wallet.mjs`, `/wallet`): everything a person earns — tips, Share & earn, monetization,
+Learning ads — lands in their balance in US dollars once it is final, each earning exactly once. Months close by
+themselves on the 1st. The person withdraws by Mobile Money whenever they want from $50; an admin sends it and marks it
+sent (Admin → Money → Withdrawals), or refuses it and it comes back. The payout rules (`compliance.mjs`) are checked
+when asking and when sending, and only money really sent counts towards the monthly limit.
+
+**Challenges**: Saligue sets a theme and a deadline, people answer with a short lesson video, likes decide. Everyone
+active hears when one starts, the Challenges tab in Learn carries the number open, both challenge pages explain the
+three steps, and when it ends the top three are written down once, shown with medals and told (`closeChallenges`).
+
+**#hashtags** open `/tag`: the items and lessons carrying the tag (most liked or newest), the people who use it most,
+tags used together with it, items "related to" it when only a few carry it (the word without the #, then look-alikes),
+and trending tags. Typing `#` in a description suggests the tags already in use, so one thing gets one tag.
+
+**Item sounds** come from the phone's music, a video's soundtrack, or a sound already on Saligue. Identical sounds are
+one sound (`product_audio.key`, a hash of the clip): it has a page listing every item using it with "Use this sound"
+(`/sound?k=`), and the sound picker lists the most used ones to listen to first.
+
+**Wear it** is the one way to try something on: it puts the item on the shopper in the Fitting Room together with up
+to fourteen look-alikes for the same part of the body, side by side, and "Start fresh" clears the room in one tap.
+
 ## Statuses, chats and what stays private
 
 A status is a photo, a line of words or a voice note that clears itself after 24 hours. It goes to everyone who follows
@@ -127,6 +157,33 @@ Failed sign-ins are counted per key, and that map is bounded and pruned, so a fl
 it without limit. A **suspended** account is refused on both paths — email and Google — rather than only the first.
 Google's ID token is verified against Google's keys before an account is created or entered.
 
+**Closing an account takes three steps, never one** (Admin → Accounts, `server/index.mjs`): an admin suspends it for
+1, 3, 7 or 30 days — or until reviewed — and a timed suspension ends by itself; an admin may then *ask* to close it,
+which tells the person and gives them 14 days; only after that notice can a second admin (or the main admin) confirm
+the closure, which deletes the account exactly as its owner deleting it would. No timer erases anything.
+
+**Deleting an account deletes everything related** (`eraseAccount`): the shop, its items, lessons, lives and replays,
+statuses, sounds, comments, likes, follows, chats with their files, looks, ads and history — found from the database's
+own foreign keys, so a new table is never missed — and every file they used. Only money records stay (orders, payments,
+payouts, withdrawals, tips, balance lines), as Saligue's books and for the other side of each order, without the
+person's name or address; with none, the account row itself is deleted too. An owner withdraws their balance first. A suspended person sees
+why and until when at the sign-in screen and can ask for a review there once, proving the account is theirs with the
+same password or Google account (`src/components/auth/suspended-panel.tsx`).
+
+**Where each sign-in came from** (`server/signins.mjs`): every sign-in and wrong password is kept for 180 days with the
+country of its address and the kind of device, and judged against the account's own history — *you* (a place and
+device it uses), *new place* (it worked, from somewhere new: the owner is told), *not recognised*, or *attacker* (an
+address that is blocked, guesses on several accounts, tries emails with no account, or keeps on at one account). The
+owner's own device at a known address is judged first, so a typo on a shared phone network is not called an attack.
+Owners see their list and can sign out everywhere else (Settings → Sign-in activity); admins see the week by country,
+strangers apart from owners, with a Block button (Admin → Security).
+
+**When a screen breaks** (`src/lib/recover.ts`): it retries quietly, then reloads once — straight away when the cause is
+a code file a deploy replaced — and only a page that keeps breaking shows a calm "Reload" screen. Header, sidebar,
+footer and every app-wide helper sit in their own boundary (`src/components/safe.tsx`), so one of them failing steps
+aside instead of replacing the app. `tests/effects.test.mjs` asks TypeScript about every `useEffect` and fails on one
+that returns something other than a clean-up function — the cause of the only crash phones reported (Live, October).
+
 Accounts on this server are not the only secret it keeps: a shopper's own AI key is sealed (as `enc2`) with the key
 in `/etc/saligue/seal.key`, outside the database, so a copy of the database alone opens nothing (`server/ai-keys.mjs`).
 Uploaded photos and voice notes live under `data/`. Nothing there is writable by any account but the server's
@@ -165,6 +222,13 @@ Saligue runs on its own server (`npm run build`, then `node server/index.mjs` be
 the API and the database together. The live test address is https://78-47-151-100.sslip.io.
 
 ## Android and iOS
+
+A release that the server depends on is built with `--required` (`node scripts/build-app.mjs --apk --required`):
+installed apps from 2.49 on that are older than it show a full-screen "Update Saligue to continue" until they update.
+Apps up to 2.48 only know the dismissible update banner, which they show again for each new version.
+
+When clearing stuck test runs on the server, use `pkill -f "node --test"`, never `pkill -9 -f node`: the second also
+kills the live Saligue server (that was the cause of three restarts in November 2026).
 
 The site is installable as a web app. Open the published link on a phone and choose **Add to Home Screen** (iPhone: Share → Add to Home Screen; Android: menu → Install app). It opens full-screen with its own icon.
 

@@ -12,10 +12,15 @@ import { GraduationCap, LayoutGrid, Plus, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LessonSlide } from '@/components/community/lesson-slide';
+import { LessonAdSlide } from '@/components/community/lesson-ad-slide';
 import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
-import { LESSON_TOPICS, useLessons, type Lesson } from '@/lib/lessons';
+import { LESSON_TOPICS, useChallenges, useLessons, type Lesson } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { SuggestedShops } from '@/components/suggested-shops';
+
+// Where Learning ads go: after the third lesson, then after every fifth one.
+const LEARN_AD_FIRST = 2;
+const LEARN_AD_EVERY = 5;
 
 // One word per tab, so every name fits under its icon on a phone (the full name is the tooltip).
 const SHORT: Record<string, string> = { sewing: 'Sewing', general: 'Studies' };
@@ -34,6 +39,9 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
   const on = useFeatures();
   const blocked = useBlockedIds();
   const all = useLessons({ topic, following, challenge });
+  // Challenges that are open now: their number sits on the Challenges tab, so people see there is one to join.
+  const challenges = useChallenges();
+  const openChallenges = challenges?.filter((c) => c.open).length ?? 0;
   const lessons = useMemo(() => (all ? all.filter((l) => !blocked.has(l.authorId)) : null), [all, blocked]);
   // A computer shows the panel beside the feed: it lists these same lessons without asking the server twice.
   useEffect(() => {
@@ -55,7 +63,10 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
       <nav className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-0 overflow-x-auto border-b bg-background/95 px-1.5 py-1.5 backdrop-blur [scrollbar-width:none] md:gap-2 md:px-6 md:py-2 [&::-webkit-scrollbar]:hidden" aria-label={tr('Topics')}>
         {!challenge && on('challenges') && (
           <Link href="/challenges" className={tab} title={tr('Challenges')}>
-            <span className={cn(dot, 'bg-amber-400 text-black')}><Trophy className="h-4 w-4 md:h-5 md:w-5" /></span>
+            <span className={cn(dot, 'relative bg-amber-400 text-black')}>
+              <Trophy className="h-4 w-4 md:h-5 md:w-5" />
+              {openChallenges > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{openChallenges}</span>}
+            </span>
             <span className={label}>{tr('Challenges')}</span>
           </Link>
         )}
@@ -93,7 +104,13 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
             <SuggestedShops title="Follow" className="w-full max-w-lg text-left md:max-w-3xl" />
           </div>
         ) : (
-          [...lessons.map((l) => <LessonSlide key={l.id} lesson={l} />), <CaughtUp key="caught-up" />]
+          // Learning ads sit between lessons: never before the third, then one every five (LEARN_AD_*), so they never
+          // cut into a lesson and never come one after another.
+          [...lessons.flatMap((l, i) => {
+            const slide = <LessonSlide key={l.id} lesson={l} />;
+            const adHere = i >= LEARN_AD_FIRST && (i - LEARN_AD_FIRST) % LEARN_AD_EVERY === 0 && i < lessons.length - 1;
+            return adHere ? [slide, <LessonAdSlide key={`ad-${l.id}`} afterLesson={l.id} />] : [slide];
+          }), <CaughtUp key="caught-up" />]
         )}
       </div>
       {breakReminder && <BreakReminder />}

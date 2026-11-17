@@ -1,6 +1,7 @@
 'use client';
 
 import { CoinsAdmin, SharesAdmin, TipsAdmin } from '@/components/admin/tips-admin';
+import { WithdrawalsAdmin } from '@/components/admin/withdrawals-admin';
 import { LaunchAdmin } from '@/components/admin/launch-admin';
 import { SecurityAdmin } from '@/components/admin/security-admin';
 
@@ -412,6 +413,9 @@ function DailyBars({ days }: { days: Overview['days'] }) {
 
 const WAITING: Record<string, { label: string; icon: LucideIcon }> = {
   verifications: { label: 'Verification requests', icon: BadgeCheck },
+  reviews: { label: 'Suspended people asking for a review', icon: Scale },
+  closures: { label: 'Closures waiting for your check', icon: UserCog },
+  withdrawals: { label: 'Withdrawals to send', icon: Wallet },
   appeals: { label: 'Appeals', icon: Scale },
   hidden: { label: 'Hidden after reports', icon: EyeOff },
   ads: { label: 'Ads to review', icon: Megaphone },
@@ -503,7 +507,7 @@ export default function AdminPage() {
     { value: 'launch', label: 'Launch', icon: Rocket, show: true, body: <LaunchAdmin /> },
     { value: 'moderation', label: 'Moderation', icon: Scale, show: has('moderation'), body: <div className="space-y-6"><CommentReportsAdmin /><AppealsAdmin /></div> },
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
-    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <OrderProblemsAdmin />}{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <SharesAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
+    { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <WithdrawalsAdmin />}{has('money') && <OrderProblemsAdmin />}{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <SharesAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
     { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><ComplianceAdmin /><RulesAdmin /><PoliciesAdmin /></div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },

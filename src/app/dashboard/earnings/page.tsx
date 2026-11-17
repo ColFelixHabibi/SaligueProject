@@ -14,6 +14,8 @@ import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { formatPrice } from '@/lib/orders';
 import { cn } from '@/lib/utils';
+import { TeacherEarnings } from '@/components/teacher-earnings';
+import { WalletCard } from '@/components/wallet-card';
 
 type Creator = {
   status: 'applied' | 'approved' | 'rejected' | 'suspended' | null;
@@ -63,6 +65,9 @@ export default function EarningsPage() {
         <h2 className="hidden items-center gap-2 text-2xl md:flex font-bold tracking-tight"><Coins className="h-6 w-6 text-primary" /> Earnings</h2>
         <p className="text-sm text-muted-foreground">Monetized shops share {Math.round(data.share * 100)}% of Saligue’s ad income every month.</p>
       </div>
+
+      <WalletCard />
+      <TeacherEarnings />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card className="rounded-2xl"><CardContent className="p-4"><Users className="mb-1 h-5 w-5 text-primary" /><p className="text-2xl font-bold">{data.followers.toLocaleString()}</p><p className="text-xs text-muted-foreground">Clients</p></CardContent></Card>

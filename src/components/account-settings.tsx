@@ -4,6 +4,7 @@
 import { DeleteAccount, DownloadData } from '@/components/delete-account';
 import { CommentControls } from '@/components/comment-controls';
 import { BlockedCard } from '@/components/blocked-card';
+import { SignInActivity } from '@/components/sign-in-activity';
 
 import { PersonalisationCard } from '@/components/personalisation-card';
 import { AiKeyCard } from '@/components/ai-key-card';
@@ -117,6 +118,7 @@ export function AccountSettings() {
     <div className="grid gap-6">
       <PersonalisationCard />
       <AiKeyCard />
+      <SignInActivity />
       <BlockedCard />
       <Card className="p-6">
         <ProfilePhotoField name={user?.displayName} required={shop} />

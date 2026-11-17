@@ -6,8 +6,8 @@ import { friendlyError } from '@/lib/errors';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { Check, Download, Loader2, RefreshCw, Search, Sparkles, Wand2, X } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Check, Download, Eraser, Loader2, RefreshCw, Search, Sparkles, Wand2, X } from 'lucide-react';
 import { PageIntro } from '@/components/layout/page-intro';
 import { dressAsDescribed, getRealistic, getStudio, isUnlimited, setTryOnQuality, tryOnQuality, type TryOnQuality } from '@/lib/ai/studio';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,8 @@ import { context2d, createCanvas, fileToImage, fitWithin, loadImage, trimTranspa
 import { detectPose } from '@/lib/ai/pose';
 import { embedImage, warmUpSearch } from '@/lib/ai/embed';
 import { cn } from '@/lib/utils';
+import { outfitSlot, rankForSlot } from '@/lib/outfit';
+import { similarTo } from '@/lib/recommend';
 
 const checkerboard =
   'bg-[repeating-conic-gradient(hsl(var(--muted))_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]';
@@ -38,7 +40,19 @@ const checkerboard =
 // How many search results the realistic AI dresses the shopper in automatically: all of them with the paid
 // try-on (no limit), otherwise the first few (the free AI has a daily limit).
 const autoRealistic = () => (isUnlimited() ? Infinity : 4);
-const PAGE = 10;
+const PAGE = 12;
+// "Wear it" on one item brings it on the shopper together with this many others for the same part of the body —
+// the closest look-alikes first — so they choose among many at once instead of trying one and starting again.
+const CHOICES_WITH_ITEM = 14;
+
+/** The item first, then the items most like it for the same part of the body (topped up with the best matches). */
+function choicesLike(item: Product, products: Product[]) {
+  const slot = outfitSlot(item);
+  const sameSlot = products.filter((p) => p.status === 'active' && p.id !== item.id && outfitSlot(p) === slot);
+  const alike = similarTo(item, sameSlot, CHOICES_WITH_ITEM, new Set([item.id]));
+  const more = rankForSlot(products, [], slot, CHOICES_WITH_ITEM * 2).filter((p) => p.id !== item.id && !alike.some((a) => a.id === p.id));
+  return [item, ...alike, ...more].slice(0, CHOICES_WITH_ITEM + 1);
+}
 // The three settings of the try-on AIs, named the way a shopper thinks of them. Each one means something concrete
 // in every engine (server/tryon.mjs, ai-server/server.py): the free models take it as steps, FASHN as its
 // performance or quality mode, and Saligue's own Studio as its presets.
@@ -59,6 +73,7 @@ function byShops(list: Product[]) {
 function Mirror() {
   const { toast } = useToast();
   const params = useSearchParams();
+  const router = useRouter();
   // One item ("Wear it": ?item=) or a whole outfit (the AI Stylist: ?items=a,b,c).
   const wantedKey = (params.get('items') ?? params.get('item') ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 6).join(',');
   const { products, isInitialized } = useProductStore();
@@ -87,6 +102,11 @@ function Mirror() {
     wornFrom.current = wantedKey;
     restoreOutfit();
     wearable.forEach((product) => wear(product));
+    // One item ("Wear it"): it is shown on the shopper beside its look-alikes, all at once.
+    if (ids.length === 1) {
+      setChoicesFor(wearable[0]);
+      setResults(choicesLike(wearable[0], products));
+    }
   }, [wantedKey, products, isInitialized, wear, restoreOutfit, fetchedRound]);
   const wornIds = useMemo(() => new Set(Object.values(slots)), [slots]);
 
@@ -196,9 +216,10 @@ function Mirror() {
     }
   };
 
-  // Search from the "What do you want to wear?" form.
+  // Search from the "What do you want to wear?" form — or, after "Wear it", the item and its look-alikes.
   const [wearForm, setWearForm] = useState<WearForm>({});
   const [results, setResults] = useState<Product[] | null>(null);
+  const [choicesFor, setChoicesFor] = useState<Product | null>(null);
   const [searchBusy, setSearchBusy] = useState<string | null>(null);
   const searchId = useRef(0);
 
@@ -206,8 +227,10 @@ function Mirror() {
   // choices from across Saligue (each one dressed on their photo) and picks what suits them best.
   const [pages, setPages] = useState(1);
   useEffect(() => setPages(1), [results]);
-  const mixed = useMemo(() => byShops(results ?? []), [results]);
-  const shown = mixed.slice(0, PAGE * pages);
+  // Look-alikes keep their order (closest first, the item itself at the front); a search is spread across shops.
+  const mixed = useMemo(() => (choicesFor ? results ?? [] : byShops(results ?? [])), [results, choicesFor]);
+  // An item's look-alikes all show at once; a search shows a page at a time.
+  const shown = choicesFor ? mixed : mixed.slice(0, PAGE * pages);
   const [chosen, setChosen] = useState<{ product: Product; image: string } | null>(null);
 
   // Comparison area: the shopper's own photo next to the looks they picked (up to four).
@@ -225,6 +248,7 @@ function Mirror() {
       setResults(null);
       return;
     }
+    setChoicesFor(null);
     setSearchBusy('AI is finding your choices…');
     try {
       const found = await formSearch(products, form, setSearchBusy);
@@ -246,8 +270,21 @@ function Mirror() {
     searchId.current++;
     setWearForm({});
     setResults(null);
+    setChoicesFor(null);
     setSearchBusy(null);
   };
+
+  // One tap back to an empty room: no choices, nothing worn, no item in the address. The photo stays (it has its
+  // own remove button), so starting again is quick.
+  const { clear: undressAll } = useOutfitStore();
+  const startFresh = () => {
+    clearSearch();
+    setCompare([]);
+    undressAll();
+    wornFrom.current = null;
+    if (wantedKey) router.replace('/mirror');
+  };
+  const somethingToClear = !!results || Object.keys(slots).length > 0;
 
   // What the shopper chose, as chips under the form.
   const chosenChips = [
@@ -262,7 +299,14 @@ function Mirror() {
   return (
     <div className="container mx-auto px-4 pb-6 pt-3 md:py-10">
       {chosen && <LocateSellerDialog product={chosen.product} image={chosen.image} onClose={() => setChosen(null)} />}
-      <PageIntro icon={Wand2} title="Fitting Room" subtitle="See yourself wearing it before you buy." className="mb-6" />
+      <div className="mb-6 flex items-start gap-3">
+        <PageIntro icon={Wand2} title="Fitting Room" subtitle="See yourself wearing it before you buy." className="min-w-0 flex-1" />
+        {somethingToClear && (
+          <Button variant="outline" className="shrink-0 rounded-full" onClick={startFresh}>
+            <Eraser className="mr-2 h-4 w-4" /> Start fresh
+          </Button>
+        )}
+      </div>
 
       <div className="space-y-6">
           {/* The stylist is this room's front door: it picks the outfit from real listings, then the shopper tries
@@ -367,8 +411,11 @@ function Mirror() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold">
-                  3. {results ? `${shown.length} of ${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'Your choices'} on you
+                  {choicesFor
+                    ? `${choicesFor.name} and ${Math.max(0, (results?.length ?? 1) - 1)} like it, on you`
+                    : `3. ${results ? `${shown.length} of ${results.length} ${results.length === 1 ? 'choice' : 'choices'}` : 'Your choices'} on you`}
                 </h2>
+                {choicesFor && <p className="text-sm text-muted-foreground">Compare them side by side, then wear the one you like with your outfit.</p>}
                 {person && parseBusy && <p className="text-xs text-muted-foreground">{parseBusy}</p>}
               </div>
               {!personUrl && shown.length > 0 && (

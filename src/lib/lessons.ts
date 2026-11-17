@@ -64,7 +64,8 @@ export type Lesson = {
   createdAt: string;
 };
 
-export type Challenge = { id: string; title: string; description: string; topic: string; endsAt: string; open: boolean; entries: number; people: number; posters: (string | null)[]; createdAt: string };
+export type ChallengeWinner = { place: number; lessonId: string; title: string; poster: string | null; likes: number; userId: string; name: string };
+export type Challenge = { id: string; title: string; description: string; topic: string; endsAt: string; open: boolean; entries: number; people: number; posters: (string | null)[]; winners?: ChallengeWinner[] | null; createdAt: string };
 
 const withMedia = (l: Lesson): Lesson => ({
   ...l,
@@ -111,7 +112,11 @@ export async function loadCues(url: string): Promise<Cue[]> {
 export const saveCaptions = (id: string, body: { lang: string; cues?: Cue[]; text?: string }) => api<Lesson>(`/lessons/${id}/captions`, { method: 'PUT', body }).then(withMedia);
 export const getLesson = (id: string) => api<Lesson>(`/lessons/${id}`).then(withMedia);
 
-const challengeMedia = (c: Challenge): Challenge => ({ ...c, posters: c.posters.map((p) => mediaUrl(p ?? undefined) ?? null) });
+const challengeMedia = (c: Challenge): Challenge => ({
+  ...c,
+  posters: c.posters.map((p) => mediaUrl(p ?? undefined) ?? null),
+  winners: c.winners?.map((w) => ({ ...w, poster: mediaUrl(w.poster ?? undefined) ?? null })) ?? null,
+});
 /** Fashion challenges: open ones first, and those that ended in the last month. */
 export function useChallenges() {
   const [list, setList] = useState<Challenge[] | null>(null);

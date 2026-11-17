@@ -101,6 +101,11 @@ export function sharesDue() {
     .map((d) => ({ userId: d.sharer_id, amount: r2(d.amount), sales: d.n }));
 }
 
+/** Every earned reward not yet in anyone's balance (wallet.mjs moves them there, one by one). */
+export function earnedRewards() {
+  return db.prepare(`select r.id, r.sharer_id, r.amount from share_rewards r join orders o on o.id = r.order_id where r.payout_id is null and ${STATE} = 'earned'`).all();
+}
+
 /** Marks one sharer's earned rewards as paid by `payoutId`. Returns { ids, amount }. */
 export function earnedUnpaid(userId) {
   const rows = db.prepare(`select r.id, r.amount from share_rewards r join orders o on o.id = r.order_id where r.sharer_id = ? and r.payout_id is null and ${STATE} = 'earned'`).all(userId);

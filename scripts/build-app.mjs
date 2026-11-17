@@ -3,6 +3,8 @@
 //   node scripts/build-app.mjs --apk           → also build the Android app (signed release APK) into data/downloads/saligue.apk;
 //                                                AI models load from the server, so the app stays small
 //   node scripts/build-app.mjs --aab           → also build the Play Store bundle (signed .aab) into dist/saligue-<version>.aab
+//   add --required                             → installed apps older than this one must update before they can be used
+//                                                (from 2.49 on; older apps only know the update banner)
 // The server address comes from scripts/site-url.mjs (SALIGUE_SERVER, SITE_URL, or /etc/saligue.env).
 // The app build temporarily replaces the website's build (out/); with --apk the website is rebuilt at the end.
 import { execSync } from 'node:child_process';
@@ -93,7 +95,15 @@ if (apk) {
   copyFileSync(built, join(target, 'saligue.apk.part'));
   renameSync(join(target, 'saligue.apk.part'), join(target, 'saligue.apk'));
   // Installed apps compare this with their own version and offer the update.
-  writeFileSync(join(target, 'saligue.json.part'), JSON.stringify({ versionCode, versionName, builtAt: new Date().toISOString() }));
+  // --required makes this version the oldest one allowed; without it, the last required version stays.
+  let minVersionCode = 0;
+  try {
+    minVersionCode = Number(JSON.parse(readFileSync(join(target, 'saligue.json'), 'utf8')).minVersionCode) || 0;
+  } catch {
+    // First build on this server.
+  }
+  if (process.argv.includes('--required')) minVersionCode = versionCode;
+  writeFileSync(join(target, 'saligue.json.part'), JSON.stringify({ versionCode, versionName, minVersionCode, builtAt: new Date().toISOString() }));
   renameSync(join(target, 'saligue.json.part'), join(target, 'saligue.json'));
   // The Play Store takes a bundle, not an APK. Same code, same version, same signing key: enrol it in Play App
   // Signing with this existing key (not a key Google makes), or phones that installed the APK cannot update from Play.

@@ -86,8 +86,21 @@ export function previewClip(source: AudioBuffer, start: number) {
   return stop;
 }
 
+/** Saves an item's new sound. Returns its key, so the item can be saved with it. */
 export async function saveProductSound(productId: string, name: string, clip: { data: string; duration: number }) {
-  await api(`/products/${productId}/sound`, { method: 'PUT', body: { data: clip.data, name, duration: clip.duration } });
+  return api<{ key: string; name: string; duration: number }>(`/products/${productId}/sound`, { method: 'PUT', body: { data: clip.data, name, duration: clip.duration } });
+}
+
+// Sounds already on Saligue: the same sound on many items is one sound, known by its key (server: /api/sounds).
+export type SharedSound = { key: string; name: string; duration: number; uses: number; by: string; byId: string | null; firstItem: string };
+
+/** The most used sounds (or those whose name matches `q`). */
+export const listSounds = (q = '') => api<(SharedSound | null)[]>(`/sounds?q=${encodeURIComponent(q)}`).then((l) => l.filter((s): s is SharedSound => !!s));
+/** One sound: its clip and the items that use it. */
+export const getSound = (key: string) => api<SharedSound & { data: string; items: string[] }>(`/sounds/${encodeURIComponent(key)}`);
+/** Puts a sound already on Saligue on this item. */
+export async function applySharedSound(productId: string, key: string) {
+  return api<{ key: string; name: string; duration: number }>(`/products/${productId}/sound`, { method: 'PUT', body: { from: key } });
 }
 
 const loaded = new Map<string, Promise<string | null>>();

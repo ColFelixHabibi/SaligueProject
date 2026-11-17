@@ -46,7 +46,8 @@ export type Product = {
   saveCount?: number;
   pinnedAt?: string;
   // The item has a sound (stored in productAudio/{id}, see src/lib/audio.ts).
-  sound?: { name: string; duration: number };
+  // `key` is the sound's fingerprint: items sharing a sound share it (its page: /sound?k=key).
+  sound?: { name: string; duration: number; key?: string };
   // Short video (up to 1 min 30 s) and its cover picture; whether the photo shows the item alone or worn.
   video?: string;
   videoPoster?: string;

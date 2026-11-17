@@ -120,7 +120,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
   },
   ads: {
         title: "Ads Policy",
-        updated: "22 October 2026",
+        updated: "17 November 2026",
         intro: "Saligue Ads let shops show their fashion items to more shoppers. Every ad is reviewed before it runs, so shoppers can trust what they see. These rules apply to every ad.",
         sections: [
           {
@@ -131,6 +131,15 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'A view is counted only when your ad stays on the shopper’s screen for at least one second (half of it in Explore, most of the screen in For You). Each ad shown carries a one-time code checked by Saligue’s server, so views can’t be repeated or made up. At most three views a day per shopper and six per network (phone or Wi-Fi) are counted, so many accounts on one device can’t use up your budget. Views by your own account are never counted.',
               'Money your ad does not use when its days are over goes back to your ad balance automatically, and pays for your next ad. Seller Center → Ads shows your balance and every line of it.',
               'Seller Center → Ads shows, day by day, the views, clicks, orders and sales from each ad, and what it cost: spent = views × the price per view. An order counts as coming from your ad when the buyer clicked it in the last 7 days, or saw it in the last day; cancelled orders are left out.',
+            ],
+          },
+          {
+            heading: 'Learning ads',
+            paragraphs: [
+              'A Learning ad is shown full screen in Learn, between two lessons: never before the third lesson, never more than one in every five, and never over a lesson that is playing. It is an ad of its own, chosen instead of For You and Explore.',
+              'Because it reaches people who are learning about fashion, a view of a Learning ad costs five times the usual price per 1,000 views. Both prices are shown before you pay.',
+              '60% of what Learning ads earn each month is shared among teachers by the popularity of their lessons that month — 1 point per view, 3 per lesson watched to the end, 5 per like and 10 per thank-you, from other people — and Saligue keeps 40%. It goes into each teacher’s Saligue balance when the month closes. A teacher’s own views and likes never count, and a shop’s ad is never shown after its own lessons.',
+              'Everything a person earns on Saligue (tips, Share & earn, monetization and Learning ads) is kept in their Saligue balance in US dollars and can be withdrawn by Mobile Money at any time once it reaches $50.',
             ],
           },
           {

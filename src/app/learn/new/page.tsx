@@ -1,5 +1,6 @@
 'use client';
 
+import { MentionSuggestions } from '@/components/mention-suggestions';
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -139,9 +140,11 @@ function NewLesson() {
       <div className="space-y-2">
         <Label htmlFor="lesson-description" className="text-lg font-medium">What you’ll teach</Label>
         <Textarea id="lesson-description" maxLength={2000} rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Steps, materials, tips…" />
+        <MentionSuggestions value={description} onChange={setDescription} />
       </div>
 
       <p className="text-xs text-muted-foreground">Lessons are about fashion only. Lessons reported by several people are hidden while Saligue reviews them.</p>
+      <p className="text-xs text-muted-foreground">60% of Learning ads is shared among teachers every month by how popular their lessons are: views, lessons watched to the end, likes and thanks. It goes into your Saligue balance.</p>
       <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={uploading != null}>
         {uploading != null && <Loader2 className="mr-2 h-5 w-5 animate-spin" />}{uploading != null ? 'Posting…' : 'Post lesson'}
       </Button>

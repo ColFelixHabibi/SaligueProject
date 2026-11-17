@@ -1,6 +1,7 @@
 
 'use client';
 
+import { MentionSuggestions } from '@/components/mention-suggestions';
 import { VideoField, uploadItemVideo } from '@/components/video-field';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -20,8 +21,8 @@ import type { ProductInput } from '@/lib/types';
 import type { PreparedItemPhoto } from '@/lib/image';
 import { CategoryField, ItemPhotoField, type FashionSuggestion } from '@/components/item-photo-field';
 import { WriteWithAi } from '@/components/write-with-ai';
-import { SoundField, type ChosenSound } from '@/components/sound-field';
-import { makeClip, saveProductSound } from '@/lib/audio';
+import { SoundField, isShared, type ChosenSound } from '@/components/sound-field';
+import { applySharedSound, getSound, makeClip, saveProductSound } from '@/lib/audio';
 import { isShopComplete } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ShopProfileForm } from '@/components/shop-profile-form';
@@ -79,6 +80,11 @@ export default function SellPage() {
         setAiHint(`AI suggests ${s.type ?? categoryLabel(s.category)}${s.from ? `, learned from ${s.from} similar items on Saligue` : ''}. Change it if it's wrong.`);
     };
     const [sound, setSound] = useState<ChosenSound | null>(null);
+    // "Use this sound" on a sound's page opens this form with it already chosen (/sell?sound=key).
+    useEffect(() => {
+        const key = new URLSearchParams(window.location.search).get('sound');
+        if (key) void getSound(key).then((s) => setSound({ kind: 'shared', key: s.key, name: s.name, duration: s.duration, by: s.by })).catch(() => {});
+    }, []);
     const initialFormValues = {
         stock: '',
         title: '',
@@ -201,10 +207,14 @@ export default function SellPage() {
                 createdAt: new Date().toISOString(),
             };
 
-            const clip = sound ? await makeClip(sound.buffer, sound.start) : null;
-            if (clip && sound) newProduct.sound = { name: sound.name, duration: Math.round(clip.duration) };
+            // A sound from the phone is cut here; a sound already on Saligue is used as it is.
+            const fileSound = sound && !isShared(sound) ? sound : null;
+            const clip = fileSound ? await makeClip(fileSound.buffer, fileSound.start) : null;
+            if (clip && fileSound) newProduct.sound = { name: fileSound.name, duration: Math.round(clip.duration) };
+            if (isShared(sound)) newProduct.sound = { name: sound.name, duration: sound.duration, key: sound.key };
             const productId = await addProduct(newProduct);
-            if (clip && sound && user) await saveProductSound(productId, sound.name, clip);
+            if (clip && fileSound && user) await saveProductSound(productId, fileSound.name, clip);
+            if (isShared(sound) && user) await applySharedSound(productId, sound.key);
             if (video) {
                 setUploading(0);
                 try {
@@ -315,6 +325,7 @@ export default function SellPage() {
                       />
                   </div>
                   <Textarea id="description" placeholder="Describe your item, its condition, material, etc." className="min-h-[120px] text-base" required value={formValues.description} onChange={handleInputChange} />
+                  <MentionSuggestions value={formValues.description} onChange={(description) => setFormValues((prev) => ({ ...prev, description }))} />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -11,6 +11,7 @@ import { useWide } from '@/hooks/use-wide';
 import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { getChallenge, timeLeft, type Challenge } from '@/lib/lessons';
+import { ChallengeHow, ChallengeWinners } from '@/components/community/challenge-parts';
 
 /** The challenge in full, beside the entries on a computer: what it is, how long is left, and how to enter. */
 function ChallengePanel({ c }: { c: Challenge }) {
@@ -28,7 +29,7 @@ function ChallengePanel({ c }: { c: Challenge }) {
         )}
         <Link href="/challenges" className="block text-sm font-semibold text-primary hover:underline">{t('All challenges')}</Link>
       </div>
-      <p className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground shadow-sm">{t('The top three entries win, and everyone can watch and vote with likes.')}</p>
+      {c.winners?.length ? <ChallengeWinners winners={c.winners} className="rounded-2xl border bg-card p-4 shadow-sm" /> : <ChallengeHow />}
     </div>
   );
 }
@@ -65,6 +66,8 @@ function ChallengeView() {
           </div>
           <p className="flex items-center gap-3 text-xs font-semibold"><span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {c.entries}</span> <span>{timeLeft(c.endsAt)}</span></p>
           {c.description && <p className="line-clamp-2 text-xs">{c.description}</p>}
+          {/* On a phone there is no side panel: the winners of a finished challenge sit here instead. */}
+          {!wide && !!c.winners?.length && <ChallengeWinners winners={c.winners} className="pt-1" />}
         </div>
         <LessonFeed challenge={c.id} className="min-h-0 flex-1" />
       </div>

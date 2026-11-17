@@ -19,6 +19,7 @@ import { LookPickerHost } from '@/components/look-picker';
 import { Welcome } from '@/components/welcome';
 import { NativeLinks } from '@/components/native-links';
 import { AppLinks } from '@/components/app-links';
+import { Safe } from '@/components/safe';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 // The site's own address, so a shared card's picture is a link WhatsApp and Facebook can fetch instead of a
@@ -98,23 +99,25 @@ export default function RootLayout({
         <PwaRegister />
         <AuthProvider>
           <div className="relative flex min-h-screen flex-col">
-            <Header />
-            <Sidebar />
+            {/* Each part of the frame stands on its own (components/safe.tsx): if one breaks, it steps aside for a
+                moment instead of replacing the whole app with an error page. */}
+            <Safe name="header"><Header /></Safe>
+            <Safe name="sidebar"><Sidebar /></Safe>
             <main className="flex-1 pb-[calc(4rem+var(--sab))] md:pb-0 md:pl-[72px] lg:pl-60">{children}</main>
-            <Footer />
+            <Safe name="footer"><Footer /></Safe>
           </div>
-          <Toaster />
-          <PageTranslator />
-          <CookieBanner />
-          <AppUpdate />
-          <PresenceHeartbeat />
-          <BackButton />
-          <ConfirmHost />
-          <ShareHost />
-          <LookPickerHost />
-          <Welcome />
-          <NativeLinks />
-          <AppLinks />
+          <Safe name="toaster"><Toaster /></Safe>
+          <Safe name="translator"><PageTranslator /></Safe>
+          <Safe name="cookies"><CookieBanner /></Safe>
+          <Safe name="update"><AppUpdate /></Safe>
+          <Safe name="presence"><PresenceHeartbeat /></Safe>
+          <Safe name="back"><BackButton /></Safe>
+          <Safe name="confirm"><ConfirmHost /></Safe>
+          <Safe name="share"><ShareHost /></Safe>
+          <Safe name="look-picker"><LookPickerHost /></Safe>
+          <Safe name="welcome"><Welcome /></Safe>
+          <Safe name="native-links"><NativeLinks /></Safe>
+          <Safe name="app-links"><AppLinks /></Safe>
         </AuthProvider>
       </body>
     </html>

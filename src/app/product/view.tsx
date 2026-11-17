@@ -18,7 +18,7 @@ import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Layers, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck, ShoppingBag } from 'lucide-react';
+import { Layers, Music2, Play, ShoppingCart, Store, Shirt, Palette, Building, Info, Sparkles, Wand2, Zap, PackageCheck, PackageX, ShieldCheck, Truck, ShoppingBag } from 'lucide-react';
 import ProductCard from '@/components/product-card';
 import { ensureProduct, useProductStore } from '@/hooks/use-product-store';
 import { useCart } from '@/hooks/use-cart-store';
@@ -217,6 +217,12 @@ export default function ProductView({ id }: { id: string | null }) {
                 {(product.sold ?? 0) > 0 && <span className="ml-2 flex items-center gap-1 font-normal text-muted-foreground" title={t('sold')}><ShoppingBag className="h-4 w-4" /> {product.sold}</span>}
               </p>
               {product.description && <ExpandableText text={product.description} lines={3} className="text-sm text-muted-foreground" />}
+              {/* The item's sound has a page of its own: every item using it, and "Use this sound". */}
+              {product.sound?.key && (
+                <Link href={`/sound?k=${encodeURIComponent(product.sound.key)}`} className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-semibold hover:bg-muted/70">
+                  <Music2 className="h-3.5 w-3.5 shrink-0 text-primary" /> <span className="truncate">♪ {product.sound.name}</span> <span className="shrink-0 text-primary">· {t('Use this sound')}</span>
+                </Link>
+              )}
 
               {/* Icons for Wear it, Cart and Message; Buy (money) keeps its word. */}
               <div className="mt-6 flex gap-2">
@@ -282,7 +288,7 @@ export default function ProductView({ id }: { id: string | null }) {
       {lookItems.length > 0 && (
         <Card className="mt-12">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-2xl"><Wand2 className="h-6 w-6 text-primary" /> Complete the look</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-2xl"><Wand2 className="h-6 w-6 text-primary" /> Complete my look</CardTitle>
             <CardDescription>Picked by AI from items in stock to go with this one.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

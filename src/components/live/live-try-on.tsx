@@ -63,7 +63,7 @@ export function LiveTryOn({ product, price, onClose, onBuy }: { product: Product
   return (
     <Sheet open={!!product} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="bottom" className="mx-auto flex max-h-[92dvh] max-w-md flex-col rounded-t-3xl px-4 min-[360px]:px-6">
-        <SheetHeader><SheetTitle className="flex items-center gap-2 text-left"><Wand2 className="h-5 w-5 text-primary" /> {t('Try it on')}</SheetTitle></SheetHeader>
+        <SheetHeader><SheetTitle className="flex items-center gap-2 text-left"><Wand2 className="h-5 w-5 text-primary" /> {t('Wear it')}</SheetTitle></SheetHeader>
         {product && (
           <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
             <div className="flex items-center gap-3">

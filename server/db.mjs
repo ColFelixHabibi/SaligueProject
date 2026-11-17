@@ -608,6 +608,16 @@ db.exec(`
   create index if not exists ad_serves_ip on ad_serves(campaign_id, ip, viewed_at);
   create index if not exists ad_serves_buyer on ad_serves(viewer, viewed_at);
 
+  -- Lesson views per day (once per person per lesson per day, never the teacher's own): with likes, lessons
+  -- watched to the end and thanks, they share out the teachers' part of Learning ads each month (ads.mjs).
+  create table if not exists lesson_view_days (
+    lesson_id text not null references lessons(id) on delete cascade,
+    day text not null,
+    views integer not null default 0,
+    primary key (lesson_id, day)
+  );
+  create index if not exists lesson_view_days_day on lesson_view_days(day);
+
   -- Orders that came from an ad: placed within 7 days of a click, or 1 day of a view, on the advertised item.
   create table if not exists ad_conversions (
     campaign_id text not null references ad_campaigns(id) on delete cascade,
@@ -909,6 +919,17 @@ for (const [table, column, type] of [
   ['ad_campaigns', 'credit_used', 'real not null default 0'], ['live_comments', 'reply_to', 'text'], ['live_comments', 'gift', 'text'], ['tips', 'live_id', 'text'], ['payments', 'coin_order_id', 'text'], ['ad_campaigns', 'credited', 'real'], ['lives', 'thumbnail', 'text'], ['lives', 'poll', 'text'], ['lives', 'heart_goal', 'integer not null default 0'], ['lives', 'blocked_words', "text not null default '[]'"],
   ['users', 'comment_mode', "text not null default 'everyone'"], ['users', 'hidden_words', "text not null default '[]'"],
   ['products', 'deal_price', 'real'], ['products', 'deal_until', 'text'], ['products', 'deal_live_id', 'text'], ['users', 'media', 'integer not null default 0'],
+  // Suspensions run in three steps: a suspension for a set number of days (suspended_until; null = until an admin
+  // reviews it), then — only if an admin asks for it — a closure with a notice period (closure_requested_*,
+  // delete_after), and the closure itself only once a second look has confirmed it. The person can ask for a review
+  // once per suspension (suspend_appeal), from the sign-in screen.
+  ['ad_serves', 'lesson_id', 'text'], ['lesson_likes', 'created_at', 'text'],
+  // An item sound's fingerprint (its bytes, hashed): the same sound on many items is one sound people can reuse.
+  ['product_audio', 'key', 'text'],
+  // A finished challenge's top three (JSON: lesson, teacher, likes), written once when it closes.
+  ['challenges', 'winners', 'text'], ['challenges', 'closed_at', 'text'],
+  ['users', 'suspended_until', 'text'], ['users', 'closure_requested_at', 'text'], ['users', 'closure_requested_by', 'text'],
+  ['users', 'suspend_appeal', 'text'], ['users', 'suspend_appeal_at', 'text'],
   // A % off the shop put on the post itself (1–90): the shopper sees the usual price crossed out next to the new one.
   ['products', 'discount', 'integer'],
   ['lives', 'egress_id', 'text'], ['lives', 'recorder', "text not null default 'phone'"], ['lives', 'layout', "text not null default 'side'"],

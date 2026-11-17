@@ -51,7 +51,7 @@ function GoogleLogo() {
  * never when someone signs back in to an account that already stated it. When no dialog collected a date — the login
  * dialog, for instance — the date is asked for right here and the same Google token is retried.
  */
-export function GoogleButton({ role, birthDate, onDone }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void }) {
+export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void; onSuspended?: (message: string, credential: string) => void }) {
   const { toast } = useToast();
   const t = useT();
   const slot = useRef<HTMLDivElement>(null);
@@ -63,8 +63,8 @@ export function GoogleButton({ role, birthDate, onDone }: { role?: 'buyer' | 'se
   const [checking, setChecking] = useState(false);
   const ageId = useId();
   // Read inside Google's callback, which is registered only once.
-  const latest = useRef({ role, birthDate, onDone, t });
-  latest.current = { role, birthDate, onDone, t };
+  const latest = useRef({ role, birthDate, onDone, onSuspended, t });
+  latest.current = { role, birthDate, onDone, onSuspended, t };
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +88,11 @@ export function GoogleButton({ role, birthDate, onDone }: { role?: 'buyer' | 'se
               if (error?.code === 'birth_date_required' || error?.code === 'invalid_birth_date') {
                 pending.current = credential;
                 setAskedAge(true);
+                return;
+              }
+              // A suspended account: the sign-in screen says until when and offers a review instead of a toast.
+              if (error?.code === 'suspended' && latest.current.onSuspended) {
+                latest.current.onSuspended(error.message, credential);
                 return;
               }
               toast({

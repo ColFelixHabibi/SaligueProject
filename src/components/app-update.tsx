@@ -12,23 +12,58 @@ import { absoluteUrl } from '@/lib/paths';
 const MINE = Number(process.env.NEXT_PUBLIC_APP_VERSION || 0);
 const KEY = 'saligue-update-dismissed';
 
-/** Inside the Android app: a banner when the server has a newer version, with a button to download it. */
+type Latest = { versionCode: number; versionName: string; minVersionCode?: number; url: string };
+
+/**
+ * Inside the Android app: a banner when the server has a newer version, with a button to download it. When this app
+ * is older than the server's minimum (a release built with --required), a full screen instead: it must be updated
+ * before it can be used, so nobody stays on an app that no longer matches the server. Checked at start and whenever
+ * the app comes back to the screen.
+ */
 export function AppUpdate() {
   const t = useT();
-  const [latest, setLatest] = useState<{ versionCode: number; versionName: string; url: string } | null>(null);
+  const [latest, setLatest] = useState<Latest | null>(null);
+  const [required, setRequired] = useState(false);
   useEffect(() => {
     if (!MINE) return;
-    api<typeof latest>('/app/version').then((v) => {
+    const check = () => api<Latest | null>('/app/version').then((v) => {
+      if (!v) return;
+      if ((v.minVersionCode ?? 0) > MINE) {
+        setRequired(true);
+        setLatest(v);
+        return;
+      }
       let dismissed = 0;
       try {
         dismissed = Number(localStorage.getItem(KEY) || 0);
       } catch {
         // Storage blocked: always offer it.
       }
-      if (v && v.versionCode > MINE && v.versionCode !== dismissed) setLatest(v);
+      if (v.versionCode > MINE && v.versionCode !== dismissed) setLatest(v);
     }).catch(() => {});
+    void check();
+    const again = () => document.visibilityState === 'visible' && void check();
+    document.addEventListener('visibilitychange', again);
+    return () => document.removeEventListener('visibilitychange', again);
   }, []);
   if (!latest) return null;
+  const download = (e: React.MouseEvent) => {
+    if (!isNativeApp()) return;
+    e.preventDefault();
+    openInBrowser(latest.url);
+  };
+  if (required) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background p-8 text-center" role="alertdialog" aria-modal="true">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-3xl font-extrabold text-primary">S</span>
+        <h1 className="text-xl font-bold">{t('Update Saligue to continue')}</h1>
+        <p className="max-w-xs text-sm text-muted-foreground">{t('This version is too old for the new Saligue. The update keeps your account and everything in it.')}</p>
+        <a href={latest.url} target="_blank" rel="noreferrer" onClick={download} className="flex h-12 items-center gap-2 rounded-full bg-primary px-6 font-bold text-primary-foreground">
+          <Download className="h-5 w-5" /> {t('Update')} · {latest.versionName}
+        </a>
+      </div>
+    );
+  }
   const close = () => {
     try {
       localStorage.setItem(KEY, String(latest.versionCode));
@@ -47,11 +82,7 @@ export function AppUpdate() {
         href={latest.url}
         target="_blank"
         rel="noreferrer"
-        onClick={(e) => {
-          if (!isNativeApp()) return;
-          e.preventDefault();
-          openInBrowser(latest.url);
-        }}
+        onClick={download}
         className="shrink-0 rounded-full bg-primary px-3 py-1.5 text-sm font-bold text-primary-foreground"
       >{t('Update')}</a>
       <button type="button" onClick={close} aria-label={t('Later')} title={t('Later')} className="shrink-0 rounded-full p-1 opacity-70"><X className="h-4 w-4" /></button>

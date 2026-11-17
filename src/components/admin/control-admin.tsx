@@ -198,48 +198,112 @@ export function PoliciesAdmin() {
   );
 }
 
-type Account = { id: string; name: string; email: string; role: string; official: boolean; adminLevel: number; suspended: boolean; suspendReason: string | null; suspendedAt?: string | null; deleteAfter?: string | null; createdAt: string; items: number; orders: number };
+type Account = {
+  id: string; name: string; email: string; role: string; official: boolean; adminLevel: number; createdAt: string; items: number; orders: number;
+  suspended: boolean; suspendReason: string | null; suspendedAt?: string | null; suspendedUntil?: string | null;
+  closureRequestedAt?: string | null; closureRequestedBy?: string | null; deleteAfter?: string | null; canConfirmClosure?: boolean;
+  appeal?: string | null; appealAt?: string | null;
+};
 
-/** Find accounts; suspend (signs them out and blocks login) or restore them. */
+const SUSPEND_FOR = [{ days: 1, label: '1 day' }, { days: 3, label: '3 days' }, { days: 7, label: '7 days' }, { days: 30, label: '30 days' }, { days: 0, label: 'Until reviewed' }];
+const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
+
+/**
+ * Accounts, closed in three steps and never in one: (1) suspended for a set time, which ends by itself; (2) closure
+ * asked for, with a 14-day notice in which the person can ask for a review; (3) closed for good only when a second
+ * admin (or the main admin) confirms it after the notice.
+ */
 export function AccountsAdmin() {
   const act = useAct();
   const [q, setQ] = useState('');
+  const [onlySuspended, setOnlySuspended] = useState(false);
   const [list, setList] = useState<Account[] | null>(null);
-  const search = useCallback(() => api<Account[]>(`/admin/users?q=${encodeURIComponent(q)}`).then(setList).catch(() => setList([])), [q]);
+  // The account whose suspension is being set up (reason and how long), inline under its row.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [reason, setReason] = useState('Breaking the Terms of Service');
+  const [days, setDays] = useState(7);
+  const search = useCallback(
+    () => api<Account[]>(onlySuspended ? '/admin/users?only=suspended' : `/admin/users?q=${encodeURIComponent(q)}`).then(setList).catch(() => setList([])),
+    [q, onlySuspended]
+  );
   useEffect(() => {
     const t = setTimeout(search, 300);
     return () => clearTimeout(t);
   }, [search]);
   const suspend = async (a: Account) => {
-    const answer = a.suspended
-      ? await ask({ title: `Restore ${a.name}?`, description: 'They can log in again.', confirm: 'Restore' })
-      : await ask({ title: `Suspend ${a.name}?`, description: 'They are signed out everywhere and can’t log in until you restore them. Without a restore, the account is deleted for good after 90 days.', confirm: 'Suspend', destructive: true, input: { label: 'Reason (shown to them)', value: 'Breaking the Terms of Service' } });
-    if (answer === null) return;
-    const reason = typeof answer === 'string' ? answer : '';
-    await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: !a.suspended, reason } }), a.suspended ? 'Account restored' : 'Account suspended');
+    await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: true, reason, days } }), 'Account suspended');
+    setEditing(null);
     void search();
   };
+  const restore = async (a: Account) => {
+    if (!(await ask({ title: `Restore ${a.name}?`, description: 'They can sign in again at once, and any closure is cancelled.', confirm: 'Restore' }))) return;
+    await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: false } }), 'Account restored');
+    void search();
+  };
+  const closure = async (a: Account, action: 'request' | 'cancel' | 'confirm') => {
+    const answer =
+      action === 'request'
+        ? await ask({ title: `Ask to close ${a.name} for good?`, description: 'They are told today and have 14 days to ask for a review. After that, another admin (or the main admin) must confirm it.', confirm: 'Ask to close', destructive: true, input: { label: 'Reason (shown to them)', value: a.suspendReason ?? 'Breaking the Terms of Service' } })
+        : action === 'confirm'
+          ? await ask({ title: `Delete ${a.name} permanently?`, description: 'The account is deleted with all its data: shop, items, lessons, lives, chats, comments, files. Only orders and money records stay, without their name or address. This cannot be undone.', confirm: 'Delete permanently', destructive: true })
+          : await ask({ title: `Keep ${a.name}?`, description: 'The closure is cancelled. The account stays suspended until you restore it.', confirm: 'Cancel closure' });
+    if (answer === null) return;
+    await act(() => api(`/admin/users/${a.id}/closure`, { body: { action, reason: typeof answer === 'string' ? answer : undefined } }),
+      action === 'request' ? 'Closure asked for' : action === 'confirm' ? 'Account deleted permanently' : 'Closure cancelled');
+    void search();
+  };
+  const step = (a: Account) =>
+    a.closureRequestedAt
+      ? `Step 2 · closure asked by ${a.closureRequestedBy ?? 'Saligue'} · ${a.canConfirmClosure ? 'ready for your check' : `notice ends ${day(a.deleteAfter)}`}`
+      : `Step 1 · suspended${a.suspendedUntil ? ` until ${day(a.suspendedUntil)}` : ' until reviewed'}`;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><UserCog className="h-5 w-5 text-primary" /> Accounts</CardTitle>
-        <CardDescription>A suspended account is signed out everywhere and can’t log in until you restore it. If it is not restored within 90 days, the account and everything in it is deleted for good.</CardDescription>
+        <CardDescription>
+          Three steps, never one: <b>1.</b> suspend for a set time (it ends by itself) · <b>2.</b> ask to close — they get 14 days to ask for a review · <b>3.</b> a second admin confirms — the account is deleted with all its data.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" placeholder="Name, email or shop" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="flex gap-2">
+          <div className="relative flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" placeholder="Name, email or shop" value={q} disabled={onlySuspended} onChange={(e) => setQ(e.target.value)} /></div>
+          <Button variant={onlySuspended ? 'default' : 'outline'} onClick={() => setOnlySuspended((v) => !v)} aria-pressed={onlySuspended}><Ban className="mr-1 h-4 w-4" /> Suspended</Button>
+        </div>
         {list === null && <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
         {list?.length === 0 && <p className="text-sm text-muted-foreground">No account found.</p>}
         {list?.map((a) => (
-          <div key={a.id} className={cn('flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm', a.suspended && 'border-destructive/40 bg-destructive/5')}>
-            <div className="min-w-0 flex-1">
-              <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
-              <p className="truncate text-xs text-muted-foreground">{a.email} · {a.items} items · {a.orders} orders · since {new Date(a.createdAt).toLocaleDateString()}</p>
-              {a.suspended && <p className="text-xs font-semibold text-destructive">Suspended{a.suspendReason ? `: ${a.suspendReason}` : ''}{a.deleteAfter ? ` · deleted on ${new Date(a.deleteAfter).toLocaleDateString()} unless restored` : ''}</p>}
+          <div key={a.id} className={cn('space-y-2 rounded-xl border p-3 text-sm', a.suspended && 'border-destructive/40 bg-destructive/5')}>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
+                <p className="truncate text-xs text-muted-foreground">{a.email} · {a.items} items · {a.orders} orders · since {day(a.createdAt)}</p>
+                {a.suspended && <p className="text-xs font-semibold text-destructive">{step(a)}{a.suspendReason ? ` · ${a.suspendReason}` : ''}</p>}
+              </div>
+              {a.adminLevel !== 1 && !a.suspended && (
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setEditing(editing === a.id ? null : a.id)}><Ban className="mr-1 h-4 w-4" /> Suspend</Button>
+              )}
+              {a.suspended && (
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="outline" onClick={() => restore(a)}><RotateCcw className="mr-1 h-4 w-4" /> Restore</Button>
+                  {!a.closureRequestedAt && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => closure(a, 'request')}>Ask to close</Button>}
+                  {a.closureRequestedAt && <Button size="sm" variant="ghost" onClick={() => closure(a, 'cancel')}>Keep</Button>}
+                  {a.canConfirmClosure && <Button size="sm" variant="destructive" onClick={() => closure(a, 'confirm')}><Trash2 className="mr-1 h-4 w-4" /> Delete permanently</Button>}
+                </div>
+              )}
             </div>
-            {a.adminLevel !== 1 && (
-              <Button size="sm" variant={a.suspended ? 'outline' : 'ghost'} className={a.suspended ? '' : 'text-destructive'} onClick={() => suspend(a)}>
-                <Ban className="mr-1 h-4 w-4" /> {a.suspended ? 'Restore' : 'Suspend'}
-              </Button>
+            {a.appeal && (
+              <p className="rounded-lg bg-background p-2 text-xs"><b>They asked for a review ({day(a.appealAt)}):</b> {a.appeal}</p>
+            )}
+            {editing === a.id && (
+              <div className="space-y-2 rounded-lg bg-background p-2">
+                <Input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} aria-label="Reason (shown to them)" placeholder="Reason (shown to them)" />
+                <div className="flex flex-wrap gap-1.5">
+                  {SUSPEND_FOR.map((o) => (
+                    <Button key={o.days} size="sm" type="button" variant={days === o.days ? 'default' : 'outline'} className="rounded-full" onClick={() => setDays(o.days)}>{o.label}</Button>
+                  ))}
+                </div>
+                <Button size="sm" variant="destructive" disabled={!reason.trim()} onClick={() => suspend(a)}>Suspend {days ? `for ${days} day${days > 1 ? 's' : ''}` : 'until reviewed'}</Button>
+              </div>
             )}
           </div>
         ))}

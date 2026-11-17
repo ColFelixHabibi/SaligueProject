@@ -8,6 +8,13 @@
 //   points = item views + 50 × delivered items sold + 5 × new followers   (all in that month)
 // Eligibility: REQUIREMENTS below unless an admin changed them (Admin → Policies & rules), plus the basics
 // (see eligibility()). New creators earn before that through Share & earn (shares.mjs), which has no minimum.
+//
+// Learning ads: a campaign of its own, shown only between lessons in Learn, at `learnMultiplier` (5) times the usual
+// price per view. Each month `teacherShare` (60%) of what Learning ads earned is shared among teachers by how
+// popular their lessons were that month, the way a video platform pays its creators (teacherPool):
+//   points = views + 3 × watched to the end + 5 × likes + 10 × thanks   (that month, from other people)
+// Saligue keeps the rest. That money is never part of the creators' pool above, so nothing is paid twice. A teacher's
+// own views, likes and completions never count, and a shop's ad is never shown after its own lessons.
 import { randomUUID } from 'node:crypto';
 import { db, json, now, parse, transaction } from './db.mjs';
 
@@ -18,6 +25,8 @@ export function adSettings() {
     minBudget: Number(saved.minBudget ?? 5),
     maxDays: 60,
     creatorShare: Number(saved.creatorShare ?? 0.5),
+    learnMultiplier: Number(saved.learnMultiplier ?? 5),
+    teacherShare: Number(saved.teacherShare ?? 0.6),
     // Where sellers send ad money when online payment is off (shown to them).
     momoNumber: saved.momoNumber ?? null,
     momoName: saved.momoName ?? 'INDECIANA',
@@ -89,17 +98,24 @@ export function expireCampaigns() {
  * Up to `count` ads for this viewer, never their own items, within the daily limits. Each comes with a one-time
  * code (serveId); only that code can turn into a billed view.
  */
-export function pickAds(viewer, ip, sellerId, count, placement) {
+export function pickAds(viewer, ip, sellerId, count, placement, lessonId = null) {
   expireCampaigns();
+  // In Learn, an ad belongs to the lesson it follows: that lesson's teacher is paid for it.
+  let lesson = null;
+  if (placement === 'learn') {
+    lesson = db.prepare("select id, user_id from lessons where id = ? and hidden = 0 and video is not null").get(String(lessonId ?? ''));
+    // No lesson, or the teacher watching their own lesson: nothing to show (they would be paying themselves).
+    if (!lesson || lesson.user_id === sellerId || lesson.user_id === viewer) return [];
+  }
   const rows = db.prepare(`select c.* from ad_campaigns c join products p on p.id = c.product_id
     where c.status = 'active' and c.spent < c.budget and p.status = 'active' and p.hidden = 0`).all();
-  const eligible = rows.filter((c) => c.seller_id !== sellerId && (parse(c.placements) ?? []).includes(placement)
+  const eligible = rows.filter((c) => c.seller_id !== sellerId && c.seller_id !== lesson?.user_id && (parse(c.placements) ?? []).includes(placement)
     && billedToday(c.id, 'viewer', viewer) < FREQUENCY_CAP && billedToday(c.id, 'ip', ip) < NETWORK_CAP);
   // Campaigns with more budget left are shown a little more often.
   const weighted = eligible.map((c) => ({ c, w: Math.random() * Math.sqrt(Math.max(0.01, c.budget - c.spent)) })).sort((a, b) => b.w - a.w);
   return weighted.slice(0, count).map(({ c }) => {
     const serveId = randomUUID();
-    db.prepare('insert into ad_serves (id, campaign_id, viewer, ip, placement, created_at) values (?, ?, ?, ?, ?, ?)').run(serveId, c.id, viewer, ip, placement, now());
+    db.prepare('insert into ad_serves (id, campaign_id, viewer, ip, placement, lesson_id, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(serveId, c.id, viewer, ip, placement, lesson?.id ?? null, now());
     return { serveId, campaignId: c.id, productId: c.product_id, headline: c.headline };
   });
 }
@@ -236,9 +252,72 @@ export function eligibility(userId) {
   return { checks, eligible: checks.every((c) => c.met) };
 }
 
-/** Ad income collected in a month (YYYY-MM): what paid campaigns spent. */
+// ---------------------------------------------------------------------------
+// Learning ads: the teacher's share of each billed view after their lesson
+// ---------------------------------------------------------------------------
+
+export const LESSON_POINTS = { view: 1, finished: 3, like: 5, thanks: 10 };
+
+/**
+ * The teachers' share of a month's Learning ads (YYYY-MM), split by points from their lessons' popularity that month.
+ * An estimate until the month is over; closeMonth writes it down.
+ */
+export function teacherPool(period) {
+  const pool = learnSpent(period) * adSettings().teacherShare;
+  const lessons = new Map();
+  const add = (rows, field) => {
+    for (const r of rows) {
+      const l = lessons.get(r.lesson_id) ?? { lessonId: r.lesson_id, teacherId: r.teacher_id, title: r.title, views: 0, finished: 0, likes: 0, thanks: 0 };
+      l[field] += r.n;
+      lessons.set(r.lesson_id, l);
+    }
+  };
+  const month = `${period}%`;
+  add(db.prepare('select v.lesson_id, l.user_id as teacher_id, l.title, sum(v.views) as n from lesson_view_days v join lessons l on l.id = v.lesson_id where v.day like ? group by v.lesson_id').all(month), 'views');
+  add(db.prepare('select d.lesson_id, l.user_id as teacher_id, l.title, count(*) as n from lesson_done d join lessons l on l.id = d.lesson_id where d.done_at like ? and d.user_id != l.user_id group by d.lesson_id').all(month), 'finished');
+  add(db.prepare('select k.lesson_id, l.user_id as teacher_id, l.title, count(*) as n from lesson_likes k join lessons l on l.id = k.lesson_id where k.created_at like ? and k.user_id != l.user_id group by k.lesson_id').all(month), 'likes');
+  add(db.prepare('select d.lesson_id, l.user_id as teacher_id, l.title, count(*) as n from lesson_done d join lessons l on l.id = d.lesson_id where d.thanked_at like ? and d.user_id != l.user_id group by d.lesson_id').all(month), 'thanks');
+  const P = LESSON_POINTS;
+  const teachers = new Map();
+  for (const l of lessons.values()) {
+    l.points = l.views * P.view + l.finished * P.finished + l.likes * P.like + l.thanks * P.thanks;
+    const t = teachers.get(l.teacherId) ?? { userId: l.teacherId, views: 0, finished: 0, likes: 0, thanks: 0, points: 0, lessons: [] };
+    for (const k of ['views', 'finished', 'likes', 'thanks', 'points']) t[k] += l[k];
+    t.lessons.push(l);
+    teachers.set(l.teacherId, t);
+  }
+  const totalPoints = [...teachers.values()].reduce((s, t) => s + t.points, 0);
+  const rows = [...teachers.values()].map((t) => ({
+    ...t,
+    amount: totalPoints ? Math.floor((pool * t.points) / totalPoints * 100) / 100 : 0,
+    lessons: t.lessons.sort((a, b) => b.points - a.points).map((l) => ({ ...l, amount: totalPoints ? Math.floor((pool * l.points) / totalPoints * 100) / 100 : 0 })),
+  })).sort((a, b) => b.points - a.points);
+  return { period, pool: Math.round(pool * 100) / 100, totalPoints, rows };
+}
+
+/** One teacher's part of a month's pool, with the points behind it. */
+export function teacherEarnings(userId, period) {
+  const all = teacherPool(period);
+  const mine = all.rows.find((r) => r.userId === userId);
+  return { period, pool: all.pool, totalPoints: all.totalPoints, points: mine?.points ?? 0, views: mine?.views ?? 0, finished: mine?.finished ?? 0, likes: mine?.likes ?? 0, thanks: mine?.thanks ?? 0, amount: mine?.amount ?? 0, lessons: mine?.lessons ?? [] };
+}
+
+const isLearn = "c.placements like '%\"learn\"%'";
+
+/** Ad income collected in a month (YYYY-MM) for the creators' pool: what Feed and Explore campaigns spent. Learning
+ * ads are left out — 60% of them already goes to the teachers. */
 export function adIncome(period) {
-  return db.prepare("select coalesce(sum(spent), 0) as n from ad_stats where substr(day, 1, 7) = ?").get(period).n;
+  return db.prepare(`select coalesce(sum(s.spent), 0) as n from ad_stats s join ad_campaigns c on c.id = s.campaign_id where substr(s.day, 1, 7) = ? and not (${isLearn})`).get(period).n;
+}
+
+function learnSpent(period) {
+  return db.prepare(`select coalesce(sum(s.spent), 0) as n from ad_stats s join ad_campaigns c on c.id = s.campaign_id where substr(s.day, 1, 7) = ? and ${isLearn}`).get(period).n;
+}
+
+/** What Learning ads brought in a month, and the teachers' part of it. */
+export function learnIncome(period) {
+  const spent = learnSpent(period);
+  return { spent: Math.round(spent * 100) / 100, teachers: Math.round(spent * adSettings().teacherShare * 100) / 100 };
 }
 
 /** Each approved creator's share of the month's pool (an estimate until the month is over). */
@@ -263,6 +342,14 @@ export function closeMonth(period) {
     if (r.amount <= 0) continue;
     const done = db.prepare('insert or ignore into payouts (id, user_id, period, amount, breakdown, created_at) values (?, ?, ?, ?, ?, ?)')
       .run(randomUUID(), r.userId, period, r.amount, json({ views: r.views, sales: r.sales, followers: r.followers, points: r.points, totalPoints, pool }), now());
+    created += done.changes;
+  }
+  // Teachers' Learning-ad earnings: a payout of their own, kept apart from the creators' pool (period "YYYY-MM-learn").
+  const teachers = teacherPool(period);
+  for (const t of teachers.rows) {
+    if (t.amount <= 0) continue;
+    const done = db.prepare('insert or ignore into payouts (id, user_id, period, amount, breakdown, created_at) values (?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), t.userId, `${period}-learn`, t.amount, json({ kind: 'learn', views: t.views, finished: t.finished, likes: t.likes, thanks: t.thanks, points: t.points, totalPoints: teachers.totalPoints, pool: teachers.pool }), now());
     created += done.changes;
   }
   return created;

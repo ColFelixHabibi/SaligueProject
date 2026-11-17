@@ -18,7 +18,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Bookmark, ChevronRight, Coins, FileText, HandCoins, Layers, LayoutDashboard, LogOut, MessageCircle, Package, PlusSquare, Radio, Settings, ShieldCheck, Store, TrendingUp, UserPlus } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
-import { BadgeCheck, Eye, GraduationCap, Share2, Smartphone } from 'lucide-react';
+import { BadgeCheck, Eye, GraduationCap, Share2, Smartphone, Wallet } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -147,6 +147,7 @@ export default function MePage() {
           </>
         )}
         {user && on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
+        {user && <Tile href="/wallet" icon={Wallet} label="Wallet" />}
         {user && on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
         {user && <Tile href="/invite" icon={UserPlus} label="Bring a shop" />}
         {user && on('lessons') && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}

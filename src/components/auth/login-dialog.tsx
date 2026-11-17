@@ -21,6 +21,7 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
 import { loginWithEmail } from '@/lib/auth-actions';
 import { GoogleButton } from './google-button';
+import { SuspendedPanel, type SuspendedProof } from './suspended-panel';
 import Link from 'next/link';
 import { ScrollArea } from '../ui/scroll-area';
 
@@ -43,6 +44,8 @@ export function LoginDialog({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  // A suspended account is told why and until when, and can ask for a review, right here.
+  const [suspended, setSuspended] = useState<{ message: string; proof: SuspendedProof } | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +55,10 @@ export function LoginDialog({
       await loginWithEmail(email, password);
       onOpenChange(false);
     } catch (error: any) {
+      if (error?.code === 'suspended') {
+        setSuspended({ message: error.message, proof: { email, password } });
+        return;
+      }
       toast({
         variant: 'destructive',
         title: t('Login Failed'),
@@ -82,6 +89,7 @@ export function LoginDialog({
                     </DialogDescription>
                 </DialogHeader>
                 <CardContent className="p-6">
+                    {suspended ? <SuspendedPanel message={suspended.message} proof={suspended.proof} onBack={() => setSuspended(null)} /> : <>
                     <div className="space-y-6">
                         <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-2">
@@ -106,7 +114,7 @@ export function LoginDialog({
                         <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? t('Logging in…') : t('Log In')}</Button>
                         </form>
                         {/* No date is collected here: a brand-new Google account is asked for it inside the button. */}
-                        <GoogleButton onDone={() => onOpenChange(false)} />
+                        <GoogleButton onDone={() => onOpenChange(false)} onSuspended={(message, credential) => setSuspended({ message, proof: { credential } })} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         {t("Don't have an account?")}{' '}
@@ -114,6 +122,7 @@ export function LoginDialog({
                             {t('Sign up')}
                         </button>
                     </div>
+                    </>}
                 </CardContent>
             </Card>
         </ScrollArea>
