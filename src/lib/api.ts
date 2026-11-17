@@ -11,12 +11,54 @@ const CONFIGURED_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/
 // is the only real one. The website is untouched: its own origin really does serve /api, and a dev server on
 // localhost is not the app.
 let cachedOrigin: string | null = null;
+const onDevice = () => typeof window !== 'undefined' && isNativeApp() && /^(https?|capacitor):\/\/localhost(:\d+)?$/.test(window.location.origin);
+// The server's address can change (a Cloudflare quick tunnel gets a new name when it restarts), and an installed app
+// would then talk to an address that no longer exists. So the app remembers the address the server last gave it,
+// and when that one stops answering it asks the fixed address (the server's own, the one live video already uses)
+// where Saligue is now (rediscover below).
+const SERVER_KEY = 'saligue-server';
+const FIXED_ORIGIN = (process.env.NEXT_PUBLIC_FIXED_URL || 'https://78-47-151-100.sslip.io').replace(/\/+$/, '');
 function apiOrigin() {
   if (cachedOrigin === null) {
-    const onDevice = isNativeApp() && /^(https?|capacitor):\/\/localhost(:\d+)?$/.test(window.location.origin);
-    cachedOrigin = (CONFIGURED_ORIGIN || (onDevice ? (process.env.NEXT_PUBLIC_SITE_URL ?? '') : '')).replace(/\/+$/, '');
+    let remembered: string | null = null;
+    if (onDevice()) {
+      try {
+        remembered = localStorage.getItem(SERVER_KEY);
+      } catch {
+        // Storage blocked: the built-in address.
+      }
+    }
+    cachedOrigin = (remembered || CONFIGURED_ORIGIN || (onDevice() ? (process.env.NEXT_PUBLIC_SITE_URL ?? '') : '')).replace(/\/+$/, '');
   }
   return cachedOrigin;
+}
+
+let lastLook = 0;
+/**
+ * Inside the app, after a request found nobody at the usual address: asks the fixed address where Saligue is now
+ * (at most once a minute). Returns true when the address changed, so the request can be tried again there.
+ */
+async function rediscover(): Promise<boolean> {
+  if (!onDevice() || Date.now() - lastLook < 60_000) return false;
+  lastLook = Date.now();
+  const limit = deadline(10_000);
+  try {
+    const response = await fetch(`${FIXED_ORIGIN}/api/site`, { signal: limit.signal });
+    const url = String(((await response.json()) as { url?: string })?.url ?? '').replace(/\/+$/, '');
+    if (!/^https:\/\/[\w.-]+$/.test(url) || url === apiOrigin()) return false;
+    cachedOrigin = url;
+    try {
+      localStorage.setItem(SERVER_KEY, url);
+    } catch {
+      // Storage blocked: the new address lasts until the app is closed.
+    }
+    if (source) connect();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    limit.clear();
+  }
 }
 const TOKEN_KEY = 'saligue-session';
 
@@ -81,6 +123,16 @@ export function setToken(token: string | null) {
 // (signing in at start): on some networks a request stalls instead of failing (HTTP/3 packets dropped part-way),
 // and without a limit the page waits forever.
 export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
+  try {
+    return await request<T>(path, options);
+  } catch (error) {
+    // Nobody at the usual address: once the app has found where Saligue is now, the same request goes there.
+    if (error instanceof ApiError && (error.code === 'unavailable' || error.code === 'timeout') && (await rediscover())) return request<T>(path, options);
+    throw error;
+  }
+}
+
+async function request<T>(path: string, options: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
   const token = getToken();
   // Turned into JSON before the request: a body that cannot be written is a bug here, never a broken connection.
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);

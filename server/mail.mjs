@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nodemailer from 'nodemailer';
 import { DATA_DIR, db, parse } from './db.mjs';
+import { tunnelUrl } from './tunnel.mjs';
 
 function settings() {
   const saved = parse(db.prepare("select value from app_config where key = 'mail'").get()?.value) ?? {};
@@ -17,7 +18,8 @@ function settings() {
 /** Public address of the website, used in links inside emails (never taken from the request). */
 export function siteUrl() {
   const saved = parse(db.prepare("select value from app_config where key = 'site'").get()?.value);
-  return (process.env.SITE_URL || saved?.url || `http://localhost:${process.env.PORT || 8080}`).replace(/\/+$/, '');
+  // A quick tunnel that restarted under a new name (tunnel.mjs) wins over the SITE_URL it replaced.
+  return (tunnelUrl() || process.env.SITE_URL || saved?.url || `http://localhost:${process.env.PORT || 8080}`).replace(/\/+$/, '');
 }
 
 let transport = null;

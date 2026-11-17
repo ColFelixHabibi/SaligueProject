@@ -2606,6 +2606,16 @@ describe('the Saligue balance', () => {
   });
 });
 
+// Installed apps ask the fixed address where Saligue is now when their usual address stops answering
+// (src/lib/api.ts → rediscover); this answers it.
+describe('where Saligue is', () => {
+  test('/api/site gives the current public address', async () => {
+    const r = await call('/site');
+    assert.equal(r.status, 200);
+    assert.equal(r.json.url, base);
+  });
+});
+
 // Deleting an account deletes everything related; only money records stay, without the person.
 describe('deleting an account', () => {
   test('removes the shop, its items, lessons, comments and follows; keeps orders without the name', async () => {

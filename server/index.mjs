@@ -17,6 +17,7 @@ import { accessToken, closeRoom, liveSettings, recorderReady, recordingStatus, r
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
 import { balanceOf, beingSent, cancelWithdrawal, decideWithdrawal, heldBecause, markSending, nextPayday, queuedForPayday, requestWithdrawal, runPayday, saveWalletRules, syncWallets, waitingToSend, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
+import { checkTunnel } from './tunnel.mjs';
 import { connectSignIns, recordSignIn, signInOverview, signInsOf } from './signins.mjs';
 import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
@@ -5744,6 +5745,20 @@ route('GET', '/api/creator', ({ user }) => {
       .map((p) => ({ id: p.id, period: p.period, amount: p.amount, status: p.status, paidAt: p.paid_at, breakdown: parse(p.breakdown) })),
   };
 });
+
+// Where Saligue is now. Installed apps ask this at the fixed address when their usual address stops answering
+// (src/lib/api.ts → rediscover), so a quick tunnel that restarted under a new name does not cut them off.
+route('GET', '/api/site', () => ({ url: siteUrl() }));
+
+// The quick tunnel's address, checked every minute (tunnel.mjs): a new name is used at once, and admins are told.
+const watchTunnel = () => checkTunnel((url, before) => {
+  console.log(`Public address changed: ${before} → ${url}`);
+  for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%platform%')").all()) {
+    notify(id, { type: 'account', title: 'Saligue has a new public address', body: `The Cloudflare tunnel restarted: ${url}. Installed apps find it by themselves. A real domain ends these changes (deploy/switch-domain.sh).`, link: '/admin', email: true });
+  }
+});
+setTimeout(watchTunnel, 15_000).unref();
+setInterval(watchTunnel, 60_000).unref();
 
 // A teacher's part of the Learning ads pool: this month so far (an estimate) and last month, with the points behind it.
 // It goes into their Saligue balance when the month closes.
