@@ -139,7 +139,7 @@ export const DEFAULT_POLICIES: Record<PolicyKey, Policy> = {
               'A Learning ad is shown full screen in Learn, between two lessons: never before the third lesson, never more than one in every five, and never over a lesson that is playing. It is an ad of its own, chosen instead of For You and Explore.',
               'Because it reaches people who are learning about fashion, a view of a Learning ad costs five times the usual price per 1,000 views. Both prices are shown before you pay.',
               '60% of what Learning ads earn each month is shared among teachers by the popularity of their lessons that month — 1 point per view, 3 per lesson watched to the end, 5 per like and 10 per thank-you, from other people — and Saligue keeps 40%. It goes into each teacher’s Saligue balance when the month closes. A teacher’s own views and likes never count, and a shop’s ad is never shown after its own lessons.',
-              'Everything a person earns on Saligue (tips, Share & earn, monetization and Learning ads) is kept in their Saligue balance in US dollars and can be withdrawn by Mobile Money at any time once it reaches $50.',
+              'Everything a person earns on Saligue (tips, Share & earn, monetization and Learning ads) is kept in their Saligue balance in US dollars. Every month on payday (the 21st), a balance of $50 or more is paid in full to the Mobile Money number on the account, without asking; below $50 it carries over to the next payday. A payment is held, never lost, while the account has no Mobile Money number, is suspended, or payouts are paused, and goes out on the next payday after that.',
             ],
           },
           {

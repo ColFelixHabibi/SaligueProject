@@ -623,17 +623,9 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   // The Saligue balance and withdrawals (src/components/wallet-card.tsx).
   'My balance': ['Amafaranga yanjye', 'Mon solde'],
   Wallet: ['Ikofi', 'Portefeuille'],
-  'Everything you earn on Saligue, in dollars. Withdraw any time from': ['Ibyo winjiza byose kuri Saligue, mu madolari. Bikure igihe cyose uhereye kuri', 'Tout ce que vous gagnez sur Saligue, en dollars. Retirez quand vous voulez à partir de'],
   Available: ['Birahari', 'Disponible'],
   'still on its way (this month, sales not delivered yet)': ['biracyaza (uku kwezi, ibyagurishijwe bitarageza)', 'encore en route (ce mois-ci, ventes pas encore livrées)'],
   'Being sent to': ['Biroherezwa kuri', 'En cours d’envoi vers'],
-  Amount: ['Umubare', 'Montant'],
-  Withdraw: ['Kura amafaranga', 'Retirer'],
-  'more to withdraw': ['ni byo bisigaye ngo ukure', 'de plus pour retirer'],
-  'Withdrawal asked': ['Gusaba gukura byoherejwe', 'Retrait demandé'],
-  'Saligue sends it to your Mobile Money and tells you when it is done.': ['Saligue iyohereza kuri Mobile Money yawe ikakumenyesha byarangiye.', 'Saligue l’envoie sur votre Mobile Money et vous prévient une fois fait.'],
-  'Not asked': ['Ntibyasabwe', 'Non demandé'],
-  Withdrawals: ['Ibyo wakuye', 'Retraits'],
   'Not sent': ['Ntibyoherejwe', 'Non envoyé'],
   'Being sent': ['Biroherezwa', 'En cours d’envoi'],
   History: ['Amateka', 'Historique'],
@@ -650,6 +642,13 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   // An app too old for the server (src/components/app-update.tsx).
   'Update Saligue to continue': ['Vugurura Saligue kugira ngo ukomeze', 'Mettez Saligue à jour pour continuer'],
   'This version is too old for the new Saligue. The update keeps your account and everything in it.': ['Iyi verisiyo ishaje cyane kuri Saligue nshya. Kuvugurura bigumana konti yawe n’ibiyirimo byose.', 'Cette version est trop ancienne pour le nouveau Saligue. La mise à jour garde votre compte et tout son contenu.'],
+  'Everything you earn on Saligue, in dollars. Paid every month on payday once it reaches': ['Ibyo winjiza byose kuri Saligue, mu madolari. Wishyurwa buri kwezi ku munsi wo kwishyurwa iyo bigeze kuri', 'Tout ce que vous gagnez sur Saligue, en dollars. Payé chaque mois le jour de paie dès qu’il atteint'],
+  'Next payday': ['Umunsi wo kwishyurwa ukurikira', 'Prochain jour de paie'],
+  'more to reach the minimum. What you earn carries over to the next payday.': ['ni byo bisigaye ngo ugere ku gipimo gito. Ibyo winjiza bisigara ku munsi wo kwishyurwa ukurikira.', 'de plus pour atteindre le minimum. Vos gains sont reportés au prochain jour de paie.'],
+  'will be paid to your Mobile Money, nothing to do.': ['bizishyurwa kuri Mobile Money yawe, nta cyo ugomba gukora.', 'sera payé sur votre Mobile Money, rien à faire.'],
+  'Paid to': ['Bishyurwa kuri', 'Payé sur'],
+  Change: ['Hindura', 'Changer'],
+  Payments: ['Ubwishyu', 'Paiements'],
 };
 
 const KEY = 'saligue-lang';

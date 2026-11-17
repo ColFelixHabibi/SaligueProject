@@ -88,3 +88,44 @@ export function webhookIsGenuine(header) {
   const b = Buffer.from(secretHash);
   return a.length === b.length && timingSafeEqual(a, b);
 }
+
+// ---------------------------------------------------------------------------
+// Sending money out (paydays, wallet.mjs): Flutterwave Transfers to Mobile Money. Used only when automatic sending is
+// switched on (Admin → Money → Payday). FLW_MOMO_BANK is Flutterwave's code for the Mobile Money network in the
+// payout country ("MPS" for Rwanda mobile money, as Flutterwave documents it; confirm it on the dashboard).
+// ---------------------------------------------------------------------------
+
+/** A Rwandan number as Flutterwave wants it: country code, no plus or spaces (0788… → 250788…). */
+export function momoNumber(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.startsWith('250')) return digits;
+  if (digits.startsWith('0')) return `250${digits.slice(1)}`;
+  return digits.length === 9 ? `250${digits}` : digits;
+}
+
+/** Whether money can go out by itself: a Flutterwave key and an exchange rate for the payout currency. */
+export const transfersReady = () => paymentsEnabled();
+
+/** Sends `dollars` to a Mobile Money number. Returns Flutterwave's transfer id; the answer comes later. */
+export async function sendMobileMoney({ reference, dollars, number, name, narration }) {
+  const { currency } = paymentSettings();
+  const data = await flutterwave('/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      account_bank: process.env.FLW_MOMO_BANK || 'MPS',
+      account_number: momoNumber(number),
+      amount: currency === 'USD' ? dollars : Math.floor(dollars * paymentSettings().rate),
+      currency,
+      beneficiary_name: name,
+      narration: narration || 'Saligue payment',
+      reference,
+    }),
+  });
+  return data.id;
+}
+
+/** Where a transfer stands: 'SUCCESSFUL', 'FAILED', or still 'NEW' / 'PENDING'. */
+export async function transferStatus(id) {
+  const data = await flutterwave(`/transfers/${encodeURIComponent(id)}`);
+  return { status: String(data.status ?? '').toUpperCase(), message: data.complete_message ?? '' };
+}

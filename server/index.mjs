@@ -6,7 +6,7 @@ import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, 
 import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
-import { findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
+import { sendMobileMoney, transferStatus, transfersReady, findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, REALISTIC_QUALITIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tellStudio, tryOn, unlimitedTryOn, whenPaidTryOnDown } from './tryon.mjs';
 import { moveImagesToFiles, releaseMedia, serveMedia, storeImage, sweepMedia } from './media.mjs';
 import { MAX_REPLAY_BYTES, processReplay, serverRecordingFile, processVideo, receiveUpload, replayFile, storeVoice } from './video.mjs';
@@ -16,7 +16,7 @@ import { learn, productsChanged } from './learn.mjs';
 import { accessToken, closeRoom, liveSettings, recorderReady, recordingStatus, removeParticipant, startRecording, stopRecording } from './live.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { countryOfIp } from './geo.mjs';
-import { balanceOf, decideWithdrawal, requestWithdrawal, syncWallets, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
+import { balanceOf, beingSent, decideWithdrawal, heldBecause, markSending, nextPayday, runPayday, saveWalletRules, syncWallets, waitingToSend, walletOf, walletRules, withdrawalsWaiting } from './wallet.mjs';
 import { connectSignIns, recordSignIn, signInOverview, signInsOf } from './signins.mjs';
 import { fcmReady, pushTo, removePushTarget, savePushTarget, webPushKey } from './push.mjs';
 import { fileURLToPath } from 'node:url';
@@ -881,9 +881,9 @@ route('POST', '/api/auth/me/delete', ({ user, body }) => {
   if (open) fail(409, 'open_orders', `You have ${open} order${open === 1 ? '' : 's'} still on the way. Finish or cancel them first.`);
   // Money that is theirs is not deleted with the account: they withdraw it first.
   syncWallets();
-  if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(user.id)) fail(409, 'open_withdrawal', 'A withdrawal is still being sent to you. Wait until it arrives, then delete your account.');
+  if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(user.id)) fail(409, 'open_withdrawal', 'A payment is still being sent to you. Wait until it arrives, then delete your account.');
   const balance = balanceOf(user.id);
-  if (balance >= walletRules().minimum) fail(409, 'balance', `You still have ${money(balance)} in your Saligue balance. Withdraw it first (Wallet), then delete your account.`);
+  if (balance >= walletRules().minimum) fail(409, 'balance', `You still have ${money(balance)} in your Saligue balance. It is paid to you on ${nextPayday()}; delete your account after that.`);
   eraseAccount(user);
   return { ok: true };
 });
@@ -2792,6 +2792,14 @@ route('POST', '/api/payments/verify', async ({ user, body }) => {
 route('POST', '/api/payments/webhook', async ({ req, body }) => {
   if (!webhookIsGenuine(req.headers['verif-hash'])) fail(401, 'forbidden', 'Invalid signature.');
   const data = body?.data ?? body ?? {};
+  // A payday transfer's answer (wallet.mjs): paid, or back to the balance.
+  const transfer = /^SAL-W-([\w-]+)$/.exec(String(data.reference ?? ''));
+  if (transfer) {
+    const status = String(data.status ?? '').toUpperCase();
+    if (status === 'SUCCESSFUL') finishPayment(transfer[1], 'paid', { reference: `FLW-${data.id ?? ''}`, by: 'partner' });
+    else if (status === 'FAILED') finishPayment(transfer[1], 'rejected', { note: data.complete_message || 'The Mobile Money network refused it.', by: 'partner' });
+    return { ok: true };
+  }
   const payment = db.prepare('select * from payments where id = ?').get(String(data.tx_ref ?? data.txRef ?? ''));
   if (payment && data.id) await settle(payment, { transactionId: String(data.id) });
   return { ok: true };
@@ -5744,69 +5752,123 @@ route('GET', '/api/teacher/earnings', ({ user }) => {
   return { share: adSettings().teacherShare, points: LESSON_POINTS, thisMonth: teacherEarnings(user.id, period()), lastMonth: teacherEarnings(user.id, period(-1)) };
 });
 
-// The Saligue balance (wallet.mjs): every earning in dollars, withdrawn by Mobile Money at any time from the minimum.
+// The Saligue balance (wallet.mjs): every earning in dollars, paid on payday to everyone who is due — like YouTube,
+// nobody asks and nobody approves.
 const momoOf = (userId) => db.prepare('select momo_number as number, momo_name as name from tip_accounts where user_id = ?').get(userId)
   ?? db.prepare('select momo_number as number, momo_name as name from creators where user_id = ?').get(userId) ?? null;
 route('GET', '/api/me/wallet', ({ user }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  const wallet = walletOf(user.id);
   const month = earnings(period()).rows.find((r) => r.userId === user.id)?.amount ?? 0;
   const teaching = teacherEarnings(user.id, period()).amount;
   const { rate, currency } = paymentSettings();
   return {
-    ...walletOf(user.id),
+    ...wallet,
+    // What would stop payment on the next payday, said now so it can be fixed in time.
+    held: wallet.balance >= wallet.minimum ? heldBecause(user.id, wallet.balance, { refused: payoutRefused, momoOf }) : null,
     // Still on its way: this month's estimates, and Share & earn sales not delivered or checked yet.
     coming: { monetization: month, teaching, shares: sharesOf(user.id).pending },
     momo: momoOf(user.id),
-    payout: payoutState(),
     local: { currency, rate },
   };
 });
-route('POST', '/api/me/wallet/withdraw', ({ user, body }) => {
+// Where the money goes: the Mobile Money number on the account (also used for tips).
+route('PUT', '/api/me/wallet/momo', ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
-  const momo = body.momoNumber ? { number: String(body.momoNumber).trim(), name: String(body.momoName ?? '').trim() } : momoOf(user.id);
-  let w;
-  try {
-    w = requestWithdrawal(user.id, body.amount, momo, payoutRefused);
-  } catch (error) {
-    if (error.code) fail(error.status ?? 400, error.code, error.message);
-    throw error;
-  }
-  // The number used is remembered for next time.
-  db.prepare('insert into tip_accounts (user_id, momo_number, momo_name) values (?, ?, ?) on conflict(user_id) do update set momo_number = excluded.momo_number, momo_name = excluded.momo_name').run(user.id, w.momoNumber, w.momoName);
-  for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%money%')").all()) {
-    notify(id, { type: 'sale', title: `Withdrawal asked: ${money(w.amount)}`, body: `${personNameOf(user)} → ${w.momoNumber}`, link: '/admin', email: false });
-  }
-  return { withdrawal: w, ...walletOf(user.id) };
+  const number = String(body.momoNumber ?? '').trim().slice(0, 30);
+  const name = String(body.momoName ?? '').trim().slice(0, 80);
+  if (number.replace(/\D/g, '').length < 9 || name.length < 2) fail(400, 'invalid', 'Enter your Mobile Money number and the name on it.');
+  db.prepare('insert into tip_accounts (user_id, momo_number, momo_name) values (?, ?, ?) on conflict(user_id) do update set momo_number = excluded.momo_number, momo_name = excluded.momo_name').run(user.id, number, name);
+  return { ok: true };
 });
+
 route('GET', '/api/admin/withdrawals', ({ user }) => {
   requireAdmin(user, 'money');
   const { rate, currency } = paymentSettings();
   return {
-    payout: payoutState(), minimum: walletRules().minimum, local: { currency, rate },
-    waiting: withdrawalsWaiting().map((w) => {
-      const refused = payoutRefused(w.userId, w.amount);
-      return { ...w, balanceAfter: balanceOf(w.userId), blocked: refused?.code ?? null, why: refused?.message ?? null };
-    }),
+    rules: walletRules(), nextPayday: nextPayday(), transfersReady: transfersReady(), payout: payoutState(), local: { currency, rate },
+    waiting: withdrawalsWaiting().map((w) => ({ ...w, sending: !!db.prepare('select transfer_id from withdrawals where id = ?').get(w.id)?.transfer_id })),
   };
 });
+// Payday settings: the day, the minimum, and whether money goes out through the payment partner by itself.
+route('PUT', '/api/admin/wallet', ({ user, body }) => {
+  requireAdmin(user, 'money');
+  if (body.autoSend === true && !transfersReady()) fail(400, 'no_partner', 'Automatic sending needs the Flutterwave key and exchange rate first (Platform → Payments).');
+  const rules = saveWalletRules(body);
+  logAdmin(user, 'payday settings', JSON.stringify(rules));
+  return { rules, nextPayday: nextPayday() };
+});
+// Without automatic sending, whoever sends Mobile Money records the result: sent (with its reference), or not
+// possible (the money goes back to the balance and is tried on the next payday). There is nothing to approve.
 route('POST', '/api/admin/withdrawals/([\\w-]+)', ({ user, params, body }) => {
   requireAdmin(user, 'money');
-  const decision = { paid: 'paid', reject: 'rejected' }[body.decision];
-  if (!decision) fail(400, 'invalid', 'Choose paid or reject.');
+  const decision = { paid: 'paid', failed: 'rejected' }[body.decision];
+  if (!decision) fail(400, 'invalid', 'Choose sent or failed.');
   const waiting = withdrawalsWaiting().find((w) => w.id === params[0]);
-  if (!waiting) fail(404, 'not_found', 'This withdrawal is not waiting.');
-  if (decision === 'paid') {
-    const refused = payoutRefused(waiting.userId, waiting.amount);
-    if (refused) fail(400, refused.code, refused.message);
-  }
+  if (!waiting) fail(404, 'not_found', 'This payment is not waiting.');
   const reference = String(body.reference ?? '').trim().slice(0, 80) || null;
   const note = String(body.note ?? '').trim().slice(0, 300) || null;
-  const w = decideWithdrawal(params[0], decision, { reference, note, by: user.id });
-  logAdmin(user, decision === 'paid' ? 'withdrawal sent' : 'withdrawal refused', `${waiting.email}: ${money(waiting.amount)}${reference ? ` (${reference})` : ''}`);
-  notify(w.userId, decision === 'paid'
-    ? { type: 'sale', title: `${money(w.amount)} sent to your Mobile Money`, body: `To ${w.momoNumber}${reference ? ` · reference ${reference}` : ''}.`, link: '/wallet' }
-    : { type: 'sale', title: 'Your withdrawal was not sent', body: `${note ?? 'Please check your Mobile Money details.'} ${money(w.amount)} is back in your balance.`, link: '/wallet' });
+  finishPayment(params[0], decision, { reference, note, by: user.id });
+  logAdmin(user, decision === 'paid' ? 'payment sent' : 'payment failed', `${waiting.email}: ${money(waiting.amount)}${reference ? ` (${reference})` : ''}`);
   return { ok: true };
+});
+function finishPayment(id, decision, { reference = null, note = null, by }) {
+  const w = decideWithdrawal(id, decision, { reference, note, by });
+  if (!w) return;
+  notify(w.userId, decision === 'paid'
+    ? { type: 'sale', title: `${money(w.amount)} paid to your Mobile Money`, body: `To ${w.momoNumber}${reference ? ` · reference ${reference}` : ''}.`, link: '/wallet' }
+    : { type: 'sale', title: 'Your payment could not be sent', body: `${note ?? 'Please check your Mobile Money number and name.'} ${money(w.amount)} is back in your balance and goes out on the next payday.`, link: '/wallet' });
+}
+
+// Payday, checked every hour: once a month, everyone due is paid; then, with automatic sending on, each payment goes
+// to the partner and its answer is collected (the webhook below usually brings it first).
+let paydayBusy = false;
+async function payday() {
+  if (paydayBusy) return;
+  paydayBusy = true;
+  try {
+    const { ran, paid, held } = runPayday({ refused: payoutRefused, momoOf });
+    if (ran) {
+      for (const p of paid) notify(p.userId, { type: 'sale', title: `Payday: ${money(p.amount)} is on its way`, body: `To your Mobile Money ${p.momoNumber}.`, link: '/wallet' });
+      for (const h of held) notify(h.userId, { type: 'sale', title: `Payday: ${money(h.amount)} is waiting for you`, body: `${h.message} It goes out on the next payday.`, link: '/wallet' });
+      if (paid.length) {
+        for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%money%')").all()) {
+          notify(id, { type: 'sale', title: `Payday: ${paid.length} payment(s), ${money(paid.reduce((t, p) => t + p.amount, 0))}`, body: walletRules().autoSend ? 'Sent through the payment partner.' : 'Send them by Mobile Money and record each one (Admin → Money).', link: '/admin', email: true });
+        }
+      }
+      console.log(`Payday: ${paid.length} paid, ${held.length} held.`);
+    }
+    if (walletRules().autoSend && transfersReady()) {
+      for (const w of waitingToSend()) {
+        try {
+          markSending(w.id, await sendMobileMoney({ reference: `SAL-W-${w.id}`, dollars: w.amount, number: w.momo_number, name: w.momo_name, narration: `Saligue payday ${w.run ?? ''}`.trim() }));
+        } catch (error) {
+          console.error(`Payday transfer ${w.id} not sent:`, error.message);
+        }
+      }
+      for (const w of beingSent()) {
+        try {
+          const t = await transferStatus(w.transfer_id);
+          if (t.status === 'SUCCESSFUL') finishPayment(w.id, 'paid', { reference: `FLW-${w.transfer_id}`, by: 'partner' });
+          else if (t.status === 'FAILED') finishPayment(w.id, 'rejected', { note: t.message || 'The Mobile Money network refused it.', by: 'partner' });
+        } catch (error) {
+          console.error(`Payday transfer ${w.id} not checked:`, error.message);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Payday:', error);
+  } finally {
+    paydayBusy = false;
+  }
+}
+setTimeout(() => void payday(), 60_000).unref();
+setInterval(() => void payday(), HOUR_MS).unref();
+// Admins can run it at once (it still pays only once a month, and only from the payday on).
+route('POST', '/api/admin/wallet/run', async ({ user }) => {
+  requireAdmin(user, 'money');
+  await payday();
+  return { ok: true, nextPayday: nextPayday() };
 });
 
 // Months close by themselves: on any day of a new month, last month's creator and teacher shares are written down

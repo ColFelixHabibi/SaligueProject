@@ -415,7 +415,7 @@ const WAITING: Record<string, { label: string; icon: LucideIcon }> = {
   verifications: { label: 'Verification requests', icon: BadgeCheck },
   reviews: { label: 'Suspended people asking for a review', icon: Scale },
   closures: { label: 'Closures waiting for your check', icon: UserCog },
-  withdrawals: { label: 'Withdrawals to send', icon: Wallet },
+  withdrawals: { label: 'Payday payments to send', icon: Wallet },
   appeals: { label: 'Appeals', icon: Scale },
   hidden: { label: 'Hidden after reports', icon: EyeOff },
   ads: { label: 'Ads to review', icon: Megaphone },

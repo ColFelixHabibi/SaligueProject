@@ -1,14 +1,15 @@
-// The Saligue balance: what a person has earned, kept in their account in dollars, withdrawn whenever they want once
-// it reaches the minimum (50 dollars unless an admin changes it).
-//
-// Money enters the balance once it is final, and only once (each entry has a unique `ref`):
-//   tip:<id>      a tip that was paid (the receiver's share)
-//   share:<id>    a Share & earn reward whose sale is delivered and paid
-//   payout:<id>   a closed month: a monetized creator's share, or a teacher's share of Learning ads
-// and leaves it when the person asks to withdraw (withdraw:<id>, negative). An admin then sends the money by Mobile
-// Money and marks it sent, or refuses it and the amount comes back (withdraw-back:<id>). Payout rules
-// (compliance.mjs: payouts open, identity, monthly limit) are checked when asking and again when sending; only money
-// really sent counts towards the monthly limit, as a row in `payouts`.
+// The Saligue balance: what a person has earned, kept in their account in dollars and paid out the way YouTube pays
+// its creators — on a set day, to everyone who is due, with nobody asking and nobody approving:
+//   - earnings become final and enter the balance (each exactly once, by its unique `ref`):
+//       tip:<id> a paid tip · share:<id> a delivered, paid Share & earn sale · payout:<id> a closed month
+//       (a monetized creator's share, or a teacher's part of Learning ads; months close on the 1st);
+//   - on payday (the 21st unless an admin changes it) every account whose balance has reached the minimum ($50) is
+//     paid all of it to the Mobile Money number on its account (runPayday). Below the minimum, it carries over;
+//   - a payment is held, never lost, while something is missing: no Mobile Money number, a suspended account, or a
+//     payout rule (compliance.mjs: payouts open, identity checked, monthly limit). It goes out on the next payday;
+//   - with automatic sending on, the money goes out through the payment partner by itself; otherwise the list waits
+//     for whoever sends Mobile Money, who only records what was sent. A payment that fails (wrong number) comes back
+//     to the balance and is tried again next payday.
 import { randomUUID } from 'node:crypto';
 import { db, json, now, parse, transaction } from './db.mjs';
 import { earnedRewards } from './shares.mjs';
@@ -39,12 +40,44 @@ db.exec(`
   );
   create index if not exists withdrawals_status on withdrawals(status, created_at);
 `);
+// A payment carries the payday it belongs to, and the partner's transfer id once sent automatically.
+for (const [column, type] of [['run', 'text'], ['transfer_id', 'text']]) {
+  if (!db.prepare('pragma table_info(withdrawals)').all().some((c) => c.name === column)) db.exec(`alter table withdrawals add column ${column} ${type}`);
+}
 
 const r2 = (n) => Math.round(n * 100) / 100;
 
 export function walletRules() {
   const saved = parse(db.prepare("select value from app_config where key = 'wallet'").get()?.value) ?? {};
-  return { minimum: Number(saved.minimum ?? 50), currency: 'USD' };
+  return {
+    minimum: Number(saved.minimum ?? 50),
+    payday: Math.min(28, Math.max(1, Math.floor(Number(saved.payday ?? 21)))),
+    // Money goes out through the payment partner by itself (payments.mjs → sendMobileMoney) when switched on.
+    autoSend: saved.autoSend === true,
+    currency: 'USD',
+  };
+}
+
+export function saveWalletRules(body = {}) {
+  const before = walletRules();
+  const next = {
+    minimum: body.minimum === undefined ? before.minimum : Math.max(1, Math.round(Number(body.minimum) * 100) / 100 || before.minimum),
+    payday: body.payday === undefined ? before.payday : Math.min(28, Math.max(1, Math.floor(Number(body.payday) || before.payday))),
+    autoSend: body.autoSend === undefined ? before.autoSend : body.autoSend === true,
+  };
+  db.prepare("insert into app_config (key, value) values ('wallet', ?) on conflict(key) do update set value = excluded.value").run(json(next));
+  return walletRules();
+}
+
+const month = (d = new Date()) => d.toISOString().slice(0, 7);
+const lastRun = () => db.prepare("select value from app_config where key = 'wallet_last_run'").get()?.value ?? null;
+
+/** The next payday: this month's if it has not run yet, else next month's (YYYY-MM-DD). */
+export function nextPayday(today = new Date()) {
+  const { payday } = walletRules();
+  const done = lastRun() === month(today);
+  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + (done ? 1 : 0), payday));
+  return d.toISOString().slice(0, 10);
 }
 
 const credit = (userId, amount, kind, ref, note) =>
@@ -74,7 +107,7 @@ export function syncWallets() {
 
 export const balanceOf = (userId) => r2(db.prepare('select coalesce(sum(amount), 0) as n from wallet_entries where user_id = ?').get(userId).n);
 
-const KIND = { tip: 'Tip', share: 'Share & earn', creator: 'Monetization', teacher: 'Learning ads', withdrawal: 'Withdrawal', refund: 'Withdrawal returned' };
+const KIND = { tip: 'Tip', share: 'Share & earn', creator: 'Monetization', teacher: 'Learning ads', withdrawal: 'Payment', refund: 'Payment returned' };
 const withdrawalOut = (w) => ({ id: w.id, amount: w.amount, status: w.status, momoNumber: w.momo_number, momoName: w.momo_name, reference: w.reference, note: w.note, createdAt: w.created_at, decidedAt: w.decided_at });
 
 /** A person's balance, its lines and their withdrawals. */
@@ -87,7 +120,7 @@ export function walletOf(userId) {
   const open = withdrawals.find((w) => w.status === 'requested') ?? null;
   return {
     balance, minimum, currency, earned,
-    canWithdraw: balance >= minimum && !open,
+    nextPayday: nextPayday(),
     open,
     entries: db.prepare('select amount, kind, note, created_at from wallet_entries where user_id = ? order by created_at desc limit 100').all(userId)
       .map((e) => ({ amount: e.amount, kind: e.kind, label: KIND[e.kind] ?? e.kind, note: e.note, at: e.created_at })),
@@ -96,35 +129,61 @@ export function walletOf(userId) {
 }
 
 /**
- * Asks for `amount` (the whole balance when not given) to be sent by Mobile Money. `refused` is compliance.mjs's
- * payoutRefused. Throws an Error carrying { status, code }.
+ * Why this account would not be paid on payday, or null. `refused` is compliance.mjs's payoutRefused; `momoOf` finds
+ * the Mobile Money number on the account.
  */
-export function requestWithdrawal(userId, amount, momo, refused) {
-  syncWallets();
-  const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
-  const balance = balanceOf(userId);
-  const { minimum } = walletRules();
-  const want = r2(amount == null || amount === '' ? balance : Number(amount));
-  if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(userId)) throw refuse(400, 'open', 'Your last withdrawal is still being sent. You can ask again once it arrives.');
-  if (!(want >= minimum)) throw refuse(400, 'minimum', `The minimum withdrawal is $${minimum.toFixed(2)}.`);
-  if (want > balance + 0.001) throw refuse(400, 'balance', `Your balance is $${balance.toFixed(2)}.`);
-  if (!momo?.number || String(momo.number).replace(/\D/g, '').length < 9 || !momo.name) throw refuse(400, 'no_momo', 'Add the Mobile Money number and the name on it.');
-  const why = refused(userId, want);
-  if (why) throw refuse(400, why.code, why.message.replace(/ Nothing was paid\.?/, ''));
-  const id = randomUUID();
-  transaction(() => {
-    db.prepare('insert into withdrawals (id, user_id, amount, momo_number, momo_name, created_at) values (?, ?, ?, ?, ?, ?)').run(id, userId, want, String(momo.number).slice(0, 30), String(momo.name).slice(0, 80), now());
-    credit(userId, -want, 'withdrawal', `withdraw:${id}`, `To ${momo.number}`);
-  });
-  return withdrawalOut(db.prepare('select * from withdrawals where id = ?').get(id));
+export function heldBecause(userId, amount, { refused, momoOf }) {
+  const u = db.prepare('select suspended from users where id = ?').get(userId);
+  if (!u) return { code: 'gone', message: 'This account no longer exists.' };
+  if (u.suspended) return { code: 'suspended', message: 'Payments are held while the account is suspended.' };
+  if (!momoOf(userId)) return { code: 'no_momo', message: 'Add your Mobile Money number to be paid.' };
+  const why = refused(userId, amount);
+  return why ? { code: why.code, message: why.message.replace(/ Nothing was paid\.?/, '') } : null;
 }
+
+/**
+ * Payday: once a month, on or after the payday, every balance that reached the minimum is paid in full. Returns
+ * { ran, paid: [...], held: [...] }. Safe to call every hour; it runs once per month.
+ */
+export function runPayday({ refused, momoOf, today = new Date() }) {
+  const { payday, minimum } = walletRules();
+  const run = month(today);
+  if (today.getUTCDate() < payday || lastRun() === run) return { ran: false, paid: [], held: [] };
+  syncWallets();
+  const paid = [], held = [];
+  const due = db.prepare('select user_id, sum(amount) as balance from wallet_entries group by user_id having sum(amount) >= ?').all(minimum - 0.001);
+  transaction(() => {
+    for (const { user_id: userId, balance: raw } of due) {
+      const amount = r2(raw);
+      if (db.prepare("select 1 from withdrawals where user_id = ? and status = 'requested'").get(userId)) continue;
+      const why = heldBecause(userId, amount, { refused, momoOf });
+      if (why) {
+        held.push({ userId, amount, ...why });
+        continue;
+      }
+      const momo = momoOf(userId);
+      const id = randomUUID();
+      db.prepare('insert into withdrawals (id, user_id, amount, momo_number, momo_name, run, created_at) values (?, ?, ?, ?, ?, ?, ?)').run(id, userId, amount, String(momo.number).slice(0, 30), String(momo.name).slice(0, 80), run, now());
+      credit(userId, -amount, 'withdrawal', `withdraw:${id}`, `Payday ${run}, to ${momo.number}`);
+      paid.push({ id, userId, amount, momoNumber: momo.number });
+    }
+    db.prepare("insert into app_config (key, value) values ('wallet_last_run', ?) on conflict(key) do update set value = excluded.value").run(run);
+  });
+  return { ran: true, paid, held };
+}
+
+/** Payments of this payday not sent automatically yet. */
+export const waitingToSend = () => db.prepare("select * from withdrawals where status = 'requested' and transfer_id is null order by created_at").all();
+/** Payments handed to the partner, waiting for its answer. */
+export const beingSent = () => db.prepare("select * from withdrawals where status = 'requested' and transfer_id is not null").all();
+export const markSending = (id, transferId) => db.prepare('update withdrawals set transfer_id = ? where id = ?').run(String(transferId), id);
 
 /** Withdrawals waiting to be sent, oldest first (Admin → Money). */
 export const withdrawalsWaiting = () =>
   db.prepare("select w.*, u.display_name, u.email from withdrawals w join users u on u.id = w.user_id where w.status = 'requested' order by w.created_at").all()
     .map((w) => ({ ...withdrawalOut(w), userId: w.user_id, name: w.display_name || w.email, email: w.email }));
 
-/** An admin sent the money (`paid`, with the Mobile Money reference) or refused it (the amount goes back). */
+/** The money arrived (`paid`, with its reference), or it could not be sent (`rejected`: it comes back to the balance). */
 export function decideWithdrawal(id, decision, { reference = null, note = null, by }) {
   const w = db.prepare("select * from withdrawals where id = ? and status = 'requested'").get(id);
   if (!w) return null;
@@ -135,7 +194,7 @@ export function decideWithdrawal(id, decision, { reference = null, note = null, 
       db.prepare("insert into payouts (id, user_id, period, amount, breakdown, status, reference, paid_at, created_at) values (?, ?, ?, ?, ?, 'paid', ?, ?, ?)")
         .run(randomUUID(), w.user_id, `withdrawal-${w.id}`, w.amount, json({ kind: 'withdrawal' }), reference, now(), now());
     } else {
-      credit(w.user_id, w.amount, 'refund', `withdraw-back:${w.id}`, note || 'Withdrawal not sent');
+      credit(w.user_id, w.amount, 'refund', `withdraw-back:${w.id}`, note || 'Payment could not be sent');
     }
   });
   return { ...withdrawalOut(db.prepare('select * from withdrawals where id = ?').get(id)), userId: w.user_id };
