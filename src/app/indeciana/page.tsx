@@ -23,6 +23,8 @@ import { SoundChip } from '@/components/social/sound-chip';
 import { Price } from '@/components/price';
 import { OwnerItemActions } from '@/components/owner-item-actions';
 import { countView } from '@/lib/views';
+import { useBrand } from '@/lib/brand';
+import { useT } from '@/lib/i18n';
 
 // INDECIANA's logo, if provided (public/brand/indeciana-logo.png). The wordmark is shown otherwise.
 const LOGO = `${BASE_PATH}/brand/indeciana-logo.png`;
@@ -68,6 +70,8 @@ function IndecianaStore() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const [brand] = useBrand();
+  const t = useT();
   const add = async () => {
     if (!selected) return;
     await addToCart(selected);
@@ -77,10 +81,11 @@ function IndecianaStore() {
   return (
     <div className="min-h-full bg-background text-foreground">
       <section className="border-b border-border px-4 py-14 text-center md:py-20">
-        <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.5em] text-muted-foreground">Saligue presents</p>
+        {/* INDECIANA made Saligue: the line above the name says so (Admin Center can change it). */}
+        <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.5em] text-muted-foreground">{t(brand.indeciana.kicker)}</p>
         <Wordmark />
         <p className="mt-6 flex items-center justify-center gap-2 text-sm tracking-widest text-muted-foreground">
-          <BadgeCheck className="h-4 w-4 text-primary" /> OFFICIAL HOUSE COLLECTION
+          <BadgeCheck className="h-4 w-4 text-primary" /> <span className="uppercase">{t(brand.indeciana.badge)}</span>
         </p>
       </section>
 
@@ -185,7 +190,7 @@ function IndecianaStore() {
         <section className="mx-auto mt-24 max-w-2xl border-t border-border pt-12 text-center">
           <p className="text-[11px] uppercase tracking-[0.5em] text-muted-foreground">About</p>
           <p className="mt-4 font-serif text-2xl font-light leading-relaxed text-foreground/85">
-            INDECIANA is the house behind Saligue — curated fashion you can try on with AI before you buy.
+            {t(brand.indeciana.about)}
           </p>
         </section>
       </div>

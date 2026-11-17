@@ -2606,6 +2606,28 @@ describe('the Saligue balance', () => {
   });
 });
 
+// About Saligue and INDECIANA (server/index.mjs → /api/brand): Saligue is made by INDECIANA, and admins change the words.
+describe('about texts', () => {
+  test('say INDECIANA made Saligue, and only admins change them', async () => {
+    const texts = (await call('/brand')).json;
+    assert.equal(texts.saligue.tagline, 'Saligue by INDECIANA');
+    assert.match(texts.indeciana.kicker, /made Saligue/);
+    assert.doesNotMatch(JSON.stringify(texts), /Saligue presents/i);
+
+    const person = await register('Not An Admin');
+    assert.equal((await call('/admin/brand', { method: 'PUT', token: person.token, body: { saligue: { about: 'Hacked' } } })).status, 403);
+    const admin = await register('Brand Admin');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const saved = await call('/admin/brand', { method: 'PUT', token: admin.token, body: { saligue: { about: 'Fashion from Kigali, tried on with AI.' }, indeciana: { kicker: '' } } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    assert.equal((await call('/brand')).json.saligue.about, 'Fashion from Kigali, tried on with AI.');
+    assert.equal((await call('/brand')).json.indeciana.kicker, texts.indeciana.kicker, 'empty goes back to the default');
+  });
+});
+
 // Installed apps ask the fixed address where Saligue is now when their usual address stops answering
 // (src/lib/api.ts → rediscover); this answers it.
 describe('where Saligue is', () => {

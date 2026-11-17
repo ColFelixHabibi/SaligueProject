@@ -3811,7 +3811,7 @@ const ADMIN_PERMS = {
   ads: 'Review ads and confirm ad payments',
   money: 'Creators, monthly payouts and tips',
   users: 'Accounts: find, suspend, restore; verification badges',
-  content: 'Challenges',
+  content: 'Challenges, and the About texts of Saligue and INDECIANA',
   features: 'Switch app features on and off',
   policies: 'Edit policies, monetization and ad rules',
   platform: 'Email, payments, AI keys and the app signing key',
@@ -5744,6 +5744,49 @@ route('GET', '/api/creator', ({ user }) => {
     payouts: db.prepare('select * from payouts where user_id = ? order by period desc').all(user.id)
       .map((p) => ({ id: p.id, period: p.period, amount: p.amount, status: p.status, paidAt: p.paid_at, breakdown: parse(p.breakdown) })),
   };
+});
+
+// About Saligue and INDECIANA: Saligue is made by INDECIANA (never the other way round). The words on the INDECIANA
+// page and the About Saligue page are kept here, so admins with the content right — and INDECIANA's own account —
+// change them in Admin Center without a new release.
+const BRAND_DEFAULTS = {
+  indeciana: {
+    kicker: 'The house that made Saligue',
+    badge: 'Official house collection',
+    about: 'INDECIANA created Saligue. This is its own collection, which you can try on with AI before you buy.',
+  },
+  saligue: {
+    tagline: 'Saligue by INDECIANA',
+    about: 'Saligue is a fashion marketplace made by INDECIANA. Shop from local shops and creators, see clothes on your own photo with AI before you buy, learn from lessons and lives, and earn by selling, teaching and sharing.',
+  },
+};
+const BRAND_LIMITS = { kicker: 60, badge: 60, tagline: 80, about: 1200 };
+function brand() {
+  const saved = parse(db.prepare("select value from app_config where key = 'brand'").get()?.value) ?? {};
+  const out = {};
+  for (const [who, fields] of Object.entries(BRAND_DEFAULTS)) {
+    out[who] = {};
+    for (const [field, fallback] of Object.entries(fields)) {
+      const value = String(saved?.[who]?.[field] ?? '').trim();
+      out[who][field] = value || fallback;
+    }
+  }
+  return out;
+}
+route('GET', '/api/brand', () => brand());
+route('PUT', '/api/admin/brand', ({ user, body }) => {
+  if (!can(user, 'content') && !user?.official) fail(403, 'forbidden', 'Only Saligue admins or INDECIANA can change these texts.');
+  const saved = parse(db.prepare("select value from app_config where key = 'brand'").get()?.value) ?? {};
+  for (const [who, fields] of Object.entries(BRAND_DEFAULTS)) {
+    for (const field of Object.keys(fields)) {
+      if (body?.[who]?.[field] === undefined) continue;
+      // An empty field goes back to the default text.
+      saved[who] = { ...(saved[who] ?? {}), [field]: String(body[who][field]).trim().slice(0, BRAND_LIMITS[field]) };
+    }
+  }
+  saveConfig('brand', saved);
+  logAdmin(user, 'about texts', 'Saligue / INDECIANA');
+  return brand();
 });
 
 // Where Saligue is now. Installed apps ask this at the fixed address when their usual address stops answering

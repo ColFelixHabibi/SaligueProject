@@ -2,6 +2,7 @@
 
 import { CoinsAdmin, SharesAdmin, TipsAdmin } from '@/components/admin/tips-admin';
 import { WithdrawalsAdmin } from '@/components/admin/withdrawals-admin';
+import { BrandAdmin } from '@/components/admin/brand-admin';
 import { LaunchAdmin } from '@/components/admin/launch-admin';
 import { SecurityAdmin } from '@/components/admin/security-admin';
 
@@ -509,7 +510,7 @@ export default function AdminPage() {
     { value: 'accounts', label: 'Accounts', icon: UserCog, show: has('users'), body: <div className="space-y-6"><VerificationsAdmin /><AccountsAdmin /></div> },
     { value: 'money', label: 'Money & ads', icon: Wallet, show: has('money') || has('ads'), body: <div className="space-y-6">{has('money') && <WithdrawalsAdmin />}{has('money') && <OrderProblemsAdmin />}{has('money') && <SettlementsAdmin />}{has('money') && <TipsAdmin />}{has('money') && <SharesAdmin />}{has('money') && <CoinsAdmin />}<MonetizationAdmin /></div> },
     { value: 'features', label: 'Features', icon: SlidersHorizontal, show: has('features'), body: <FeaturesAdmin features={me.features} /> },
-    { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies'), body: <div className="space-y-6"><ComplianceAdmin /><RulesAdmin /><PoliciesAdmin /></div> },
+    { value: 'rules', label: 'Rules & policies', icon: ScrollText, show: has('policies') || has('content'), body: <div className="space-y-6">{has('content') && <BrandAdmin />}{has('policies') && <><ComplianceAdmin /><RulesAdmin /><PoliciesAdmin /></>}</div> },
     { value: 'admins', label: 'Admins', icon: ShieldCheck, show: me.level === 1, body: <div className="space-y-6"><AdminsAdmin allPerms={me.allPerms} /><AdminLog /></div> },
     { value: 'security', label: 'Security', icon: ShieldAlert, show: has('platform'), body: <SecurityAdmin /> },
     { value: 'platform', label: 'Platform', icon: Server, show: has('platform'), body: <div className="space-y-6"><PlatformSettings /><AiLearningAdmin /></div> },

@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bookmark, ChevronRight, FileText, HandCoins, Layers, LogOut, Package, PlusSquare, Radio, Settings, ShieldCheck, ShoppingBag, Store, UserPlus } from 'lucide-react';
+import { Bookmark, ChevronRight, FileText, Info, HandCoins, Layers, LogOut, Package, PlusSquare, Radio, Settings, ShieldCheck, ShoppingBag, Store, UserPlus } from 'lucide-react';
 import { ProfilePhotoField } from '@/components/profile-photo-field';
 import { BadgeCheck, Eye, GraduationCap, Share2, Smartphone, Wallet } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -166,6 +166,7 @@ export default function MePage() {
             <Tile href="/verify" icon={BadgeCheck} label="Get verified" />
           </Group>
           <Group title={t('More')}>
+            <Tile href="/about" icon={Info} label="About Saligue" />
             <Tile href="/download" icon={Smartphone} label="Android app" />
             <Tile href="/policies" icon={FileText} label="Policies" />
             <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />
