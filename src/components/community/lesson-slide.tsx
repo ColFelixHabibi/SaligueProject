@@ -11,7 +11,7 @@ import { useT } from '@/lib/i18n';
 import { TipButton } from '@/components/tip-button';
 
 import { useEffect, useRef, useState } from 'react';
-import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, HeartHandshake, Layers, MessageCircle, MoreHorizontal, Play, RotateCcw, Share2, Sparkles, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { Captions, Clock, Coins, Columns2, Flag, Trophy, Heart, HeartHandshake, Layers, MessageCircle, MoreHorizontal, Pause, Play, RotateCcw, Share2, Sparkles, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { addToLook } from '@/components/look-picker';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -130,11 +130,15 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
 
   return (
     <section ref={slide} id={`lesson-${lesson.id}`} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-black text-white">
-      {/* A computer's player is wider than a portrait video: a blurred copy of the poster fills the sides instead of black. */}
-      {lesson.poster && !lesson.duetOf && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={lesson.poster} alt="" aria-hidden loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-40 blur-2xl md:block" />
-      )}
+      {/* Nothing is laid over the video, so every part of every frame shows: the buttons stand in a column beside it
+          and the title, the teacher and "Did this help?" in a strip under it. */}
+      <div className="relative flex min-h-0 flex-1">
+        {/* A computer's player is wider than a portrait video: a blurred copy of the poster fills the sides instead of black. */}
+        {lesson.poster && !lesson.duetOf && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={lesson.poster} alt="" aria-hidden loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-40 blur-2xl md:block" />
+        )}
+        <div className="relative min-w-0 flex-1">
       {lesson.video && (
         <video
           ref={video}
@@ -156,59 +160,16 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </video>
       )}
       {lesson.duetOf && (
-        <>
-          <video ref={original} src={lesson.duetOf.video} poster={lesson.duetOf.poster ?? undefined} muted loop playsInline preload={saver ? 'none' : 'metadata'}
-            className="absolute inset-y-0 left-0 h-full w-1/2 border-r-2 border-black object-cover" aria-label={lesson.duetOf.title} />
-          <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="absolute left-2 top-3 z-10 flex max-w-[45%] items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[11px] font-semibold">
-            <Columns2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.duetOf.authorName}</span>
-          </Link>
-        </>
+        <video ref={original} src={lesson.duetOf.video} poster={lesson.duetOf.poster ?? undefined} muted loop playsInline preload={saver ? 'none' : 'metadata'}
+          className="absolute inset-y-0 left-0 h-full w-1/2 border-r-2 border-black object-cover" aria-label={lesson.duetOf.title} />
       )}
-      {ended && (
-        <div className="absolute inset-x-4 top-1/2 z-20 mx-auto max-w-xs -translate-y-1/2 rounded-3xl bg-background/95 p-4 text-center text-foreground shadow-2xl backdrop-blur">
-          <button type="button" onClick={() => setEnded(false)} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted" aria-label="Close"><X className="h-4 w-4" /></button>
-          <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
-          <p className="mt-2 font-bold">{t('Did this help?')}</p>
-          <p className="text-xs text-muted-foreground">@{lesson.authorName}</p>
-          <div className="mt-3 flex items-start justify-center gap-3 text-[11px] font-semibold">
-            {user && !lesson.mine && (
-              <button type="button" onClick={thank} disabled={thanked} className="flex w-14 flex-col items-center gap-1" aria-pressed={thanked}>
-                <span className={cn('flex h-12 w-12 items-center justify-center rounded-full', thanked ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary')}><HeartHandshake className="h-6 w-6" /></span>
-                {thanked ? t('Thanked') : t('Thank')}
-              </button>
-            )}
-            {user && !lesson.mine && on('tips') && (
-              <span className="flex w-14 flex-col items-center gap-1">
-                <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600"><Coins className="h-6 w-6" /></TipButton>
-                {t('Tip')}
-              </span>
-            )}
-            {user && on('looks') && (
-              <button type="button" onClick={() => addToLook({ kind: 'lesson', id: lesson.id })} className="flex w-14 flex-col items-center gap-1">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><Layers className="h-6 w-6" /></span>
-                {t('Look')}
-              </button>
-            )}
-            <button type="button" onClick={() => { setEnded(false); if (video.current) { video.current.currentTime = 0; endedOnce.current = false; video.current.play().catch(() => {}); } }} className="flex w-14 flex-col items-center gap-1">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted"><RotateCcw className="h-6 w-6" /></span>
-              {t('Again')}
-            </button>
-          </div>
-          {!user && <p className="mt-3 text-xs text-muted-foreground">{t('Log in to thank the teacher.')}</p>}
         </div>
-      )}
-      {!playing && !ended && (
-        <button type="button" onClick={() => video.current?.play().catch(() => {})} className="absolute left-1/2 top-1/2 z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 backdrop-blur" aria-label="Play">
-          <Play className="h-8 w-8 fill-white" />
-        </button>
-      )}
-
-      <button type="button" onClick={toggle} className="absolute right-3 top-3 z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
-        {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-      </button>
-
       {/* Five everyday actions; the rest are under More, so the column always fits a phone screen. */}
-      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-3 text-foreground md:right-5 md:gap-4 [@media(max-height:680px)]:bottom-3 [@media(max-height:680px)]:gap-1.5">
+      <div className="relative z-10 flex w-16 shrink-0 flex-col items-center justify-between py-3 text-foreground md:w-24 [@media(max-height:680px)]:py-2">
+          <button type="button" onClick={toggle} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+            {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+          </button>
+          <div className="flex flex-col items-center gap-3 md:gap-4 [@media(max-height:680px)]:gap-1.5">
         <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
         <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
@@ -223,6 +184,69 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         <button type="button" className={round} onClick={share} aria-label="Share" title="Share"><Share2 className="h-5 w-5" /></button>
         <button type="button" className={round} onClick={() => setMoreOpen(true)} aria-label="More" title="More"><MoreHorizontal className="h-5 w-5" /></button>
       </div>
+          </div>
+        </div>
+      {ended ? (
+        // When the lesson ends: one row under the video (the last frame stays in full view).
+        <div className="relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 bg-background px-4 py-2.5 pr-11 text-foreground">
+          <button type="button" onClick={() => setEnded(false)} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted" aria-label="Close"><X className="h-4 w-4" /></button>
+          <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
+          <div className="min-w-0 flex-1">
+            <p className="font-bold leading-tight">{t('Did this help?')}</p>
+            <p className="truncate text-xs text-muted-foreground">@{lesson.authorName}{!user && ` · ${t('Log in to thank the teacher.')}`}</p>
+          </div>
+          <div className="flex items-start gap-2 text-[11px] font-semibold">
+            {user && !lesson.mine && (
+              <button type="button" onClick={thank} disabled={thanked} className="flex w-12 flex-col items-center gap-1" aria-pressed={thanked}>
+                <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', thanked ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary')}><HeartHandshake className="h-5 w-5" /></span>
+                {thanked ? t('Thanked') : t('Thank')}
+              </button>
+            )}
+            {user && !lesson.mine && on('tips') && (
+              <span className="flex w-12 flex-col items-center gap-1">
+                <TipButton toUserId={lesson.authorId} toName={lesson.authorName} lessonId={lesson.id} className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-600"><Coins className="h-5 w-5" /></TipButton>
+                {t('Tip')}
+              </span>
+            )}
+            {user && on('looks') && (
+              <button type="button" onClick={() => addToLook({ kind: 'lesson', id: lesson.id })} className="flex w-12 flex-col items-center gap-1">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted"><Layers className="h-5 w-5" /></span>
+                {t('Look')}
+              </button>
+            )}
+            <button type="button" onClick={() => { setEnded(false); if (video.current) { video.current.currentTime = 0; endedOnce.current = false; video.current.play().catch(() => {}); } }} className="flex w-12 flex-col items-center gap-1">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted"><RotateCcw className="h-5 w-5" /></span>
+              {t('Again')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="shrink-0 bg-black px-4 pb-3 pt-2.5 md:px-6 md:pb-4 md:[&>*]:max-w-2xl">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold md:text-sm">
+            <button type="button" onClick={() => (video.current?.paused ? video.current.play().catch(() => {}) : video.current?.pause())}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-black" aria-label={playing ? 'Pause' : 'Play'}>
+              {playing ? <Pause className="h-3.5 w-3.5 fill-black" /> : <Play className="h-3.5 w-3.5 fill-black" />}
+            </button>
+            {lesson.duetOf && (
+              <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="inline-flex max-w-[45%] items-center gap-1 rounded-full bg-white/20 px-2 py-0.5">
+                <Columns2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.duetOf.authorName}</span>
+              </Link>
+            )}
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
+            {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
+            {lesson.rank != null && lesson.rank <= 3 && <span className="inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-black">{['🥇', '🥈', '🥉'][lesson.rank - 1]} #{lesson.rank}</span>}
+            {lesson.challenge && (
+              <Link href={`/challenge?id=${lesson.challenge.id}`} className="inline-flex max-w-[60%] items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-black">
+                <Trophy className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.challenge.title}</span>
+              </Link>
+            )}
+            {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
+          </div>
+          <h2 className="line-clamp-1 text-lg font-bold leading-tight md:line-clamp-2 md:text-2xl">{lesson.title}</h2>
+          {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 md:text-base [&_button]:text-white" />}
+          <Link href={profileHref(lesson.authorId)} className="mt-1 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline md:text-base">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
+        </div>
+      )}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="bottom" className="mx-auto max-w-lg rounded-t-3xl px-4 min-[360px]:px-6">
           <SheetHeader><SheetTitle className="line-clamp-1 text-left">{lesson.title}</SheetTitle></SheetHeader>
@@ -253,22 +277,6 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </SheetContent>
       </Sheet>
 
-      <div className="absolute inset-x-0 bottom-0 z-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-4 pr-20 pt-20 md:p-6 md:pr-24 md:pt-28 md:[&>*]:max-w-2xl">
-        <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold md:text-sm">
-          <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
-          {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
-          {lesson.rank != null && lesson.rank <= 3 && <span className="inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-black">{['🥇', '🥈', '🥉'][lesson.rank - 1]} #{lesson.rank}</span>}
-          {lesson.challenge && (
-            <Link href={`/challenge?id=${lesson.challenge.id}`} className="inline-flex max-w-[60%] items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-black">
-              <Trophy className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.challenge.title}</span>
-            </Link>
-          )}
-          {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
-        </div>
-        <h2 className="line-clamp-2 text-xl font-bold leading-tight md:text-3xl">{lesson.title}</h2>
-        {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 md:text-base [&_button]:text-white" />}
-        <Link href={profileHref(lesson.authorId)} className="mt-2 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline md:text-base">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
-      </div>
       <Sheet open={captionsOpen} onOpenChange={setCaptionsOpen}>
         <SheetContent side="bottom" className="mx-auto flex h-[75vh] max-w-2xl flex-col rounded-t-3xl">
           <SheetHeader><SheetTitle className="text-left">Captions</SheetTitle></SheetHeader>
