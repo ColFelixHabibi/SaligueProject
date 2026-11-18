@@ -106,6 +106,8 @@ export function StoryBar({ className, compact = false }: { className?: string; c
   const { products } = useProductStore();
   const stories = useStories();
   const [watching, setWatching] = useState<StoryGroup | null>(null);
+  // Which way the statuses moved last, so the next person slides in from that side.
+  const [enter, setEnter] = useState<'next' | 'previous' | undefined>(undefined);
   const [composing, setComposing] = useState(false);
   const [mode, setMode] = useState<'photo' | 'text' | 'voice'>('photo');
   const [photo, setPhoto] = useState<string | null>(null);
@@ -330,7 +332,21 @@ export function StoryBar({ className, compact = false }: { className?: string; c
         {!stories && <p className="px-1 py-4 text-xs text-muted-foreground">{t('Loading statuses…')}</p>}
       </div>
 
-      {watching && <StoryViewer group={watching} onClose={() => setWatching(null)} onChanged={() => stories?.reload()} />}
+      {watching && (() => {
+        // The people in the bar's order: your own ring first, then the others. Swipes and the end of someone's last
+        // status move along this row; past either end, the viewer closes.
+        const row = [mine, ...others].filter((g): g is StoryGroup => !!g);
+        const at = row.findIndex((g) => g.user.id === watching.user.id);
+        const go = (to: number, way: 'next' | 'previous') => () => {
+          if (to < 0 || to >= row.length) return setWatching(null);
+          setEnter(way);
+          setWatching(row[to]);
+        };
+        return (
+          <StoryViewer key={watching.user.id} group={watching} enter={enter} onClose={() => { setWatching(null); setEnter(undefined); }} onChanged={() => stories?.reload()}
+            onNextPerson={go(at + 1, 'next')} onPreviousPerson={at > 0 ? go(at - 1, 'previous') : undefined} />
+        );
+      })()}
 
       <Dialog open={composing} onOpenChange={(open) => !open && (setComposing(false), reset())}>
         <DialogContent className="sm:max-w-md">

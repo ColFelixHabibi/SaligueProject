@@ -34,7 +34,16 @@ const initials = (name: string) =>
  * finger is down; a photo or words can play music. Your own stories show how many people watched and liked, and can
  * be taken down early; someone else's can be liked, shared, and answered — the answer lands in your chat with them.
  */
-export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; onClose: () => void; onChanged?: () => void }) {
+export function StoryViewer({ group, onClose, onChanged, onNextPerson, onPreviousPerson, enter }: {
+  group: StoryGroup;
+  onClose: () => void;
+  onChanged?: () => void;
+  // The next / previous person's statuses (a swipe, or the end of this person's last one). Without them: close.
+  onNextPerson?: () => void;
+  onPreviousPerson?: () => void;
+  // Which side this person's statuses slide in from.
+  enter?: 'next' | 'previous';
+}) {
   const { toast } = useToast();
   const t = useT();
   const [index, setIndex] = useState(0);
@@ -60,6 +69,8 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
   const holding = useRef(false);
   const heldAt = useRef(0);
   const swallow = useRef(false);
+  // Where a finger (or mouse) went down, to tell a swipe from a tap.
+  const swipeFrom = useRef<{ x: number; y: number } | null>(null);
   // How long a voice status runs, in whole seconds, for the number under the play button.
   const spoken = Math.max(1, Math.round(story?.seconds ?? 30));
 
@@ -82,7 +93,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
       if (pct < 100) return;
       window.clearInterval(timer);
       if (index + 1 < group.stories.length) setIndex(index + 1);
-      else onClose();
+      else (onNextPerson ?? onClose)();
     }, 100);
     return () => window.clearInterval(timer);
   }, [index, story?.id]);
@@ -97,13 +108,35 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
   };
 
   const back = () => {
-    if (eatsTheClick() || index === 0) return;
-    setIndex(index - 1);
+    if (eatsTheClick()) return;
+    if (index > 0) setIndex(index - 1);
+    else onPreviousPerson?.();
   };
   const forward = () => {
     if (eatsTheClick()) return;
     if (index + 1 < group.stories.length) setIndex(index + 1);
-    else onClose();
+    else (onNextPerson ?? onClose)();
+  };
+
+  // Swipes, like any status app: left for the next person, right for the one before, down to close. A swipe eats
+  // the tap it would otherwise end in, so it never also moves one status on.
+  const startSwipe = (e: React.PointerEvent) => {
+    swipeFrom.current = { x: e.clientX, y: e.clientY };
+  };
+  const endSwipe = (e: React.PointerEvent) => {
+    const from = swipeFrom.current;
+    swipeFrom.current = null;
+    if (!from) return;
+    const dx = e.clientX - from.x;
+    const dy = e.clientY - from.y;
+    const sideways = Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy);
+    const down = dy > 80 && dy > Math.abs(dx);
+    if (!sideways && !down) return;
+    swallow.current = true;
+    window.setTimeout(() => (swallow.current = false), 400);
+    if (down) onClose();
+    else if (dx < 0) (onNextPerson ?? (() => (index + 1 < group.stories.length ? setIndex(index + 1) : onClose())))();
+    else (onPreviousPerson ?? (() => index > 0 && setIndex(index - 1)))();
   };
   const close = () => {
     if (eatsTheClick()) return;
@@ -197,7 +230,8 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white">
+    <div className={cn('fixed inset-0 z-50 flex touch-pan-y flex-col bg-black text-white', enter === 'next' && 'animate-in slide-in-from-right-1/3 fade-in-0 duration-200', enter === 'previous' && 'animate-in slide-in-from-left-1/3 fade-in-0 duration-200')}
+      onPointerDown={startSwipe} onPointerUp={endSwipe} onPointerCancel={() => (swipeFrom.current = null)}>
       {/* The bars: one for each story, filling as it plays. */}
       <div className="flex gap-1 px-3 pt-3" aria-hidden="true">
         {group.stories.map((s, i) => (
