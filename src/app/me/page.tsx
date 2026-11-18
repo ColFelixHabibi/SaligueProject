@@ -32,47 +32,46 @@ import { WeekCard } from '@/components/week-card';
 import { PushCard } from '@/components/push-card';
 
 
-// Everything on Me is one grid of big icons: fewer words, one tap.
-function Tile({ href, icon: Icon, label, onClick, tone }: { href?: string; icon: typeof Package; label: string; onClick?: () => void; tone?: 'danger' }) {
+// Me is one clean menu: titled groups of full-width rows (icon, label, hint, chevron), like a settings list.
+type Icon = typeof Package;
+
+/** One row of the menu. With `text` it shows a second line; `hint` sits on the right, before the chevron. */
+function Row({ href, icon: Icon, label, text, hint, onClick, tone, badge }: {
+  href?: string; icon: Icon; label: string; text?: string; hint?: string; onClick?: () => void;
+  tone?: 'danger'; badge?: keyof typeof BADGE_TONE;
+}) {
   const t = useT();
-  const className = 'flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border bg-card px-1 py-3 text-center shadow-sm transition hover:border-primary/40 hover:shadow-md';
+  const className = 'group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none active:bg-muted';
   const body = (
     <>
-      <span className={cn('flex h-10 w-10 items-center justify-center rounded-full', tone === 'danger' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary')}><Icon className="h-5 w-5" /></span>
-      <span className="line-clamp-2 w-full text-[11px] font-semibold leading-tight min-[360px]:text-xs">{t(label)}</span>
+      <span className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+        badge ? BADGE_TONE[badge] : tone === 'danger' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary')}>
+        <Icon className="h-[18px] w-[18px]" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block truncate text-[15px] font-semibold', tone === 'danger' && 'text-destructive')}>{t(label)}</span>
+        {text && <span className="block truncate text-xs text-muted-foreground">{text}</span>}
+      </span>
+      {hint && <span className="shrink-0 text-xs text-muted-foreground">{hint}</span>}
+      {tone !== 'danger' && <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" />}
     </>
   );
   return href ? <Link href={href} className={className}>{body}</Link> : <button type="button" onClick={onClick} className={className}>{body}</button>;
 }
 
-const CENTER_TONE = {
-  shop: 'bg-gradient-to-r from-primary to-secondary text-primary-foreground',
-  plain: 'border bg-card',
-  admin: 'bg-neutral-950 text-white',
+/** The Centers keep their colour, but only on the icon, so the page stays calm. */
+const BADGE_TONE = {
+  shop: 'bg-gradient-to-br from-primary to-secondary text-primary-foreground',
+  admin: 'bg-neutral-950 text-white dark:bg-white dark:text-neutral-950',
   subadmin: 'bg-sky-600 text-white',
 } as const;
 
-/** One Center (a place with its own menu): a big row that opens it. */
-function CenterCard({ href, icon: Icon, title, text, tone }: { href: string; icon: typeof Package; title: string; text: string; tone: keyof typeof CENTER_TONE }) {
-  const plain = tone === 'plain';
+/** A titled group: small uppercase title, then one bordered panel of rows split by thin lines. */
+function Group({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className={cn('flex items-center gap-4 rounded-2xl p-4 text-left shadow-sm transition hover:shadow-md', CENTER_TONE[tone])}>
-      <span className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', plain ? 'bg-primary/10 text-primary' : 'bg-white/20')}><Icon className="h-6 w-6" /></span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-lg font-extrabold">{title}</span>
-        <span className={cn('block truncate text-sm', plain ? 'text-muted-foreground' : 'opacity-85')}>{text}</span>
-      </span>
-      <ChevronRight className="h-5 w-5 shrink-0 opacity-70" />
-    </Link>
-  );
-}
-
-/** A small titled group of tiles. */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">{title}</h2>
-      <div className="grid grid-cols-4 gap-2">{children}</div>
+    <section className="space-y-1.5">
+      {title && <h2 className="px-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h2>}
+      <div className="divide-y overflow-hidden rounded-xl border bg-card">{children}</div>
     </section>
   );
 }
@@ -133,17 +132,18 @@ export default function MePage() {
       {/* The Centers this account has, each once and by one name — the same name as in the side menu and on the
           Center itself: My Saligue (buying), Seller Center (selling) or Start selling, and Admin Center. */}
       {user && (
-        <div className="space-y-2">
+        <Group title={t('Your centers')}>
           {role === 'seller' ? (
-            <CenterCard href="/dashboard" icon={Store} title={t('Seller Center')} text={t('Items, orders, sales, ads, earnings')} tone="shop" />
+            <Row href="/dashboard" icon={Store} label="Seller Center" text={t('Items, orders, sales, ads, earnings')} badge="shop" />
           ) : (
-            <CenterCard href="/sell" icon={Store} title={t('Start selling')} text={t('Open your shop and list your first item')} tone="plain" />
+            <Row href="/sell" icon={Store} label="Start selling" text={t('Open your shop and list your first item')} />
           )}
-          <CenterCard href="/my-account" icon={ShoppingBag} title={t('My Saligue')} text={t('Orders, saved, wallet, coins, history')} tone="plain" />
+          <Row href="/my-account" icon={ShoppingBag} label="My Saligue" text={t('Orders, saved, wallet, coins, history')} />
           {admin && (
-            <CenterCard href="/admin" icon={ShieldCheck} title={t('Admin Center')} text={adminLevel === 1 ? t('Main admin · everything') : adminLevel === 2 ? t('Sub-admin · your rights') : t('Moderation, money, settings')} tone={adminLevel === 1 ? 'admin' : 'subadmin'} />
+            <Row href="/admin" icon={ShieldCheck} label="Admin Center" badge={adminLevel === 1 ? 'admin' : 'subadmin'}
+              text={adminLevel === 1 ? t('Main admin · everything') : adminLevel === 2 ? t('Sub-admin · your rights') : t('Moderation, money, settings')} />
           )}
-        </div>
+        </Group>
       )}
 
       {user && <PushCard />}
@@ -153,32 +153,36 @@ export default function MePage() {
           messages are in the top bar and the side menu. */}
       {user ? (
         <>
-          <Group title={t('Create')}>
-            {role === 'seller' && <Tile href="/sell" icon={PlusSquare} label="Add item" />}
-            {role === 'seller' && on('live') && <Tile href="/live/studio" icon={Radio} label="Go live" />}
-            {on('lessons') && <Tile href="/learn/new" icon={GraduationCap} label="Teach" />}
-            {on('looks') && <Tile href="/looks" icon={Layers} label="My looks" />}
-          </Group>
+          {(role === 'seller' || on('lessons') || on('looks')) && (
+            <Group title={t('Create')}>
+              {role === 'seller' && <Row href="/sell" icon={PlusSquare} label="Add item" />}
+              {role === 'seller' && on('live') && <Row href="/live/studio" icon={Radio} label="Go live" />}
+              {on('lessons') && <Row href="/learn/new" icon={GraduationCap} label="Teach" />}
+              {on('looks') && <Row href="/looks" icon={Layers} label="My looks" />}
+            </Group>
+          )}
           <Group title={t('Earn')}>
-            <Tile href="/my-account/wallet" icon={Wallet} label="Wallet" />
-            {on('shares') && <Tile href="/share-earn" icon={HandCoins} label="Share & earn" />}
-            <Tile href="/invite" icon={UserPlus} label="Bring a shop" />
-            <Tile href="/verify" icon={BadgeCheck} label="Get verified" />
+            <Row href="/my-account/wallet" icon={Wallet} label="Wallet" />
+            {on('shares') && <Row href="/share-earn" icon={HandCoins} label="Share & earn" />}
+            <Row href="/invite" icon={UserPlus} label="Bring a shop" />
+            <Row href="/verify" icon={BadgeCheck} label="Get verified" />
           </Group>
           <Group title={t('More')}>
-            <Tile href="/about" icon={Info} label="About Saligue" />
-            <Tile href="/download" icon={Smartphone} label="Android app" />
-            <Tile href="/policies" icon={FileText} label="Policies" />
-            <Tile icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />
+            <Row href="/about" icon={Info} label="About Saligue" />
+            <Row href="/download" icon={Smartphone} label="Android app" />
+            <Row href="/policies" icon={FileText} label="Policies" />
+          </Group>
+          <Group>
+            <Row icon={LogOut} label="Log out" tone="danger" onClick={async () => { await logout(); router.push('/'); }} />
           </Group>
         </>
       ) : (
-        <div className="grid grid-cols-4 gap-2">
-          <Tile href="/orders" icon={Package} label="My orders" />
-          <Tile href="/wishlist" icon={Bookmark} label="Saved" />
-          <Tile href="/download" icon={Smartphone} label="Android app" />
-          <Tile href="/policies" icon={FileText} label="Policies" />
-        </div>
+        <Group>
+          <Row href="/orders" icon={Package} label="My orders" />
+          <Row href="/wishlist" icon={Bookmark} label="Saved" />
+          <Row href="/download" icon={Smartphone} label="Android app" />
+          <Row href="/policies" icon={FileText} label="Policies" />
+        </Group>
       )}
 
       <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSwitchToRegister={() => { setLoginOpen(false); setTimeout(() => setRegisterOpen(true), 150); }} />

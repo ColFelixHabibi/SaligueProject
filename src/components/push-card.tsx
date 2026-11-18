@@ -30,10 +30,10 @@ export function PushCard() {
     }
   };
   return (
-    <div className="flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-sm">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">{state === 'blocked' ? <BellOff className="h-5 w-5" /> : <Bell className="h-5 w-5" />}</span>
+    <div className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{state === 'blocked' ? <BellOff className="h-[18px] w-[18px]" /> : <Bell className="h-[18px] w-[18px]" />}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold">{t('Notifications on this device')}</p>
+        <p className="text-[15px] font-semibold">{t('Notifications on this device')}</p>
         <p className="text-xs text-muted-foreground">{state === 'blocked' ? t('Blocked: allow notifications for Saligue in your browser or phone settings.') : t('Replies, orders and lives, even when Saligue is closed.')}</p>
       </div>
       {busy ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : state !== 'blocked' && <Switch checked={state === 'on'} onCheckedChange={toggle} aria-label={t('Notifications on this device')} />}

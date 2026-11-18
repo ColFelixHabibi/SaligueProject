@@ -683,6 +683,7 @@ const DICT: Record<string, [rw: string, fr: string]> = {
   'INDECIANA created Saligue. This is its own collection, which you can try on with AI before you buy.': ['INDECIANA ni yo yakoze Saligue. Iyi ni imyambaro yayo bwite, ushobora kwigeragezaho na AI mbere yo kugura.', 'INDECIANA a créé Saligue. Voici sa propre collection, que vous pouvez essayer avec l’IA avant d’acheter.'],
   'Saligue is a fashion marketplace made by INDECIANA. Shop from local shops and creators, see clothes on your own photo with AI before you buy, learn from lessons and lives, and earn by selling, teaching and sharing.': ['Saligue ni isoko ry’imideli ryakozwe na INDECIANA. Gura mu maduka n’abahanzi bo hafi, wirebere imyenda ku ifoto yawe ukoresheje AI mbere yo kugura, wige mu masomo no mu biganiro bitaziguye, kandi winjize amafaranga ucuruza, wigisha kandi usangiza.', 'Saligue est une place de marché de la mode créée par INDECIANA. Achetez auprès de boutiques et de créateurs locaux, voyez les vêtements sur votre propre photo avec l’IA avant d’acheter, apprenez grâce aux leçons et aux lives, et gagnez en vendant, en enseignant et en partageant.'],
   'Seller Center': ['Ikigo cy’umucuruzi', 'Espace vendeur'],
+  'Your centers': ['Ibigo byawe', 'Vos espaces'],
   'My Saligue': ['Saligue yanjye', 'Mon Saligue'],
   Create: ['Kora', 'Créer'],
   'Tips received': ['Impano wakiriye', 'Pourboires reçus'],
