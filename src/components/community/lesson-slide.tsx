@@ -44,6 +44,38 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
   const video = useRef<HTMLVideoElement>(null);
   // A duet: the lesson it answers plays beside it, in step, without sound.
   const original = useRef<HTMLVideoElement>(null);
+  // The video's own shape (width / height), from its poster at first and then from the video itself, so its box
+  // is exactly the video: no bars added around it. Black inside the video is the teacher's, and stays.
+  const [ratio, setRatio] = useState<number | null>(null);
+  useEffect(() => {
+    if (!lesson.poster || lesson.duetOf) return;
+    const img = new Image();
+    img.onload = () => img.naturalWidth && img.naturalHeight && setRatio((r) => r ?? img.naturalWidth / img.naturalHeight);
+    img.src = lesson.poster;
+  }, [lesson.poster, lesson.duetOf]);
+  // The space the video and its column of buttons share; the box is the biggest of that shape that fits.
+  const stage = useRef<HTMLDivElement>(null);
+  const rail = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const measure = () => {
+      const css = getComputedStyle(el);
+      const px = (v: string) => parseFloat(v) || 0;
+      setRoom({
+        w: Math.max(0, el.clientWidth - px(css.paddingLeft) - px(css.paddingRight) - (rail.current?.offsetWidth ?? 0)),
+        h: Math.max(0, el.clientHeight - px(css.paddingTop) - px(css.paddingBottom)),
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const box = room && (lesson.duetOf || !ratio)
+    ? { width: room.w, height: room.h }
+    : room && ratio ? { width: Math.min(room.w, room.h * ratio), height: Math.min(room.h, room.w / ratio) } : undefined;
   const [visible, setVisible] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [like, setLike] = useState({ liked: lesson.liked, count: lesson.likeCount });
@@ -125,20 +157,16 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
     await shareLink({ title: lesson.title, text: `${lesson.title} · a fashion lesson on Saligue`, url: absoluteUrl(`/learn?lesson=${lesson.id}`) });
   };
   // Short phones: slightly smaller buttons, so the column never reaches the topic bar.
-  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-background/90 shadow transition hover:bg-background active:scale-90 [@media(max-height:680px)]:h-9 [@media(max-height:680px)]:w-9 md:[@media(min-height:681px)]:h-12 md:[@media(min-height:681px)]:w-12';
+  const round = 'flex h-11 w-11 items-center justify-center rounded-full bg-muted transition hover:bg-background active:scale-90 [@media(max-height:680px)]:h-9 [@media(max-height:680px)]:w-9 md:[@media(min-height:681px)]:h-12 md:[@media(min-height:681px)]:w-12';
   const moreTile = 'flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-center text-xs font-semibold transition hover:bg-muted';
 
   return (
-    <section ref={slide} id={`lesson-${lesson.id}`} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-black text-white">
+    <section ref={slide} id={`lesson-${lesson.id}`} className="relative flex h-full snap-start snap-always flex-col overflow-hidden bg-background text-foreground">
       {/* Nothing is laid over the video, so every part of every frame shows: the buttons stand in a column beside it
-          and the title, the teacher and "Did this help?" in a strip under it. */}
-      <div className="relative flex min-h-0 flex-1">
-        {/* A computer's player is wider than a portrait video: a blurred copy of the poster fills the sides instead of black. */}
-        {lesson.poster && !lesson.duetOf && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={lesson.poster} alt="" aria-hidden loading="lazy" className="pointer-events-none absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-40 blur-2xl md:block" />
-        )}
-        <div className="relative min-w-0 flex-1">
+          and the title, the teacher and "Did this help?" in a strip under it. The video's box takes the video's own
+          shape, so no black or blurred bars are added around it. */}
+      <div ref={stage} className="relative flex min-h-0 flex-1 items-stretch justify-center px-2 pt-2 md:px-4 md:pt-3">
+        <div className="relative shrink-0 self-center overflow-hidden rounded-xl bg-black" style={box}>
       {lesson.video && (
         <video
           ref={video}
@@ -152,6 +180,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           onPlay={() => { setPlaying(true); if (original.current) { original.current.currentTime = video.current?.currentTime ?? 0; original.current.play().catch(() => {}); } }}
           onPause={() => { setPlaying(false); original.current?.pause(); }}
           onTimeUpdate={(e) => onTime(e.currentTarget)}
+          onLoadedMetadata={(e) => e.currentTarget.videoWidth && setRatio(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
           onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
           className={cn('absolute inset-y-0 h-full object-contain', lesson.duetOf ? 'right-0 w-1/2 object-cover' : 'inset-x-0 w-full')}
           aria-label={lesson.title}
@@ -165,18 +194,18 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
       )}
         </div>
       {/* Five everyday actions; the rest are under More, so the column always fits a phone screen. */}
-      <div className="relative z-10 flex w-16 shrink-0 flex-col items-center justify-between py-3 text-foreground md:w-24 [@media(max-height:680px)]:py-2">
-          <button type="button" onClick={toggle} className="flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+      <div ref={rail} className="relative z-10 flex w-16 shrink-0 flex-col items-center justify-between pb-1 text-foreground md:w-20 [@media(max-height:680px)]:pb-0">
+          <button type="button" onClick={toggle} className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-foreground transition hover:bg-muted/70" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
             {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>
           <div className="flex flex-col items-center gap-3 md:gap-4 [@media(max-height:680px)]:gap-1.5">
         <ProfileAvatar id={lesson.authorId} name={lesson.authorName} src={lesson.authorAvatar} />
-        <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Like" aria-pressed={like.liked}
+        <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold" aria-label="Like" aria-pressed={like.liked}
           onClick={() => run(async () => { const r = await likeLesson(lesson.id); setLike({ liked: r.liked, count: r.likeCount }); })}>
           <span className={round}><Heart className={cn('h-5 w-5 text-foreground', like.liked && 'fill-primary text-primary')} /></span>
           {like.count > 0 && (!hideLikes || lesson.mine) && like.count}
         </button>
-        {on('comments') && <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold text-white" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
+        {on('comments') && <button type="button" className="flex flex-col items-center gap-1 text-xs font-semibold" aria-label="Comments and questions" onClick={() => setCommentsOpen(true)}>
           <span className={round}><MessageCircle className="h-5 w-5 text-foreground" /></span>
           {(lesson.commentCount ?? 0) > 0 && lesson.commentCount}
         </button>}
@@ -221,29 +250,29 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
           </div>
         </div>
       ) : (
-        <div className="shrink-0 bg-black px-4 pb-3 pt-2.5 md:px-6 md:pb-4 md:[&>*]:max-w-2xl">
+        <div className="shrink-0 bg-background px-4 pb-3 pt-2.5 md:px-6 md:pb-4 md:[&>*]:max-w-2xl">
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold md:text-sm">
             <button type="button" onClick={() => (video.current?.paused ? video.current.play().catch(() => {}) : video.current?.pause())}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white text-black" aria-label={playing ? 'Pause' : 'Play'}>
-              {playing ? <Pause className="h-3.5 w-3.5 fill-black" /> : <Play className="h-3.5 w-3.5 fill-black" />}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-background" aria-label={playing ? 'Pause' : 'Play'}>
+              {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
             </button>
             {lesson.duetOf && (
-              <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="inline-flex max-w-[45%] items-center gap-1 rounded-full bg-white/20 px-2 py-0.5">
+              <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="inline-flex max-w-[45%] items-center gap-1 rounded-full bg-muted px-2 py-0.5">
                 <Columns2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.duetOf.authorName}</span>
               </Link>
             )}
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
-            {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-primary-foreground"><TopicIcon className="h-3.5 w-3.5" /> {t(topic.label)}</span>
+            {lesson.duration != null && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5"><Clock className="h-3.5 w-3.5" /> {formatLength(lesson.duration)}</span>}
             {lesson.rank != null && lesson.rank <= 3 && <span className="inline-flex items-center rounded-full bg-amber-400 px-2 py-0.5 text-black">{['🥇', '🥈', '🥉'][lesson.rank - 1]} #{lesson.rank}</span>}
             {lesson.challenge && (
               <Link href={`/challenge?id=${lesson.challenge.id}`} className="inline-flex max-w-[60%] items-center gap-1 rounded-full bg-amber-400/90 px-2 py-0.5 text-black">
                 <Trophy className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.challenge.title}</span>
               </Link>
             )}
-            {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
+            {lesson.newVoice && <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5" title="Saligue gives new teachers a fair chance to be seen"><Sparkles className="h-3.5 w-3.5" /> {t('New voice')}</span>}
           </div>
           <h2 className="line-clamp-1 text-lg font-bold leading-tight md:line-clamp-2 md:text-2xl">{lesson.title}</h2>
-          {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-white/85 md:text-base [&_button]:text-white" />}
+          {lesson.description && <ExpandableText text={lesson.description} lines={1} className="mt-1 text-sm text-muted-foreground md:text-base [&_button]:text-foreground" />}
           <Link href={profileHref(lesson.authorId)} className="mt-1 flex w-fit max-w-full items-center gap-1 truncate text-sm font-semibold hover:underline md:text-base">@{lesson.authorName}{lesson.authorVerified && <VerifiedBadge />}</Link>
         </div>
       )}
