@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleFadingPlus, Image as ImageIcon, Mic, Plus, Square, Type, X } from 'lucide-react';
+import { Check, CircleFadingPlus, Image as ImageIcon, Library, Loader2, Mic, Music, Music2, Plus, Square, Type, X } from 'lucide-react';
+import { SoundPicker } from '@/components/sound-field';
+import { makeClip, readSoundFile } from '@/lib/audio';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -14,13 +16,14 @@ import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { compressImage } from '@/lib/image';
 import { formatPrice } from '@/lib/orders';
-import { closeFriends, postStory, setCloseFriend, useStories, type CloseFriend, type StoryGroup } from '@/lib/stories';
+import { STORY_COLOURS, STORY_FONTS, STORY_THEMES, closeFriends, fontClass, postStory, setCloseFriend, storyBackground, useStories, type CloseFriend, type StoryFont, type StoryGroup } from '@/lib/stories';
 import { cn } from '@/lib/utils';
 import { VOICE_MAX_SECONDS, useVoiceRecorder } from '@/lib/voice';
 import { StoryViewer } from './story-viewer';
 
 /** The colours words are written on. Kept dark enough for white text to stay readable. */
-const BACKGROUNDS = ['#111111', '#7c2d12', '#065f46', '#1e3a8a', '#4c1d95', '#831843'];
+// The colours and gradient themes words can be written on (src/lib/stories.ts).
+const BACKGROUNDS = [...STORY_COLOURS, ...STORY_THEMES.map((t) => t.value)];
 
 const initials = (name: string) =>
   name
@@ -109,6 +112,13 @@ export function StoryBar({ className, compact = false }: { className?: string; c
   const [caption, setCaption] = useState('');
   const [background, setBackground] = useState(BACKGROUNDS[0]);
   const [productId, setProductId] = useState<string | null>(null);
+  // How the words look, and music to play with a photo or words: a sound already on Saligue, or a clip of the
+  // person's own song (its first 30 seconds, cut on the phone like an item's sound).
+  const [font, setFont] = useState<StoryFont>('classic');
+  const [music, setMusic] = useState<{ key?: string; data?: string; name: string } | null>(null);
+  const [pickingSound, setPickingSound] = useState(false);
+  const [readingSong, setReadingSong] = useState(false);
+  const songInput = useRef<HTMLInputElement>(null);
   // Who the status is for, and — when that is the small list — the list itself (loaded only when it is chosen).
   const [audience, setAudience] = useState<'everyone' | 'close'>('everyone');
   const [friends, setFriends] = useState<CloseFriend[] | null>(null);
@@ -132,6 +142,8 @@ export function StoryBar({ className, compact = false }: { className?: string; c
     setCaption('');
     setBackground(BACKGROUNDS[0]);
     setProductId(null);
+    setFont('classic');
+    setMusic(null);
     setAudience('everyone');
     setFriends(null);
     setCandidates([]);
@@ -161,6 +173,22 @@ export function StoryBar({ className, compact = false }: { className?: string; c
     }
   };
 
+  const chooseSong = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const song = event.target.files?.[0];
+    event.target.value = '';
+    if (!song) return;
+    setReadingSong(true);
+    try {
+      const source = await readSoundFile(song);
+      const clip = await makeClip(source.buffer, 0);
+      setMusic({ data: clip.data, name: source.name });
+    } catch (error) {
+      toast({ variant: 'destructive', title: t('That song could not be read'), description: friendlyError(error) });
+    } finally {
+      setReadingSong(false);
+    }
+  };
+
   const publish = async (event: React.FormEvent) => {
     event.preventDefault();
     const recording = voice.result;
@@ -183,8 +211,11 @@ export function StoryBar({ className, compact = false }: { className?: string; c
         media: mode === 'voice' ? recording?.data : photo ?? undefined,
         caption: caption.trim(),
         background,
+        font,
         productId,
         audience,
+        // A voice status has its own sound, so music goes only with a photo or words.
+        ...(mode !== 'voice' && music ? (music.key ? { musicKey: music.key } : { music: music.data, musicName: music.name }) : {}),
       });
       setComposing(false);
       reset();
@@ -426,18 +457,23 @@ export function StoryBar({ className, compact = false }: { className?: string; c
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="status-colour">{t('Colour')}</Label>
-                <div id="status-colour" className="flex gap-2">
+                <div id="status-colour" className="flex flex-wrap gap-2">
                   {BACKGROUNDS.map((colour) => (
                     <button
                       key={colour}
                       type="button"
                       onClick={() => setBackground(colour)}
-                      aria-label={`${t('Write on')} ${colour}`}
+                      aria-label={`${t('Write on')} ${STORY_THEMES.find((th) => th.value === colour)?.label ?? colour}`}
+                      title={STORY_THEMES.find((th) => th.value === colour)?.label}
                       aria-pressed={background === colour}
-                      style={{ backgroundColor: colour }}
+                      style={{ background: storyBackground(colour) }}
                       className={cn('h-8 w-8 rounded-full border-2', background === colour ? 'border-foreground' : 'border-transparent')}
                     />
                   ))}
+                </div>
+                {/* What the words will look like. */}
+                <div className="flex min-h-28 items-center justify-center rounded-xl p-4 text-white" style={{ background: storyBackground(background) }}>
+                  <p className={cn('whitespace-pre-wrap text-center text-xl leading-snug drop-shadow', fontClass(font))}>{caption || t('What is happening?')}</p>
                 </div>
               </div>
             )}
@@ -470,6 +506,44 @@ export function StoryBar({ className, compact = false }: { className?: string; c
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">{t('People watching can tap it and go straight to the item.')}</p>
+              </div>
+            )}
+
+            {/* How the words are written: on a photo too. */}
+            {mode !== 'voice' && (
+              <div className="space-y-2">
+                <Label>{t('Writing style')}</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {STORY_FONTS.map((f) => (
+                    <button key={f.value} type="button" onClick={() => setFont(f.value)} aria-pressed={font === f.value}
+                      className={cn('rounded-full border px-3 py-1 text-sm', f.className, font === f.value ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground')}>
+                      {t(f.label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Music with a photo or words: a sound others use, or the person's own song. */}
+            {mode !== 'voice' && (
+              <div className="space-y-2">
+                <Label>{t('Music (optional)')}</Label>
+                {music ? (
+                  <div className="flex items-center gap-2 rounded-lg border p-2 text-sm">
+                    <Music2 className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate">{music.name}</span>
+                    <button type="button" onClick={() => setMusic(null)} aria-label={t('Remove the music')} className="rounded p-1 hover:bg-muted"><X className="h-4 w-4" /></button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" onClick={() => setPickingSound(true)}><Library className="mr-2 h-4 w-4" /> {t('Saligue sounds')}</Button>
+                    <Button type="button" variant="outline" onClick={() => songInput.current?.click()} disabled={readingSong}>
+                      {readingSong ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Music className="mr-2 h-4 w-4" />} {t('My music')}
+                    </Button>
+                  </div>
+                )}
+                <input ref={songInput} type="file" accept="audio/*,video/*" className="sr-only" onChange={(e) => void chooseSong(e)} />
+                <SoundPicker open={pickingSound} onOpenChange={setPickingSound} onPick={(s) => { setMusic({ key: s.key, name: s.name }); setPickingSound(false); }} />
               </div>
             )}
 

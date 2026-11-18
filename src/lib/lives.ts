@@ -28,6 +28,8 @@ export type Live = {
   moderators?: { uid: string; name: string }[];
   // Cover picture for the list of lives.
   thumbnail?: string | null;
+  // Shown before the video arrives, when it has ended and in previews (server: liveCover).
+  cover?: string | null;
   // Hearts the host hopes to reach (0 = none).
   heartGoal?: number;
   poll?: LivePoll | null;
@@ -76,6 +78,7 @@ export const withMedia = (l: Live): Live => ({
   ...l,
   sellerAvatar: mediaUrl(l.sellerAvatar ?? undefined) ?? null,
   thumbnail: mediaUrl(l.thumbnail ?? undefined) ?? null,
+  cover: mediaUrl(l.cover ?? undefined) ?? null,
   replay: l.replay ? { ...l.replay, video: mediaUrl(l.replay.video) ?? l.replay.video, poster: mediaUrl(l.replay.poster ?? undefined) ?? null } : null,
 });
 

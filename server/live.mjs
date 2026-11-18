@@ -93,8 +93,16 @@ function adminCall(service, method, body, grant) {
   });
 }
 
+/**
+ * Makes sure the live's room exists. LiveKit only opens a room when someone connects, so a recording asked for while
+ * the host's phone was still connecting found no room ("requested room does not exist") and every live fell back to
+ * recording on the phone, where none arrived. Creating it first lets the server record from the start.
+ */
+export const ensureRoom = (room) => adminCall('RoomService', 'CreateRoom', { name: room, empty_timeout: 600 }, { roomCreate: true });
+
 /** Records one live's room, drawn by Saligue's own recording page (same layout as viewers see). Returns the egress id. */
 export async function startRecording(room, { pageUrl, file }) {
+  await ensureRoom(room).catch(() => {});
   const info = await adminCall('Egress', 'StartRoomCompositeEgress', {
     room_name: room,
     layout: 'saligue',

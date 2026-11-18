@@ -145,7 +145,7 @@ export function SoundField({ value, onChange }: { value: ChosenSound | null; onC
 }
 
 /** Sounds already on Saligue, most used first, each to listen to before using it. */
-function SoundPicker({ open, onOpenChange, onPick }: { open: boolean; onOpenChange: (v: boolean) => void; onPick: (s: SharedSound) => void }) {
+export function SoundPicker({ open, onOpenChange, onPick }: { open: boolean; onOpenChange: (v: boolean) => void; onPick: (s: SharedSound) => void }) {
   const t = useT();
   const [q, setQ] = useState('');
   const [list, setList] = useState<SharedSound[] | null>(null);

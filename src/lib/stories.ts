@@ -27,7 +27,38 @@ export type Story = {
   audience: 'everyone' | 'close';
   // Your own stories only: how many other people watched.
   views?: number;
+  // Music that plays with a photo or words.
+  music: { url: string; name: string } | null;
+  // How the words are written (STORY_FONTS).
+  font: StoryFont;
+  liked: boolean;
+  // Your own stories only: how many people liked it.
+  likes?: number;
 };
+
+// How the words of a status can look, and the gradient themes they can be written on (same lists on the server).
+export type StoryFont = 'classic' | 'bold' | 'serif' | 'script' | 'mono';
+export const STORY_FONTS: { value: StoryFont; label: string; className: string }[] = [
+  { value: 'classic', label: 'Classic', className: 'font-semibold' },
+  { value: 'bold', label: 'Bold', className: 'font-black uppercase tracking-tight' },
+  { value: 'serif', label: 'Elegant', className: 'font-serif italic' },
+  { value: 'script', label: 'Hand', className: "font-['Segoe_Script','Brush_Script_MT','Snell_Roundhand',cursive]" },
+  { value: 'mono', label: 'Type', className: 'font-mono' },
+];
+export const fontClass = (font: StoryFont | undefined) => STORY_FONTS.find((f) => f.value === font)?.className ?? STORY_FONTS[0].className;
+export const STORY_COLOURS = ['#111111', '#7c2d12', '#065f46', '#1e3a8a', '#4c1d95', '#831843'];
+export const STORY_THEMES: { value: string; label: string; css: string }[] = [
+  { value: 'theme:sunset', label: 'Sunset', css: 'linear-gradient(160deg, #f97316, #e21376 55%, #6d28d9)' },
+  { value: 'theme:ocean', label: 'Ocean', css: 'linear-gradient(160deg, #06b6d4, #1d4ed8)' },
+  { value: 'theme:forest', label: 'Forest', css: 'linear-gradient(160deg, #84cc16, #047857)' },
+  { value: 'theme:berry', label: 'Berry', css: 'linear-gradient(160deg, #f472b6, #9d174d)' },
+  { value: 'theme:gold', label: 'Gold', css: 'linear-gradient(160deg, #fde68a, #b45309)' },
+  { value: 'theme:night', label: 'Night', css: 'radial-gradient(circle at 30% 20%, #4338ca, #0f0a1e 70%)' },
+];
+/** The CSS background a status is written on: a colour, or one of the themes. */
+export const storyBackground = (background: string) => STORY_THEMES.find((t) => t.value === background)?.css ?? background;
+/** The address a status's music plays from. */
+export const storyMusic = (story: Story) => (story.music ? mediaUrl(story.music.url) : null);
 
 export type StoryPerson = {
   id: string;
@@ -120,7 +151,7 @@ export function useStories() {
 
 /** Posts a status. A photo travels as the data URL `compressImage` makes, a voice note as the phone's recording;
  *  either way the server keeps it as a file. */
-export async function postStory(input: { kind: 'image' | 'text' | 'voice'; media?: string; caption?: string; background?: string; productId?: string | null; audience?: 'everyone' | 'close' }) {
+export async function postStory(input: { kind: 'image' | 'text' | 'voice'; media?: string; caption?: string; background?: string; font?: StoryFont; productId?: string | null; audience?: 'everyone' | 'close'; music?: string; musicName?: string; musicKey?: string }) {
   // A photo or a recording is a whole file, and a voice note is turned into an M4A on the server: this is given
   // longer than a usual call.
   const { story } = await api<{ story: Story }>('/stories', { body: input, timeoutMs: 60_000 });
@@ -142,10 +173,23 @@ export async function markStorySeen(id: string) {
   }
 }
 
-/** Answers a story. It reaches the author as a notification, like a mention does. */
+/** Answers a story. It lands in the chat with the author (quoting the status); returns that chat, if there is one. */
 export async function replyToStory(id: string, text: string) {
-  await api(`/stories/${id}/reply`, { body: { text } });
+  return api<{ ok: boolean; conversationId: string | null }>(`/stories/${id}/reply`, { body: { text } });
 }
+
+/** Likes a status, or takes the like back. */
+export async function likeStory(id: string) {
+  const { liked } = await api<{ liked: boolean }>(`/stories/${id}/like`, { method: 'POST' });
+  if (state) {
+    state = { ...state, groups: state.groups.map((g) => ({ ...g, stories: g.stories.map((s) => (s.id === id ? { ...s, liked } : s)) })) };
+    emit();
+  }
+  return liked;
+}
+
+/** One status by its shared link, as a group of one to play. */
+export const getStory = (id: string) => api<StoryGroup>(`/stories/${encodeURIComponent(id)}`);
 
 /** Removes one of your own stories before its 24 hours are up. */
 export async function deleteStory(id: string) {

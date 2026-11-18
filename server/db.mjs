@@ -608,6 +608,13 @@ db.exec(`
   create index if not exists ad_serves_ip on ad_serves(campaign_id, ip, viewed_at);
   create index if not exists ad_serves_buyer on ad_serves(viewer, viewed_at);
 
+  -- Likes on statuses (one per person per status).
+  create table if not exists story_likes (
+    story_id text not null references stories(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (story_id, user_id)
+  );
   -- Lesson views per day (once per person per lesson per day, never the teacher's own): with likes, lessons
   -- watched to the end and thanks, they share out the teachers' part of Learning ads each month (ads.mjs).
   create table if not exists lesson_view_days (
@@ -923,7 +930,9 @@ for (const [table, column, type] of [
   // reviews it), then — only if an admin asks for it — a closure with a notice period (closure_requested_*,
   // delete_after), and the closure itself only once a second look has confirmed it. The person can ask for a review
   // once per suspension (suspend_appeal), from the sign-in screen.
-  ['ad_serves', 'lesson_id', 'text'], ['lesson_likes', 'created_at', 'text'],
+  ['ad_serves', 'lesson_id', 'text'],
+  // A status can carry music (a /media/ sound and its name) and a text style; likes are kept in story_likes.
+  ['stories', 'music', 'text'], ['stories', 'music_name', 'text'], ['stories', 'font', "text not null default 'classic'"], ['lesson_likes', 'created_at', 'text'],
   // An item sound's fingerprint (its bytes, hashed): the same sound on many items is one sound people can reuse.
   ['product_audio', 'key', 'text'],
   // A finished challenge's top three (JSON: lesson, teacher, likes), written once when it closes.

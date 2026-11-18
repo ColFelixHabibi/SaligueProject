@@ -1545,6 +1545,9 @@ const STORY_HOURS = 24;
 const STORY_MAX = 30;              // how many one person can have up at once
 const STORY_CAPTION_MAX = 280;
 const STORY_VOICE_SECONDS = 30;    // a voice status is a moment, like a photo
+// How the words of a status can look, and the gradient themes they can be written on (same lists in src/lib/stories.ts).
+const STORY_FONTS = ['classic', 'bold', 'serif', 'script', 'mono'];
+const STORY_THEMES = ['theme:sunset', 'theme:ocean', 'theme:forest', 'theme:berry', 'theme:gold', 'theme:night'];
 
 const storyExpiry = () => new Date(Date.now() + STORY_HOURS * 3_600_000).toISOString();
 
@@ -1560,6 +1563,12 @@ function storyOut(r, viewerId) {
     product: p ? { id: p.id, name: p.name, price: priceOf(p), image: p.image } : null,
     // How long a voice status runs; the ring uses it to know when to move on.
     seconds: r.seconds ?? null,
+    // Music that plays with a photo or words, and how the words are written.
+    music: r.music ? { url: r.music, name: r.music_name || 'Music' } : null,
+    font: STORY_FONTS.includes(r.font) ? r.font : 'classic',
+    liked: !!viewerId && !!db.prepare('select 1 from story_likes where story_id = ? and user_id = ?').get(r.id, viewerId),
+    // Like the views, the number of likes is the author's to see.
+    likes: viewerId && viewerId === r.user_id ? db.prepare('select count(*) as n from story_likes where story_id = ?').get(r.id).n : undefined,
     // 'everyone' (anyone who follows you) or 'close' (only the people on your close friends list).
     audience: r.audience === 'close' ? 'close' : 'everyone',
     createdAt: r.created_at,
@@ -1627,7 +1636,9 @@ route('POST', '/api/stories', async ({ user, body }) => {
   if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to post a status.');
   const kind = body.kind === 'text' ? 'text' : body.kind === 'voice' ? 'voice' : 'image';
   const caption = String(body.caption ?? '').trim().slice(0, STORY_CAPTION_MAX);
-  const background = /^#[0-9a-f]{6}$/i.test(String(body.background ?? '')) ? String(body.background) : '#111111';
+  // A plain colour, or one of the gradient themes (src/lib/stories.ts → STORY_THEMES).
+  const background = /^#[0-9a-f]{6}$/i.test(String(body.background ?? '')) || STORY_THEMES.includes(String(body.background ?? '')) ? String(body.background) : '#111111';
+  const font = STORY_FONTS.includes(body.font) ? body.font : 'classic';
   const productId = body.productId ? String(body.productId) : null;
   if (productId && !db.prepare('select 1 from products where id = ?').get(productId)) fail(404, 'no_item', 'That item is no longer on Saligue.');
   // Who it is for. 'close' is read back against the author's close friends list every time the bar is loaded.
@@ -1650,11 +1661,24 @@ route('POST', '/api/stories', async ({ user, body }) => {
   if (kind === 'image' && (typeof media !== 'string' || !media.startsWith('/media/'))) fail(400, 'missing_photo', 'Choose a photo for your status.');
   if (kind === 'voice' && (typeof media !== 'string' || !media.startsWith('/media/'))) fail(400, 'missing_voice', 'Record your voice status first.');
   if (kind === 'text' && !caption) fail(400, 'missing_text', 'Write something for your status.');
+  // Music with a photo or words: a sound already on Saligue (its key), or the person's own clip. Like a voice note it
+  // becomes one small M4A of at most half a minute. A voice status has its own sound, so it takes none.
+  let music = null, musicName = null;
+  if (kind !== 'voice' && (body.musicKey || body.music)) {
+    const shared = body.musicKey ? db.prepare('select data, name from product_audio where key = ? limit 1').get(String(body.musicKey)) : null;
+    if (body.musicKey && !shared) fail(404, 'no_sound', 'That sound is no longer on Saligue.');
+    try {
+      music = (await storeVoice(shared ? shared.data : body.music, STORY_VOICE_SECONDS)).media;
+    } catch (error) {
+      fail(error.status ?? 400, 'invalid_music', 'This music could not be added. Try another song.');
+    }
+    musicName = String(shared?.name ?? body.musicName ?? 'Music').slice(0, 80);
+  }
   const up = db.prepare('select count(*) as n from stories where user_id = ? and expires_at > ?').get(user.id, now()).n;
   if (up >= STORY_MAX) fail(429, 'too_many_stories', `You have ${STORY_MAX} stories up already. They clear themselves after ${STORY_HOURS} hours.`);
   const id = randomUUID();
-  db.prepare('insert into stories (id, user_id, kind, media, caption, background, product_id, seconds, audience, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, kind, media, caption, background, productId, seconds, audience, now(), storyExpiry());
+  db.prepare('insert into stories (id, user_id, kind, media, caption, background, product_id, seconds, audience, music, music_name, font, created_at, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, kind, media, caption, background, productId, seconds, audience, music, musicName, font, now(), storyExpiry());
   broadcast('stories');
   return { story: storyOut(db.prepare('select * from stories where id = ?').get(id), user.id) };
 });
@@ -1677,9 +1701,78 @@ route('POST', '/api/stories/([\\w-]+)/reply', ({ user, params, body }) => {
   if (!s) fail(404, 'not_found', 'That story has already gone.');
   if (s.user_id === user.id) fail(400, 'own_story', 'That is your own story.');
   db.prepare('insert or ignore into story_views (story_id, user_id, created_at) values (?, ?, ?)').run(s.id, user.id, now());
-  notify(s.user_id, { type: 'story_reply', title: `${user.display_name || 'Someone'} replied to your story`, body: text, link: `/profile?id=${user.id}`, email: false });
-  return { ok: true };
+  // The reply lands in the chat between the two of them, quoting the status, like any app with statuses. Where they
+  // cannot chat (not connected, a rule of the chat), it still reaches the author as a notification.
+  const story = db.prepare('select caption, kind from stories where id = ?').get(s.id);
+  const quote = story.caption ? `“${story.caption.slice(0, 80)}${story.caption.length > 80 ? '…' : ''}”` : story.kind === 'voice' ? 'your voice status' : 'your status';
+  let conversationId = null;
+  try {
+    const c = storyChat(user, s.user_id);
+    if (c) {
+      addMessage(user, c, { text: `↩ Replied to ${quote}\n${text}` });
+      conversationId = c.id;
+    }
+  } catch {
+    conversationId = null;
+  }
+  // The author is told either way (on their phone too); the notification opens the chat when there is one.
+  notify(s.user_id, { type: 'story_reply', title: `${user.display_name || 'Someone'} replied to your story`, body: text, link: conversationId ? `/messages?c=${conversationId}` : `/profile?id=${user.id}`, email: false });
+  return { ok: true, conversationId };
 });
+
+// A like on a status: once per person, taken back with a second tap. The author is told the first time.
+route('POST', '/api/stories/([\\w-]+)/like', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to like statuses.');
+  const s = db.prepare('select id, user_id from stories where id = ? and expires_at > ?').get(params[0], now());
+  if (!s) fail(404, 'not_found', 'That story has already gone.');
+  const liked = transaction(() => {
+    if (db.prepare('delete from story_likes where story_id = ? and user_id = ?').run(s.id, user.id).changes) return false;
+    db.prepare('insert into story_likes (story_id, user_id, created_at) values (?, ?, ?)').run(s.id, user.id, now());
+    return true;
+  });
+  if (liked && s.user_id !== user.id) notify(s.user_id, { type: 'story_like', title: `${user.display_name || 'Someone'} liked your status`, body: '', link: `/status?id=${s.id}`, email: false });
+  return { liked };
+});
+
+// One status by its link (shared outside the app): anyone may open a status meant for everyone while it lasts.
+// A close-friends status opens only for the people on that list, and the author's own for the author.
+route('GET', '/api/stories/([\\w-]+)', ({ user, params }) => {
+  const r = db.prepare('select * from stories where id = ? and expires_at > ?').get(params[0], now());
+  const author = r ? db.prepare('select id, display_name, username, avatar, role, official, suspended from users where id = ?').get(r.user_id) : null;
+  const allowed = r && author && !author.suspended && (r.audience !== 'close' || r.user_id === user?.id || (user && closeFriendsOf(user.id).has(r.user_id)))
+    && !(user && blockedBetween(user.id, r.user_id));
+  if (!allowed) fail(404, 'not_found', 'This status has gone. Statuses last 24 hours.');
+  return {
+    user: { id: author.id, displayName: author.display_name, username: author.username ?? null, avatar: author.avatar ?? null, role: author.role, official: !!author.official },
+    stories: [storyOut(r, user?.id ?? null)],
+    unseen: 0,
+  };
+});
+
+/** The chat a status reply goes into: the shop chat when one of them has a shop, else their direct chat if connected. */
+function storyChat(user, otherId) {
+  const other = db.prepare('select id, shop, is_guest, suspended from users where id = ?').get(otherId);
+  if (!other || other.is_guest || other.suspended || user.is_guest || blockedBetween(user.id, other.id)) return null;
+  const hasShop = (u) => !!parse(u.shop)?.name;
+  if (hasShop(other) !== hasShop(user)) {
+    const [buyerId, sellerId] = hasShop(other) ? [user.id, other.id] : [other.id, user.id];
+    let c = db.prepare("select * from conversations where buyer_id = ? and seller_id = ? and kind = 'shop'").get(buyerId, sellerId);
+    if (!c) {
+      const id = randomUUID();
+      db.prepare('insert into conversations (id, buyer_id, seller_id, last_message_at, created_at) values (?, ?, ?, ?, ?)').run(id, buyerId, sellerId, now(), now());
+      c = db.prepare('select * from conversations where id = ?').get(id);
+    }
+    return c;
+  }
+  if (!connected(user.id, other.id)) return null;
+  let c = db.prepare("select * from conversations where kind = 'direct' and ((buyer_id = ? and seller_id = ?) or (buyer_id = ? and seller_id = ?))").get(user.id, other.id, other.id, user.id);
+  if (!c) {
+    const id = randomUUID();
+    db.prepare("insert into conversations (id, kind, buyer_id, seller_id, last_message_at, created_at) values (?, 'direct', ?, ?, ?, ?)").run(id, user.id, other.id, now(), now());
+    c = db.prepare('select * from conversations where id = ?').get(id);
+  }
+  return c;
+}
 
 route('DELETE', '/api/stories/([\\w-]+)', ({ user, params }) => {
   if (!user) fail(401, 'not_signed_in', 'Please sign in.');
@@ -2825,6 +2918,14 @@ function cancelAbandonedOrders() {
 // on camera when the host accepts. Video goes through LiveKit (live.mjs); everything else is here.
 // ---------------------------------------------------------------------------
 
+function liveCover(l, seller) {
+  if (l.thumbnail) return l.thumbnail;
+  if (l.replay_status === 'ready' && l.replay_poster) return l.replay_poster;
+  const itemId = l.pinned_product_id ?? (parse(l.product_ids) ?? [])[0];
+  const item = itemId ? db.prepare('select image, cutout from products where id = ?').get(itemId) : null;
+  return item?.cutout || item?.image || seller?.avatar || null;
+}
+
 function liveOut(l) {
   const seller = db.prepare('select id, display_name, shop, avatar, official, verified from users where id = ?').get(l.seller_id);
   return {
@@ -2855,6 +2956,9 @@ function liveOut(l) {
     moderators: (parse(l.moderators) ?? []).map((uid) => ({ uid, name: personNameOf(db.prepare('select display_name, email, is_guest from users where id = ?').get(uid)) })),
     // Cover picture shown in the list of lives (a photo, or a frame from the host's camera).
     thumbnail: l.thumbnail ?? null,
+    // What is shown before the video arrives, on the ended screen and in shared-link previews: the host's cover, else a
+    // frame of its replay, else its pinned (or first) item, else the shop's photo — so a live is never a blank card.
+    cover: liveCover(l, seller),
     // Live-only deals running now: { productId: { price, was, until } }.
     deals: Object.fromEntries(db.prepare('select id, price, deal_price, deal_until from products where deal_live_id = ? and deal_until > ?').all(l.id, now()).map((p) => [p.id, { price: p.deal_price, was: p.price, until: p.deal_until }])),
     // The recording, to watch again after the live ('recording' → 'processing' → 'ready').
@@ -6632,8 +6736,15 @@ function sharePreview(pathname, params) {
   };
   try {
     if (path === '/live/watch' && params.get('id')) {
-      const l = db.prepare('select l.title, l.description, l.thumbnail, l.status, u.avatar, u.shop, u.display_name, u.email, u.is_guest, u.role from lives l join users u on u.id = l.seller_id where l.id = ?').get(params.get('id'));
-      if (l) return { title: `${l.status === 'live' ? '🔴 LIVE · ' : ''}${l.title}`, description: `${shopNameOf(l)} on Saligue Live${l.description ? ` · ${l.description}` : ''}`, image: abs(l.thumbnail ?? l.avatar) };
+      const l = db.prepare('select l.*, u.avatar, u.shop, u.display_name, u.email, u.is_guest, u.role from lives l join users u on u.id = l.seller_id where l.id = ?').get(params.get('id'));
+      // A live that ended with a replay is shared as something to watch, with its cover (liveCover).
+      const replay = l?.replay_status === 'ready';
+      if (l) return { title: `${l.status === 'live' ? '🔴 LIVE · ' : replay ? '▶ Replay · ' : ''}${l.title}`, description: `${shopNameOf(l)} on Saligue Live${l.description ? ` · ${l.description}` : ''}`, image: abs(liveCover(l, l)) };
+    }
+    // A shared status: the author, its words, and its photo (or the author's photo).
+    if (path === '/status' && params.get('id')) {
+      const r = db.prepare("select s.*, u.display_name, u.avatar from stories s join users u on u.id = s.user_id where s.id = ? and s.expires_at > ? and s.audience != 'close'").get(params.get('id'), now());
+      if (r) return { title: `${r.display_name || 'Someone'}'s status on Saligue`, description: r.caption || (r.kind === 'voice' ? 'A voice status. Open it to listen.' : 'Open it before it goes: statuses last 24 hours.'), image: abs(r.kind === 'image' ? r.media : r.avatar) };
     }
     if ((path === '/product' || path === '/indeciana') && (params.get('id') || params.get('item'))) {
       const p = db.prepare("select name, description, price, image, cutout from products where id = ? and status = 'active' and hidden = 0").get(params.get('id') ?? params.get('item'));

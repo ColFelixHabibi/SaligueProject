@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Bell, BellOff, Eye, Mic, Pause, Play, Send, Trash2, X } from 'lucide-react';
+import { Bell, BellOff, Eye, Heart, Mic, Music2, Pause, Play, Send, Share2, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { shareLink } from '@/components/share-sheet';
+import { absoluteUrl } from '@/lib/paths';
+import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +15,7 @@ import { friendlyError } from '@/lib/errors';
 import { useT } from '@/lib/i18n';
 import { productHref } from '@/lib/links';
 import { formatPrice } from '@/lib/orders';
-import { deleteStory, hoursLeft, markStorySeen, muteStatuses, replyToStory, storyPhoto, storyVoice, type StoryGroup } from '@/lib/stories';
+import { deleteStory, fontClass, hoursLeft, likeStory, markStorySeen, muteStatuses, replyToStory, storyBackground, storyMusic, storyPhoto, storyVoice, type StoryGroup } from '@/lib/stories';
 
 /** How long a photo stays on screen before the next one, like any status app. */
 const PHOTO_MS = 5000;
@@ -27,8 +31,8 @@ const initials = (name: string) =>
 /**
  * One person's stories, played full screen: the bars at the top, tap the right half for the next one and the left
  * half for the one before. A voice status plays its sound, moves on when the sound ends, and holds still while a
- * finger is down. Your own stories show how many people watched and can be taken down early; someone else's can be
- * answered, which reaches them as a notification.
+ * finger is down; a photo or words can play music. Your own stories show how many people watched and liked, and can
+ * be taken down early; someone else's can be liked, shared, and answered — the answer lands in your chat with them.
  */
 export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; onClose: () => void; onChanged?: () => void }) {
   const { toast } = useToast();
@@ -38,11 +42,18 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [liked, setLiked] = useState<Record<string, boolean>>({});
+  // Music starts with the status; one tap on the speaker silences it (kept for the rest of the statuses).
+  const [quiet, setQuiet] = useState(false);
+  const router = useRouter();
+  const tune = useRef<HTMLAudioElement>(null);
   // The server only says how many watched on your own stories, so that is how this one knows whose it is.
   const mine = group.stories.some((s) => s.views !== undefined);
   const story = group.stories[index];
   const photo = story ? storyPhoto(story) : null;
   const voice = story ? storyVoice(story) : null;
+  const music = story ? storyMusic(story) : null;
+  const isLiked = story ? liked[story.id] ?? story.liked : false;
   const sound = useRef<HTMLAudioElement>(null);
   // A finger held down pauses a voice status. The click that follows a real hold must not move on, so it is eaten
   // (a quick tap is left alone: that is still "next" or "previous").
@@ -110,10 +121,11 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
 
   /** A finger down on a voice status holds it: the sound stops, and starts again when the finger lifts. */
   const hold = () => {
-    if (!voice) return;
+    if (!voice && !music) return;
     holding.current = true;
     heldAt.current = Date.now();
     sound.current?.pause();
+    tune.current?.pause();
   };
   const letGo = () => {
     if (!holding.current) return;
@@ -124,16 +136,34 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
       window.setTimeout(() => (swallow.current = false), 400);
     }
     void sound.current?.play().catch(() => setPlaying(false));
+    if (!quiet) void tune.current?.play().catch(() => {});
   };
+
+  const toggleLike = async () => {
+    const next = !isLiked;
+    setLiked((l) => ({ ...l, [story.id]: next }));
+    try {
+      const result = await likeStory(story.id);
+      setLiked((l) => ({ ...l, [story.id]: result }));
+    } catch (error) {
+      setLiked((l) => ({ ...l, [story.id]: !next }));
+      toast({ variant: 'destructive', title: t('That did not work'), description: friendlyError(error) });
+    }
+  };
+
+  /** Shares a link that opens this status (with its picture and words as the preview), while it lasts. */
+  const share = () =>
+    shareLink({ title: `${group.user.displayName} · Saligue`, text: story.caption || `${group.user.displayName}'s status on Saligue`, url: absoluteUrl(`/status?id=${story.id}`) });
 
   const sendReply = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reply.trim()) return;
     setSending(true);
     try {
-      await replyToStory(story.id, reply.trim());
+      const { conversationId } = await replyToStory(story.id, reply.trim());
       setReply('');
-      toast({ title: t('Reply sent'), description: `${t('It reached')} ${group.user.displayName}.` });
+      toast({ title: t('Reply sent'), description: conversationId ? t('It is in your chat with them.') : `${t('It reached')} ${group.user.displayName}.` });
+      if (conversationId) router.prefetch(`/messages?c=${conversationId}`);
     } catch (error) {
       toast({ variant: 'destructive', title: t('Could not send that reply'), description: friendlyError(error) });
     } finally {
@@ -192,6 +222,12 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
           </span>
         )}
         {mine && <span className="flex items-center gap-1 text-xs text-white/70"><Eye className="h-4 w-4" /> {story.views ?? 0}</span>}
+        {mine && <span className="flex items-center gap-1 text-xs text-white/70"><Heart className="h-4 w-4" /> {story.likes ?? 0}</span>}
+        {music && (
+          <button onClick={() => { const next = !quiet; setQuiet(next); if (tune.current) tune.current.muted = next; }} aria-label={t(quiet ? 'Play the music' : 'Silence the music')} title={t(quiet ? 'Play the music' : 'Silence the music')} className="rounded-full p-2 hover:bg-white/10">
+            {quiet ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+          </button>
+        )}
         {mine && (
           <button onClick={remove} aria-label={t('Remove this status')} className="rounded-full p-2 hover:bg-white/10">
             <Trash2 className="h-5 w-5" />
@@ -224,7 +260,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
       >
         {voice ? (
           // A voice status: the words on the colour they were posted with, a play button, and the sound underneath.
-          <div className="flex h-full w-full flex-col items-center justify-center gap-6 p-8" style={{ backgroundColor: story.background }}>
+          <div className="flex h-full w-full flex-col items-center justify-center gap-6 p-8" style={{ background: storyBackground(story.background) }}>
             <audio
               key={story.id}
               ref={sound}
@@ -247,7 +283,7 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/15">
               <Mic className="h-8 w-8" />
             </span>
-            {story.caption && <p className="max-w-xl whitespace-pre-wrap text-center text-2xl font-semibold leading-snug">{story.caption}</p>}
+            {story.caption && <p className={cn('max-w-xl whitespace-pre-wrap text-center text-2xl leading-snug', fontClass(story.font))}>{story.caption}</p>}
             <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
@@ -272,8 +308,8 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
           // eslint-disable-next-line @next/next/no-img-element
           <img src={photo} alt={story.caption || `${group.user.displayName}'s story`} className="h-full w-full object-contain" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center p-8" style={{ backgroundColor: story.background }}>
-            <p className="max-w-xl whitespace-pre-wrap text-center text-2xl font-semibold leading-snug">{story.caption}</p>
+          <div className="flex h-full w-full items-center justify-center p-8" style={{ background: storyBackground(story.background) }}>
+            <p className={cn('max-w-xl whitespace-pre-wrap text-center text-3xl leading-snug drop-shadow', fontClass(story.font))}>{story.caption}</p>
           </div>
         )}
 
@@ -283,7 +319,17 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
         {!voice && <button onClick={close} aria-label={t('Close')} className="absolute inset-y-0 left-1/3 right-1/3" />}
 
         {photo && story.caption && (
-          <p className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 pb-6 text-base">{story.caption}</p>
+          <p className={cn('absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 pb-6 text-lg', fontClass(story.font))}>{story.caption}</p>
+        )}
+
+        {/* Music with a photo or words: plays with the status, loops, and stops when it is held. */}
+        {music && (
+          <>
+            <audio key={`m-${story.id}`} ref={tune} src={music} autoPlay loop playsInline muted={quiet} className="hidden" />
+            <span className="pointer-events-none absolute left-3 top-3 flex max-w-[70%] items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-xs backdrop-blur">
+              <Music2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{story.music?.name}</span>
+            </span>
+          </>
         )}
 
         {/* A story can be about an item: this is the part a plain status does not have. */}
@@ -318,7 +364,20 @@ export function StoryViewer({ group, onClose, onChanged }: { group: StoryGroup; 
           <Button type="submit" size="icon" className="h-11 w-11 rounded-full" disabled={sending || !reply.trim()} aria-label={t('Send reply')}>
             <Send className="h-5 w-5" />
           </Button>
+          <button type="button" onClick={() => void toggleLike()} aria-pressed={isLiked} aria-label={t(isLiked ? 'Unlike' : 'Like')} title={t(isLiked ? 'Unlike' : 'Like')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10">
+            <Heart className={cn('h-6 w-6', isLiked && 'fill-primary text-primary')} />
+          </button>
+          {story.audience !== 'close' && (
+            <button type="button" onClick={share} aria-label={t('Share')} title={t('Share')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white/10">
+              <Share2 className="h-5 w-5" />
+            </button>
+          )}
         </form>
+      )}
+      {mine && story.audience !== 'close' && (
+        <div className="flex justify-end border-t border-white/15 p-2">
+          <button type="button" onClick={share} className="flex items-center gap-2 rounded-full px-4 py-2 text-sm hover:bg-white/10"><Share2 className="h-4 w-4" /> {t('Share')}</button>
+        </div>
       )}
     </div>
   );

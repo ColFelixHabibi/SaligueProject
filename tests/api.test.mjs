@@ -2606,6 +2606,56 @@ describe('the Saligue balance', () => {
   });
 });
 
+// Statuses (server/index.mjs → /api/stories): music, themes and writing styles, likes, replies that land in the chat,
+// and a link that opens a status meant for everyone.
+describe('statuses', () => {
+  // Half a second of silence as a WAV, so ffmpeg has a real sound to turn into the status's music.
+  const wav = () => {
+    const rate = 8000, n = rate / 2, data = Buffer.alloc(44 + n * 2);
+    data.write('RIFF', 0); data.writeUInt32LE(36 + n * 2, 4); data.write('WAVEfmt ', 8); data.writeUInt32LE(16, 16);
+    data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22); data.writeUInt32LE(rate, 24); data.writeUInt32LE(rate * 2, 28);
+    data.writeUInt16LE(2, 32); data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(n * 2, 40);
+    return `data:audio/wav;base64,${data.toString('base64')}`;
+  };
+
+  test('carry music and a theme, can be liked, replied to in the chat, and opened by link', async () => {
+    const author = await register('Status Author');
+    const friend = await register('Status Friend');
+    await call(`/follow/${author.id}`, { token: friend.token, body: {} });
+
+    const posted = await call('/stories', { token: author.token, body: { kind: 'text', caption: 'New kitenge in!', background: 'theme:sunset', font: 'serif', music: wav(), musicName: 'Kigali Beat' } });
+    assert.equal(posted.status, 200, JSON.stringify(posted.json));
+    const story = posted.json.story;
+    assert.equal(story.background, 'theme:sunset');
+    assert.equal(story.font, 'serif');
+    assert.match(story.music.url, /^\/media\/.+\.m4a$/);
+    assert.equal(story.music.name, 'Kigali Beat');
+    assert.equal((await call('/stories', { token: author.token, body: { kind: 'text', caption: 'x', background: 'url(evil)' } })).json.story.background, '#111111', 'only known themes');
+
+    // A like, taken back with a second tap; the author sees the number.
+    assert.equal((await call(`/stories/${story.id}/like`, { method: 'POST', token: friend.token })).json.liked, true);
+    const authorView = (await call('/stories', { token: author.token })).json.groups.find((g) => g.user.id === author.id).stories.find((s) => s.id === story.id);
+    assert.equal(authorView.likes, 1);
+    assert.equal((await call('/stories', { token: friend.token })).json.groups.find((g) => g.user.id === author.id).stories.find((s) => s.id === story.id).liked, true);
+    assert.equal((await call(`/stories/${story.id}/like`, { method: 'POST', token: friend.token })).json.liked, false);
+
+    // A reply lands in their chat, quoting the status.
+    const replied = await call(`/stories/${story.id}/reply`, { token: friend.token, body: { text: 'Love it!' } });
+    assert.equal(replied.status, 200);
+    assert.ok(replied.json.conversationId, 'a chat');
+    const chat = (await call(`/conversations/${replied.json.conversationId}`, { token: author.token })).json;
+    assert.ok(JSON.stringify(chat).includes('Love it!'));
+    assert.ok(JSON.stringify(chat).includes('New kitenge in!'), 'quotes the status');
+
+    // A shared link opens a status meant for everyone, even without an account; a close-friends one does not.
+    const opened = await call(`/stories/${story.id}`);
+    assert.equal(opened.status, 200);
+    assert.equal(opened.json.stories[0].id, story.id);
+    const close = (await call('/stories', { token: author.token, body: { kind: 'text', caption: 'Just for you', audience: 'close' } })).json.story;
+    assert.equal((await call(`/stories/${close.id}`)).status, 404);
+  });
+});
+
 // About Saligue and INDECIANA (server/index.mjs → /api/brand): Saligue is made by INDECIANA, and admins change the words.
 describe('about texts', () => {
   test('say INDECIANA made Saligue, and only admins change them', async () => {

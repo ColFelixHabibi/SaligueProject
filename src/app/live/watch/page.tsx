@@ -252,9 +252,9 @@ function Watch() {
         ) : live.replayStatus === 'recording' || live.replayStatus === 'processing' ? (
           <p className="mx-auto flex w-fit items-center gap-2 rounded-full bg-muted px-4 py-2 text-sm font-semibold"><Loader2 className="h-4 w-4 animate-spin" /> The replay is being saved…</p>
         ) : null}
-        {live.replay ? null : live.thumbnail ? (
+        {live.replay ? null : live.cover ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={live.thumbnail} alt="" className="mx-auto aspect-[9/14] w-40 rounded-2xl object-cover opacity-80 shadow-md grayscale-[40%]" />
+          <img src={live.cover} alt="" className="mx-auto aspect-[9/14] w-40 rounded-2xl object-cover opacity-80 shadow-md grayscale-[40%]" />
         ) : <Radio className="mx-auto h-12 w-12 text-muted-foreground" />}
         {!live.replay && <h1 className="text-2xl font-extrabold">This live has ended</h1>}
         <p className={live.replay ? 'text-lg font-bold' : 'text-muted-foreground'}>{live.sellerName} · {live.title}</p>
@@ -280,7 +280,7 @@ function Watch() {
       <div onPointerUp={tap.onPointerUp} className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         {tap.layer}
         <GiftBanner gift={gift} />
-        <LiveStage tiles={tiles} cover={live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
+        <LiveStage tiles={tiles} cover={live.cover ?? live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
           <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons" title="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
         ) : (
