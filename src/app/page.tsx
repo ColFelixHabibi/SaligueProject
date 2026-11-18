@@ -311,7 +311,7 @@ export default function ForYouPage() {
         <StatusButton className="mt-2" />
       </div>
       {mode === 'learn' ? (
-        <LessonFeed breakReminder={false} className="h-full pt-0 [&>nav:first-child]:top-12" />
+        <LessonFeed breakReminder={false} className="h-full bg-background pt-12" />
       ) : !isInitialized ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : error ? (

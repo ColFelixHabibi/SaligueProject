@@ -5,6 +5,7 @@ import { MentionSuggestions } from '@/components/mention-suggestions';
 import { api } from '@/lib/api';
 import { friendlyError } from '@/lib/errors';
 import { VideoField, uploadItemVideo } from '@/components/video-field';
+import { MorePhotosField, morePhotosRoom, saveMorePhotos } from '@/components/more-photos-field';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +36,9 @@ export default function EditProductView({ id }: { id: string | null }) {
     const [photo, setPhoto] = useState<Partial<PreparedItemPhoto> | null>(null);
     const [photoType, setPhotoType] = useState<'item' | 'worn'>('item');
     const [video, setVideo] = useState<File | null>(null);
+    // Photos after the first, as the shop arranges them (null until the item has loaded).
+    const [morePhotos, setMorePhotos] = useState<string[] | null>(null);
+    const [sendingPhotos, setSendingPhotos] = useState<string | null>(null);
     const [uploading, setUploading] = useState<number | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
@@ -87,6 +91,7 @@ export default function EditProductView({ id }: { id: string | null }) {
             setCategory(product.category);
             setType(product.type ?? '');
             setPhotoType(product.photoType ?? 'item');
+            setMorePhotos(product.photos ?? []);
         }
     }, [product, loadedProductId]);
 
@@ -167,6 +172,17 @@ export default function EditProductView({ id }: { id: string | null }) {
                 }
             }
 
+            // After the video, so a photo never takes the place the video needs.
+            if (morePhotos) {
+                try {
+                    await saveMorePhotos(product.id, morePhotos, product.photos ?? [], (done, total) => setSendingPhotos(`Sending ${done} / ${total}`));
+                } catch (error) {
+                    toast({ variant: 'destructive', title: 'Some photos not saved', description: friendlyError(error) });
+                } finally {
+                    setSendingPhotos(null);
+                }
+            }
+
             toast({
                 title: 'Product Updated!',
                 description: 'Your item has been successfully updated.',
@@ -197,7 +213,15 @@ export default function EditProductView({ id }: { id: string | null }) {
               
               <ItemPhotoField photo={photo} photoType={photoType} onPhotoTypeChange={setPhotoType} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} />
 
-              <VideoField file={video} onChange={setVideo} uploading={uploading} existing={product?.video ?? null}
+              {morePhotos && <MorePhotosField photos={morePhotos} onChange={setMorePhotos} hasVideo={!!video || !!product?.video} busy={sendingPhotos} />}
+
+              <VideoField file={video} uploading={uploading} existing={product?.video ?? null} onChange={(f) => {
+                if (f && !product?.video && (morePhotos?.length ?? 0) > morePhotosRoom(true)) {
+                  toast({ variant: 'destructive', title: 'No room for a video', description: 'An item has up to 10 photos and videos. Remove a photo to add a video.' });
+                  return;
+                }
+                setVideo(f);
+              }}
                 onRemoveExisting={() => product && api(`/products/${product.id}/video`, { method: 'DELETE' }).then(() => toast({ title: 'Video removed' })).catch((e) => toast({ variant: 'destructive', title: 'Not removed', description: friendlyError(e) }))} />
 
               <CategoryField value={category} onChange={setCategory} type={type} onTypeChange={setType} />

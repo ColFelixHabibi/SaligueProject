@@ -11,6 +11,8 @@ export type Product = {
   discount?: { percent: number; was: number };
   // Original photo as uploaded by the seller (JPEG data URL).
   image: string;
+  // More photos after the first, in the shop's order: with the first and the video, at most 10.
+  photos?: string[];
   // The item with its background removed (transparent WebP/PNG data URL), used for dressing.
   cutout?: string;
   // MobileCLIP embedding of the cut-out, used for AI search.

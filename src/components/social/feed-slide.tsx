@@ -26,6 +26,7 @@ import { friendlyError } from '@/lib/errors';
 import { productHref } from '@/lib/links';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { SwipeGallery, itemMedia } from '@/components/swipe-gallery';
 import { ExpandableText } from '@/components/expandable-text';
 import { Price } from '@/components/price';
 import { countView } from '@/lib/views';
@@ -124,18 +125,21 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
     };
   }, [sponsoredBy]);
   const image = product.videoPoster ?? product.image;
+  const media = itemMedia(product);
   // The item's video plays while its slide fills the screen (silent unless sound is on), like TikTok.
   const videoRef = useRef<HTMLVideoElement>(null);
   // Data saver: videos wait for a tap instead of playing by themselves.
   const saver = useDataSaver();
   const t = useT();
   const [playing, setPlaying] = useState(false);
+  // Which picture of the item is showing: the video plays only while it is the one in view.
+  const page = useRef(0);
   useEffect(() => {
     const element = slideRef.current;
     const v = videoRef.current;
     if (!element || !v) return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.intersectionRatio >= 0.6) !saver && v.play().catch(() => {});
+      if (entry.intersectionRatio >= 0.6) !saver && page.current === 0 && v.play().catch(() => {});
       else v.pause();
     }, { threshold: [0, 0.6] });
     observer.observe(element);
@@ -166,16 +170,25 @@ export function FeedSlide({ product, reason, sponsoredBy, resaliguedBy, onHide }
         {/* Blurred copy fills the screen; the item itself is shown whole. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={image} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl" />
-        {product.video ? (
-          <video ref={videoRef} src={product.video} poster={product.videoPoster} muted loop playsInline preload={saver ? 'none' : 'metadata'} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
-            onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
-            className="absolute inset-0 h-full w-full object-contain pb-24" aria-label={product.name} />
-        ) : (
-          <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt={product.name} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
-          </Link>
-        )}
+        {/* Several photos (and the video): swiped sideways like a photo post, with dots. One picture: as before. */}
+        <SwipeGallery items={media} dark className="absolute inset-0" dotsClassName="bottom-24"
+          onIndexChange={(i) => {
+            page.current = i;
+            const v = videoRef.current;
+            if (!v) return;
+            if (i === 0 && !saver) v.play().catch(() => {});
+            else if (i !== 0) v.pause();
+          }}
+          render={(m) => m.kind === 'video' ? (
+            <video ref={videoRef} src={m.src} poster={m.poster} muted loop playsInline preload={saver ? 'none' : 'metadata'} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)}
+              onClick={(e) => (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
+              className="absolute inset-0 h-full w-full object-contain pb-24" aria-label={product.name} />
+          ) : (
+            <Link href={productHref(product)} className="absolute inset-0 flex items-center justify-center p-4 pb-28">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={m.src} alt={product.name} loading="lazy" className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
+            </Link>
+          )} />
 
         {product.video && !playing && saver && (
           <button type="button" onClick={() => videoRef.current?.play().catch(() => {})} className="absolute left-1/2 top-[40%] z-10 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur" aria-label="Play video" title="Play video">

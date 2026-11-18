@@ -3,6 +3,7 @@
 
 import { MentionSuggestions } from '@/components/mention-suggestions';
 import { VideoField, uploadItemVideo } from '@/components/video-field';
+import { MorePhotosField, morePhotosRoom, saveMorePhotos } from '@/components/more-photos-field';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -67,6 +68,9 @@ export default function SellPage() {
     const [photo, setPhoto] = useState<PreparedItemPhoto | null>(null);
     const [photoType, setPhotoType] = useState<'item' | 'worn'>('item');
     const [video, setVideo] = useState<File | null>(null);
+    // Photos after the first: with it and the video, up to 10 (like a photo post).
+    const [morePhotos, setMorePhotos] = useState<string[]>([]);
+    const [sendingPhotos, setSendingPhotos] = useState<string | null>(null);
     const [uploading, setUploading] = useState<number | null>(null);
     const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
     const [category, setCategory] = useState('');
@@ -141,6 +145,7 @@ export default function SellPage() {
         setFormValues(initialFormValues);
         setPhoto(null);
         setVideo(null);
+        setMorePhotos([]);
         setPhotoType('item');
         setCategory('');
         setSound(null);
@@ -226,6 +231,17 @@ export default function SellPage() {
                 }
             }
 
+            // After the video, so a photo never takes the place the video needs.
+            if (morePhotos.length) {
+                try {
+                    await saveMorePhotos(productId, morePhotos, [], (done, total) => setSendingPhotos(`Sending ${done} / ${total}`));
+                } catch (error) {
+                    toast({ variant: 'destructive', title: 'Item listed, some photos not added', description: `${friendlyError(error)} Add them again from Edit.` });
+                } finally {
+                    setSendingPhotos(null);
+                }
+            }
+
             toast({
                 title: 'Product Listed!',
                 description: 'Your item is now available on the marketplace.',
@@ -292,7 +308,15 @@ export default function SellPage() {
               
               <ItemPhotoField photo={photo} photoType={photoType} onPhotoTypeChange={setPhotoType} onPhotoChange={setPhoto} onBusyChange={setIsPreparingPhoto} onSuggestion={applySuggestion} />
 
-              <VideoField file={video} onChange={setVideo} uploading={uploading} />
+              <MorePhotosField photos={morePhotos} onChange={setMorePhotos} hasVideo={!!video} busy={sendingPhotos} />
+
+              <VideoField file={video} uploading={uploading} onChange={(f) => {
+                if (f && morePhotos.length > morePhotosRoom(true)) {
+                  toast({ variant: 'destructive', title: 'No room for a video', description: 'An item has up to 10 photos and videos. Remove a photo to add a video.' });
+                  return;
+                }
+                setVideo(f);
+              }} />
 
               <CategoryField value={category} onChange={(c) => { setCategory(c); setAiHint(null); }} type={type} onTypeChange={(t) => { setType(t); setAiHint(null); }} hint={aiHint} />
 

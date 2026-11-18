@@ -14,6 +14,7 @@ import { friendlyError } from '@/lib/errors';
 import { LESSON_TOPICS, createChallenge, timeLeft, topicOf, useChallenges } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
 import { ChallengeHow } from '@/components/community/challenge-parts';
+import { TopicBar } from '@/components/community/lesson-feed';
 
 /** Fashion challenges: a theme and a deadline; anyone joins with a short lesson video. */
 export default function ChallengesPage() {
@@ -21,6 +22,9 @@ export default function ChallengesPage() {
   const canCreate = useUserRoleStore((s) => s.admin || s.official);
   const [open, setOpen] = useState(false);
   return (
+    <>
+    {/* The same row of topics as Learn, Challenges lit: a topic takes you back to Learn on it. */}
+    <TopicBar onChallenges className="sticky top-0 mx-auto max-w-5xl" />
     <div className="mx-auto max-w-5xl space-y-5 p-4 pb-24 md:p-8">
       <div className="flex items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-2xl font-extrabold"><Trophy className="h-7 w-7 text-amber-500" /> Challenges</h1>
@@ -57,6 +61,7 @@ export default function ChallengesPage() {
       </div>
       <NewChallenge open={open} onOpenChange={setOpen} />
     </div>
+    </>
   );
 }
 

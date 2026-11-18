@@ -32,16 +32,67 @@ const LESSON_IDEAS = [
   { emoji: '📸', title: 'Photograph clothes with a phone', topic: 'business' },
 ];
 
-/** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
-export function LessonFeed({ startAt, following, challenge, className, breakReminder = true, onLessons }: { startAt?: string | null; following?: boolean; challenge?: string | null; className?: string; breakReminder?: boolean; onLessons?: (lessons: Lesson[]) => void }) {
-  const [topic, setTopic] = useState<string | null>(null);
+/**
+ * The row of Learn topics: Challenges, All, each topic, Teach. A row of its own above the lessons, never laid over a
+ * video. In the feed (`onTopic`) a topic filters in place; on the Challenges page (`onChallenges`) Challenges is the
+ * lit tab and a topic opens Learn on it.
+ */
+export function TopicBar({ topic = null, onTopic, challenge, onChallenges = false, className }: {
+  topic?: string | null; onTopic?: (topic: string | null) => void; challenge?: string | null; onChallenges?: boolean; className?: string;
+}) {
   const tr = useT();
   const on = useFeatures();
-  const blocked = useBlockedIds();
-  const all = useLessons({ topic, following, challenge });
   // Challenges that are open now: their number sits on the Challenges tab, so people see there is one to join.
   const challenges = useChallenges();
   const openChallenges = challenges?.filter((c) => c.open).length ?? 0;
+  // Every topic visible at once, evenly spread: an icon with its whole name underneath (like the Seller Center tabs).
+  // Each tab is as wide as its name and the space left is shared between them, so the row fits a phone and fills a
+  // computer's wider player (a longer translation can still slide sideways rather than be cut).
+  const tab = 'group flex shrink-0 flex-col items-center gap-1 rounded-xl px-0 py-1 text-[10px] font-semibold leading-none tracking-tight outline-none transition focus-visible:ring-2 focus-visible:ring-primary md:text-xs md:tracking-normal';
+  const dot = 'flex h-9 w-9 items-center justify-center rounded-full transition md:h-10 md:w-10';
+  const label = 'whitespace-nowrap text-center';
+  const lit = (active: boolean) => cn(dot, active ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground group-hover:bg-muted/70');
+  const topicTab = (value: string | null, Icon: typeof Trophy, name: string, title: string) => {
+    const active = !onChallenges && topic === value;
+    const body = (
+      <>
+        <span className={lit(active)}><Icon className="h-4 w-4 md:h-5 md:w-5" /></span>
+        <span className={cn(label, active && 'text-primary')}>{tr(name)}</span>
+      </>
+    );
+    return onTopic ? (
+      <button key={value ?? 'all'} type="button" onClick={() => onTopic(value)} className={tab} aria-pressed={active} title={tr(title)}>{body}</button>
+    ) : (
+      <Link key={value ?? 'all'} href={value ? `/learn?topic=${value}` : '/learn'} className={tab} title={tr(title)}>{body}</Link>
+    );
+  };
+  return (
+    <nav className={cn('z-20 flex shrink-0 items-start justify-between gap-0 overflow-x-auto border-b bg-background/95 px-1.5 py-1.5 backdrop-blur [scrollbar-width:none] md:gap-2 md:px-6 md:py-2 [&::-webkit-scrollbar]:hidden', className)} aria-label={tr('Topics')}>
+      {!challenge && on('challenges') && (
+        <Link href="/challenges" className={tab} title={tr('Challenges')} aria-current={onChallenges ? 'page' : undefined}>
+          <span className={cn(dot, 'relative bg-amber-400 text-black', onChallenges && 'ring-2 ring-amber-500 ring-offset-2 ring-offset-background')}>
+            <Trophy className="h-4 w-4 md:h-5 md:w-5" />
+            {openChallenges > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{openChallenges}</span>}
+          </span>
+          <span className={cn(label, onChallenges && 'text-amber-600')}>{tr('Challenges')}</span>
+        </Link>
+      )}
+      {topicTab(null, LayoutGrid, 'All', 'All')}
+      {LESSON_TOPICS.map((t) => topicTab(t.value, t.icon, SHORT[t.value] ?? t.label, t.label))}
+      <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={tab} title={tr('Teach a lesson')}>
+        <span className={cn(dot, 'bg-foreground text-background shadow-sm')}><Plus className="h-4 w-4 md:h-5 md:w-5" /></span>
+        <span className={label}>{tr('Teach')}</span>
+      </Link>
+    </nav>
+  );
+}
+
+/** Community lessons as a full-screen feed, with topic icons on top and a button to teach. */
+export function LessonFeed({ startAt, following, challenge, initialTopic = null, className, breakReminder = true, onLessons }: { startAt?: string | null; following?: boolean; challenge?: string | null; initialTopic?: string | null; className?: string; breakReminder?: boolean; onLessons?: (lessons: Lesson[]) => void }) {
+  const [topic, setTopic] = useState<string | null>(LESSON_TOPICS.some((t) => t.value === initialTopic) ? initialTopic : null);
+  const tr = useT();
+  const blocked = useBlockedIds();
+  const all = useLessons({ topic, following, challenge });
   const lessons = useMemo(() => (all ? all.filter((l) => !blocked.has(l.authorId)) : null), [all, blocked]);
   // A computer shows the panel beside the feed: it lists these same lessons without asking the server twice.
   useEffect(() => {
@@ -52,45 +103,15 @@ export function LessonFeed({ startAt, following, challenge, className, breakRemi
     if (startAt && lessons?.length) document.getElementById(`lesson-${startAt}`)?.scrollIntoView();
   }, [startAt, lessons?.length]);
 
-  // Every topic visible at once, evenly spread: an icon with its whole name underneath (like the Seller Center tabs).
-  // Each tab is as wide as its name and the space left is shared between them, so the row fits a phone and fills a
-  // computer's wider player (a longer translation can still slide sideways rather than be cut).
-  const tab = 'group flex shrink-0 flex-col items-center gap-1 rounded-xl px-0 py-1 text-[10px] font-semibold leading-none tracking-tight outline-none transition focus-visible:ring-2 focus-visible:ring-primary md:text-xs md:tracking-normal';
-  const dot = 'flex h-9 w-9 items-center justify-center rounded-full transition md:h-10 md:w-10';
-  const label = 'whitespace-nowrap text-center';
   return (
-    <div className={cn('relative h-full', className)}>
-      <nav className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-0 overflow-x-auto border-b bg-background/95 px-1.5 py-1.5 backdrop-blur [scrollbar-width:none] md:gap-2 md:px-6 md:py-2 [&::-webkit-scrollbar]:hidden" aria-label={tr('Topics')}>
-        {!challenge && on('challenges') && (
-          <Link href="/challenges" className={tab} title={tr('Challenges')}>
-            <span className={cn(dot, 'relative bg-amber-400 text-black')}>
-              <Trophy className="h-4 w-4 md:h-5 md:w-5" />
-              {openChallenges > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">{openChallenges}</span>}
-            </span>
-            <span className={label}>{tr('Challenges')}</span>
-          </Link>
-        )}
-        <button type="button" onClick={() => setTopic(null)} className={tab} aria-pressed={!topic} title={tr('All')}>
-          <span className={cn(dot, !topic ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground group-hover:bg-muted/70')}><LayoutGrid className="h-4 w-4 md:h-5 md:w-5" /></span>
-          <span className={cn(label, !topic && 'text-primary')}>{tr('All')}</span>
-        </button>
-        {LESSON_TOPICS.map((t) => (
-          <button key={t.value} type="button" onClick={() => setTopic(t.value)} className={tab} aria-pressed={topic === t.value} title={tr(t.label)}>
-            <span className={cn(dot, topic === t.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground group-hover:bg-muted/70')}><t.icon className="h-4 w-4 md:h-5 md:w-5" /></span>
-            <span className={cn(label, topic === t.value && 'text-primary')}>{tr(SHORT[t.value] ?? t.label)}</span>
-          </button>
-        ))}
-        <Link href={challenge ? `/learn/new?challenge=${challenge}` : '/learn/new'} className={tab} title={tr('Teach a lesson')}>
-          <span className={cn(dot, 'bg-foreground text-background shadow-sm')}><Plus className="h-4 w-4 md:h-5 md:w-5" /></span>
-          <span className={label}>{tr('Teach')}</span>
-        </Link>
-      </nav>
-      <div className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className={cn('relative flex h-full flex-col', className)}>
+      <TopicBar topic={topic} onTopic={setTopic} challenge={challenge} />
+      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lessons === null ? (
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (
           // No lessons yet: invite people to be the first teacher, with ideas, and suggest shops/teachers to follow.
-          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-32 text-center [scrollbar-width:none] [&>*]:shrink-0 md:gap-5 md:px-8 md:pt-40 [&::-webkit-scrollbar]:hidden">
+          <div className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto bg-muted p-5 pt-10 text-center [scrollbar-width:none] [&>*]:shrink-0 md:gap-5 md:px-8 md:pt-14 [&::-webkit-scrollbar]:hidden">
             <GraduationCap className="h-12 w-12 text-primary md:h-16 md:w-16" />
             <p className="text-xl font-bold md:text-3xl">{following ? 'No lessons from people you follow yet' : 'Be the first teacher'}</p>
             <div className="grid w-full max-w-sm grid-cols-2 gap-2 text-left text-sm md:max-w-3xl md:grid-cols-4 md:gap-3 md:text-base">

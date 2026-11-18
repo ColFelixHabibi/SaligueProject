@@ -43,12 +43,14 @@ import { ProductQuestions } from '@/components/product-questions';
 import { Price } from '@/components/price';
 import { OwnerItemActions } from '@/components/owner-item-actions';
 import { countView } from '@/lib/views';
+import { SwipeGallery, itemMedia } from '@/components/swipe-gallery';
 
 export default function ProductView({ id }: { id: string | null }) {
   const router = useRouter();
   const { products, isInitialized } = useProductStore();
   const { addToCart } = useCart();
-  const [showVideo, setShowVideo] = useState(true);
+  // Which of the item's pictures (video first, then photos) is showing.
+  const [shown, setShown] = useState(0);
   const { toast } = useToast();
   const t = useT();
   const { user } = useAuth();
@@ -137,6 +139,7 @@ export default function ProductView({ id }: { id: string | null }) {
 
   const aiHint = product.name.toLowerCase().split(' ').slice(0, 2).join(' ');
 
+  const media = itemMedia(product);
   const productDetails = [
     { label: 'Size', value: product.size, icon: <Shirt className="h-5 w-5 text-primary" /> },
     { label: 'Color', value: product.color, icon: <Palette className="h-5 w-5 text-primary" /> },
@@ -149,25 +152,28 @@ export default function ProductView({ id }: { id: string | null }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 lg:gap-12">
         <div>
           <Card className="overflow-hidden">
-            {product.video && showVideo ? (
-              <video src={product.video} poster={product.videoPoster} controls autoPlay muted playsInline loop className="aspect-[3/4] w-full bg-black object-contain" />
-            ) : (
-              <Image
-                src={product.image}
-                alt={product.name}
-                width={600}
-                height={800}
-                className="aspect-[3/4] w-full bg-muted object-contain"
-                data-ai-hint={aiHint}
-              />
-            )}
-            {product.video && (
-              <div className="flex gap-2 border-t p-2">
-                <button type="button" onClick={() => setShowVideo(true)} className={`flex h-14 w-14 items-center justify-center rounded-lg border-2 bg-black text-white ${showVideo ? 'border-primary' : 'border-transparent'}`} aria-label="Video"><Play className="h-6 w-6" /></button>
-                <button type="button" onClick={() => setShowVideo(false)} className={`h-14 w-14 overflow-hidden rounded-lg border-2 bg-muted ${!showVideo ? 'border-primary' : 'border-transparent'}`} aria-label="Photo">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={product.image} alt="" className="h-full w-full object-cover" />
-                </button>
+            {/* Up to 10: the video, the first photo and the shop's other photos, swiped like a photo post. */}
+            <SwipeGallery items={media} index={shown} onIndexChange={setShown} className="aspect-[3/4] w-full bg-muted"
+              render={(m, i, active) => m.kind === 'video' ? (
+                active ? <video src={m.src} poster={m.poster} controls autoPlay muted playsInline loop className="h-full w-full bg-black object-contain" />
+                  // eslint-disable-next-line @next/next/no-img-element
+                  : <img src={m.poster ?? product.image} alt="" className="h-full w-full bg-black object-contain" />
+              ) : i === (product.video ? 1 : 0) ? (
+                <Image src={m.src} alt={product.name} width={600} height={800} className="h-full w-full bg-muted object-contain" data-ai-hint={aiHint} />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={m.src} alt={`${product.name} (${i + 1})`} loading="lazy" className="h-full w-full bg-muted object-contain" />
+              )} />
+            {media.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto border-t p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {media.map((m, i) => (
+                  <button key={i} type="button" onClick={() => setShown(i)} aria-label={m.kind === 'video' ? 'Video' : `Photo ${i + 1}`}
+                    className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 bg-muted ${shown === i ? 'border-primary' : 'border-transparent'}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.kind === 'video' ? (m.poster ?? product.image) : m.src} alt="" className="h-full w-full object-cover" />
+                    {m.kind === 'video' && <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-white"><Play className="h-5 w-5 fill-white" /></span>}
+                  </button>
+                ))}
               </div>
             )}
           </Card>

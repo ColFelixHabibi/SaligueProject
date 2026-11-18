@@ -951,6 +951,8 @@ for (const [table, column, type] of [
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
   // Resaligue count, and when the shop pinned the item to the top of its profile.
   ['products', 'repost_count', 'integer not null default 0'], ['products', 'pinned_at', 'text'],
+  // More photos after the first (a JSON list of /media/ links): with the first and the video, at most 10 (ITEM_MEDIA_MAX).
+  ['products', 'photos', 'text'],
   // Chats: 'shop' (a shopper and a shop) or 'direct' (two people in each other's Clients or Network);
   // a photo, video or voice note on a message (JSON, files in data/chat/), and messages taken back (unsent).
   ['conversations', 'kind', "text not null default 'shop'"], ['messages', 'attachment', 'text'], ['messages', 'deleted_at', 'text'],

@@ -12,7 +12,7 @@ import type { Product } from './types';
 export type SeenItem = Product & { seenAt: string; times: number };
 
 // Files come from the server ("/media/…"): made whole here, so the photos also load inside the phone app.
-const withMedia = (p: SeenItem): SeenItem => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) });
+const withMedia = (p: SeenItem): SeenItem => ({ ...p, image: mediaUrl(p.image), photos: p.photos?.map((u) => mediaUrl(u) ?? u), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) });
 
 // One list for the whole app: opening History shows what was just watched, and taking something out of it removes
 // it here at once.

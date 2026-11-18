@@ -159,7 +159,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         <>
           <video ref={original} src={lesson.duetOf.video} poster={lesson.duetOf.poster ?? undefined} muted loop playsInline preload={saver ? 'none' : 'metadata'}
             className="absolute inset-y-0 left-0 h-full w-1/2 border-r-2 border-black object-cover" aria-label={lesson.duetOf.title} />
-          <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="absolute left-2 top-28 z-10 flex max-w-[45%] items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[11px] font-semibold">
+          <Link href={`/learn?lesson=${lesson.duetOf.id}`} className="absolute left-2 top-3 z-10 flex max-w-[45%] items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[11px] font-semibold">
             <Columns2 className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{lesson.duetOf.authorName}</span>
           </Link>
         </>
@@ -203,7 +203,7 @@ export function LessonSlide({ lesson }: { lesson: Lesson }) {
         </button>
       )}
 
-      <button type="button" onClick={toggle} className="absolute right-3 top-[124px] z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
+      <button type="button" onClick={toggle} className="absolute right-3 top-3 z-10 md:right-5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45" aria-label={soundOn ? 'Sound off' : 'Sound on'}>
         {soundOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
       </button>
 

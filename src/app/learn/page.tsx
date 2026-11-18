@@ -19,6 +19,7 @@ function Learn() {
     <div className="md:flex md:h-dvh md:justify-center md:gap-6 md:bg-muted/50 md:px-6">
       <LessonFeed
         startAt={params.get('lesson')}
+        initialTopic={params.get('topic')}
         onLessons={setLessons}
         className="mx-auto h-[calc(100dvh-8rem-var(--sat)-var(--sab))] max-w-md md:mx-0 md:h-dvh md:min-w-0 md:max-w-[56rem] md:flex-1 md:shadow-xl"
       />

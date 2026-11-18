@@ -322,6 +322,8 @@ function productOut(r) {
     // A % off on the post: the usual price (shown crossed out) and how much comes off.
     ...(discountOf(r) ? { discount: { percent: discountOf(r), was: Number(r.price) } } : {}),
     image: r.image,
+    // More photos after the first, in the shop's order (the first, `image`, is the cover and the one tried on).
+    photos: parse(r.photos) ?? [],
     cutout: r.cutout ?? undefined,
     embedding: parse(r.embedding) ?? undefined,
     category: r.category,
@@ -827,7 +829,7 @@ function eraseAccount(user, note = 'Account deleted by its owner') {
   const links = (rows) => rows.flatMap((r) => [...JSON.stringify(r).matchAll(/\/media\/[A-Za-z0-9_.-]{1,120}/g)].map((m) => m[0]));
   const files = [
     user.avatar,
-    ...links(db.prepare('select image, cutout, video, video_poster from products where seller_id = ?').all(id)),
+    ...links(db.prepare('select image, cutout, photos, video, video_poster from products where seller_id = ?').all(id)),
     ...links(db.prepare('select video, poster, captions from lessons where user_id = ?').all(id)),
     ...links(db.prepare('select * from lives where seller_id = ?').all(id)),
     ...links(db.prepare('select media from stories where user_id = ?').all(id)),
@@ -1908,6 +1910,37 @@ route('DELETE', '/api/questions/([\\w-]+)', ({ user, params }) => {
   db.prepare('delete from product_questions where id = ?').run(q.id);
   broadcast('questions', { productId: q.product_id });
   return { ok: true };
+});
+
+// Up to 10 pictures and videos on an item, like a photo post: the first photo, more photos, and one video — so 10
+// photos, or 9 and the video. More photos are sent one by one (each is up to 1.5 MB, too big to send together).
+const ITEM_MEDIA_MAX = 10;
+const morePhotos = (product) => (Array.isArray(parse(product.photos)) ? parse(product.photos) : []);
+const roomForMore = (product) => ITEM_MEDIA_MAX - 1 - (product.video ? 1 : 0) - morePhotos(product).length;
+
+route('POST', '/api/products/([\\w-]+)/photos', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const product = ownProduct(user, params[0]);
+  if (roomForMore(product) <= 0) fail(400, 'too_many_media', `An item has up to ${ITEM_MEDIA_MAX} photos and videos (${ITEM_MEDIA_MAX} photos, or ${ITEM_MEDIA_MAX - 1} and a video).`);
+  const image = String(body?.image ?? '');
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) fail(400, 'invalid_photo', 'Choose a photo.');
+  if (image.length > 1_500_000) fail(413, 'too_large', 'This photo is too large.');
+  const photos = [...morePhotos(product), storeImage(image)];
+  db.prepare('update products set photos = ? where id = ?').run(json(photos), product.id);
+  broadcast('products');
+  return { photos };
+});
+
+// Reorders or removes more photos: only photos the item already has, each once.
+route('PUT', '/api/products/([\\w-]+)/photos', ({ user, params, body }) => {
+  if (!user) fail(401, 'not_signed_in', 'Please sign in.');
+  const product = ownProduct(user, params[0]);
+  const had = morePhotos(product);
+  const wanted = Array.isArray(body?.photos) ? body.photos.map(String) : null;
+  if (!wanted || wanted.some((p) => !had.includes(p)) || new Set(wanted).size !== wanted.length) fail(400, 'invalid_photos', 'These photos are not on this item.');
+  db.prepare('update products set photos = ? where id = ?').run(wanted.length ? json(wanted) : null, product.id);
+  broadcast('products');
+  return { photos: wanted };
 });
 
 route('DELETE', '/api/products/([\\w-]+)/video', ({ user, params }) => {
@@ -7157,6 +7190,8 @@ const server = http.createServer(async (req, res) => {
       const user = userOf(req);
       if (!user) fail(401, 'not_signed_in', 'Please sign in.');
       const product = ownProduct(user, videoUpload[1]);
+      // A new video in place of the old one takes no more room; a first video needs a free place among the 10.
+      if (!product.video && roomForMore(product) <= 0) fail(400, 'too_many_media', `An item has up to ${ITEM_MEDIA_MAX} photos and videos: remove a photo to add a video.`);
       if (!/^video\//.test(String(req.headers['content-type'] || ''))) fail(400, 'invalid_video', 'Choose a video file.');
       const file = await receiveUpload(req);
       const { video, poster, duration } = await processVideo(file);

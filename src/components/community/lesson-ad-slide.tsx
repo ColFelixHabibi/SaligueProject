@@ -54,8 +54,8 @@ export function LessonAdSlide({ afterLesson }: { afterLesson: string }) {
   if (!ad || !product) return <div ref={here} aria-hidden className="h-px" />;
   const image = product.cutout || product.image;
   return (
-    <section ref={here} className="relative flex h-full w-full snap-start snap-always flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-amber-100 via-background to-primary/10 px-6 pb-24 pt-20 text-center dark:from-amber-950/40">
-      <p className="absolute left-4 top-16 flex items-center gap-1.5 rounded-full bg-background/80 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur md:top-20">
+    <section ref={here} className="relative flex h-full w-full snap-start snap-always flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-amber-100 via-background to-primary/10 px-6 pb-24 pt-14 text-center dark:from-amber-950/40">
+      <p className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full bg-background/80 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
         <GraduationCap className="h-3.5 w-3.5 text-amber-600" /> {t('Sponsored')} · {t('supports this teacher')}
       </p>
       <Link href={productHref(product)} onClick={() => adClicked(ad.serveId)} className="block w-full max-w-xs">

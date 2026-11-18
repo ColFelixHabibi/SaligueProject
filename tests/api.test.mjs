@@ -2781,3 +2781,48 @@ describe('INDECIANA own account', () => {
     assert.ok(house.every((p) => p.sellerId === login.json.user.id));
   });
 });
+
+// An item holds up to 10 pictures and videos, like a photo post: the first photo, more photos sent one by one, and
+// one video — 10 photos, or 9 and the video. More photos keep the shop's order and can be reordered or taken off.
+describe('item photos', () => {
+  test('up to 10 photos, or 9 and a video; reordered and removed by the shop only', async () => {
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    const shop = await register('Photo Shop', 'seller');
+    const stranger = await register('Photo Stranger');
+    const item = (await call('/products?limit=1')).json[0];
+    sql('update products set seller_id = ?, photos = null, video = null where id = ?', shop.id, item.id);
+    // Each one different, so each is its own file (files are named by their bytes).
+    const photo = (n) => `data:image/png;base64,${Buffer.from(`not really a png ${n}`).toString('base64')}`;
+
+    assert.equal((await call(`/products/${item.id}/photos`, { token: stranger.token, body: { image: photo(0) } })).status, 403);
+    assert.equal((await call(`/products/${item.id}/photos`, { token: shop.token, body: { image: 'data:text/html;base64,PGI+' } })).status, 400);
+    let photos = [];
+    for (let n = 1; n <= 9; n += 1) {
+      const r = await call(`/products/${item.id}/photos`, { token: shop.token, body: { image: photo(n) } });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      photos = r.json.photos;
+    }
+    assert.equal(photos.length, 9, 'the first photo and 9 more make 10');
+    assert.ok(photos.every((p) => p.startsWith('/media/')));
+    const full = await call(`/products/${item.id}/photos`, { token: shop.token, body: { image: photo(10) } });
+    assert.equal(full.status, 400);
+    assert.equal(full.json.error.code, 'too_many_media');
+    assert.deepEqual((await call(`/products/${item.id}`)).json.photos, photos, 'shown in the shop\'s order');
+
+    // A video takes one place: with it, 8 more photos fit, so the ninth must go before a video can be added.
+    const reversed = [...photos].reverse();
+    assert.equal((await call(`/products/${item.id}/photos`, { method: 'PUT', token: shop.token, body: { photos: reversed } })).status, 200);
+    assert.deepEqual((await call(`/products/${item.id}`)).json.photos, reversed);
+    assert.equal((await call(`/products/${item.id}/photos`, { method: 'PUT', token: shop.token, body: { photos: ['/media/someone-elses.jpg'] } })).status, 400, 'only photos the item has');
+    assert.equal((await call(`/products/${item.id}/photos`, { method: 'PUT', token: stranger.token, body: { photos: [] } })).status, 403);
+    assert.equal((await call(`/products/${item.id}/photos`, { method: 'PUT', token: shop.token, body: { photos: reversed.slice(0, 8) } })).status, 200);
+    sql("update products set video = '/media/clip.mp4' where id = ?", item.id);
+    const noRoom = await call(`/products/${item.id}/photos`, { token: shop.token, body: { image: photo(11) } });
+    assert.equal(noRoom.json.error?.code, 'too_many_media', '8 more photos, the first and a video already make 10');
+    assert.equal((await call(`/products/${item.id}/photos`, { method: 'PUT', token: shop.token, body: { photos: [] } })).status, 200);
+    assert.deepEqual((await call(`/products/${item.id}`)).json.photos, []);
+  });
+});

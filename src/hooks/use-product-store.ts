@@ -34,7 +34,7 @@ function loadFingerprints() {
   return fingerprintsLoading;
 }
 
-const withMediaUrls = (p: Product): Product => ({ ...p, image: mediaUrl(p.image), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) });
+const withMediaUrls = (p: Product): Product => ({ ...p, image: mediaUrl(p.image), photos: p.photos?.map((u) => mediaUrl(u) ?? u), cutout: mediaUrl(p.cutout), sellerAvatar: mediaUrl(p.sellerAvatar), video: mediaUrl(p.video), videoPoster: mediaUrl(p.videoPoster) });
 
 // The catalogue in pages of 250 (newest first): the first page shows at once, the rest arrive in the background.
 const PAGE = 250;
@@ -99,7 +99,7 @@ export const useProductStore = create<ProductState>()(() => ({
   },
   updateProduct: async (id, updatedProduct) => {
     // seller, official and likeCount are managed by the server.
-    const { sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, videoDuration: _duration, sold: _sold, sample: _sample, deal: _deal, ...fields } = updatedProduct;
+    const { sellerId: _sellerId, official: _official, likeCount: _likeCount, shop: _shop, sellerAvatar: _avatar, rating: _rating, ratingCount: _ratingCount, video: _video, videoPoster: _poster, photos: _photos, videoDuration: _duration, sold: _sold, sample: _sample, deal: _deal, ...fields } = updatedProduct;
     // The fingerprint from the catalogue is a rounded copy: only a new photo's fingerprint is sent.
     if (fields.embedding && fields.embedding === useProductStore.getState().products.find((p) => p.id === id)?.embedding) delete fields.embedding;
     await api(`/products/${id}`, { method: 'PATCH', body: fields, timeoutMs: SAVE_MS });
