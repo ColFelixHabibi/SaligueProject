@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { disablePush, enablePush, pushState, type PushState } from '@/lib/push';
 
 /** "Notifications on this device": replies, orders, lives, even when Saligue is closed. Quiet at night. */
-export function PushCard() {
+export function PushCard({ plain = false }: { plain?: boolean } = {}) {
   const t = useT();
   const { toast } = useToast();
   const [state, setState] = useState<PushState | null>(null);
@@ -30,7 +30,7 @@ export function PushCard() {
     }
   };
   return (
-    <div className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
+    <div className={plain ? 'flex items-center gap-3' : 'flex items-center gap-3 rounded-xl border bg-card px-4 py-3'}>
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{state === 'blocked' ? <BellOff className="h-[18px] w-[18px]" /> : <Bell className="h-[18px] w-[18px]" />}</span>
       <div className="min-w-0 flex-1">
         <p className="text-[15px] font-semibold">{t('Notifications on this device')}</p>
