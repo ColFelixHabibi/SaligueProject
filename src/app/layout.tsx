@@ -20,6 +20,7 @@ import { Welcome } from '@/components/welcome';
 import { NativeLinks } from '@/components/native-links';
 import { AppLinks } from '@/components/app-links';
 import { Safe } from '@/components/safe';
+import { SplashGate } from '@/components/splash';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 // The site's own address, so a shared card's picture is a link WhatsApp and Facebook can fetch instead of a
@@ -36,6 +37,21 @@ const UNSTICK = `(function(){try{if(window.Capacitor)return;setTimeout(function(
 
 const KEEP_SAFE_AREA = `(function(){try{var s=document.createElement('style');s.id='saligue-safe-area';document.head.appendChild(s);var r=document.documentElement;function copy(){var t=r.style.getPropertyValue('--safe-area-inset-top'),b=r.style.getPropertyValue('--safe-area-inset-bottom');if(t||b)s.textContent=':root{--cap-sat:'+(t||'0px')+';--cap-sab:'+(b||'0px')+'}'}new MutationObserver(copy).observe(r,{attributes:true,attributeFilter:['style']});copy()}catch(e){}})();`;
 
+// The opening screen: Saligue's logo and "by INDECIANA" while the app opens (components/splash.tsx takes it away).
+// Drawn by CSS alone on <html> and <body> (their ::before and ::after), switched on by the class `s-open` that the
+// script below puts on <html> before anything is painted. So it is on screen before any code has loaded, React never
+// sees it (nothing to hydrate or mismatch), and nothing can be left behind. Once per opening: a reload in the same
+// session skips it. If the app never starts, it still goes after six seconds.
+const SPLASH_CSS = `html.s-open::before{content:"";position:fixed;inset:0;z-index:2147483000;background:#fff}
+html.s-open::after{content:"S";position:fixed;z-index:2147483001;left:50%;top:calc(50% - 28px);width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#e21376,#f04a2a);color:#fff;font:800 48px/1 Inter,system-ui,sans-serif;box-shadow:0 18px 40px -12px rgba(226,19,118,.55);animation:s-in .7s cubic-bezier(.2,.8,.2,1) both,s-beat 1.6s ease-in-out .8s infinite}
+html.s-open body::before{content:"Saligue";position:fixed;z-index:2147483001;left:0;right:0;top:calc(50% + 44px);text-align:center;font:800 30px/1 Inter,system-ui,sans-serif;letter-spacing:-.02em;color:#1d1418;animation:s-up .6s ease .25s both}
+html.s-open body::after{content:"by INDECIANA";position:fixed;z-index:2147483001;left:0;right:0;bottom:calc(36px + env(safe-area-inset-bottom,0px));text-align:center;font:700 11px/1 Inter,system-ui,sans-serif;letter-spacing:.32em;color:#e21376;animation:s-up .6s ease .45s both}
+html.s-open.s-out::before,html.s-open.s-out::after,html.s-open.s-out body::before,html.s-open.s-out body::after{opacity:0;pointer-events:none;transition:opacity .45s ease}
+@keyframes s-in{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes s-up{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+@keyframes s-beat{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@media (prefers-color-scheme:dark){html.s-open::before{background:#120c0f}html.s-open body::before{color:#f6eaf0}}`;
+const SPLASH = `(function(){var r=document.documentElement;function hide(){if(!r.classList.contains('s-open')||r.classList.contains('s-out'))return;r.classList.add('s-out');setTimeout(function(){r.classList.remove('s-open','s-out')},500)}window.__hideSplash=hide;try{if(sessionStorage.getItem('saligue-opened'))return}catch(e){}r.classList.add('s-open');window.__splashAt=Date.now();setTimeout(hide,6000)})();`;
 const DESCRIPTION = 'Drip? AI’s got you. See yourself wearing any item, then contact the owner.';
 
 export const metadata: Metadata = {
@@ -85,6 +101,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <style dangerouslySetInnerHTML={{ __html: SPLASH_CSS }} />
+        <script dangerouslySetInnerHTML={{ __html: SPLASH }} />
         <script dangerouslySetInnerHTML={{ __html: KEEP_SAFE_AREA }} />
         <script dangerouslySetInnerHTML={{ __html: UNSTICK }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -118,6 +136,7 @@ export default function RootLayout({
           <Safe name="welcome"><Welcome /></Safe>
           <Safe name="native-links"><NativeLinks /></Safe>
           <Safe name="app-links"><AppLinks /></Safe>
+          <SplashGate />
         </AuthProvider>
       </body>
     </html>
