@@ -6,7 +6,8 @@ import { useT } from '@/lib/i18n';
 
 import { useBlockedIds } from '@/lib/blocks';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEasedPaging } from '@/lib/eased-scroll';
 import Link from 'next/link';
 import { GraduationCap, LayoutGrid, Plus, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -92,6 +93,9 @@ export function LessonFeed({ startAt, following, challenge, initialTopic = null,
   const [topic, setTopic] = useState<string | null>(LESSON_TOPICS.some((t) => t.value === initialTopic) ? initialTopic : null);
   const tr = useT();
   const blocked = useBlockedIds();
+  // Wheel and arrow keys glide from lesson to lesson.
+  const pager = useRef<HTMLDivElement>(null);
+  useEasedPaging(pager);
   const all = useLessons({ topic, following, challenge });
   const lessons = useMemo(() => (all ? all.filter((l) => !blocked.has(l.authorId)) : null), [all, blocked]);
   // A computer shows the panel beside the feed: it lists these same lessons without asking the server twice.
@@ -106,7 +110,7 @@ export function LessonFeed({ startAt, following, challenge, initialTopic = null,
   return (
     <div className={cn('relative flex h-full flex-col', className)}>
       <TopicBar topic={topic} onTopic={setTopic} challenge={challenge} />
-      <div className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div ref={pager} className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {lessons === null ? (
           <Skeleton className="h-full w-full rounded-none" />
         ) : lessons.length === 0 ? (

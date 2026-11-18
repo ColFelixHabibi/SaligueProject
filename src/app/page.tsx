@@ -9,6 +9,7 @@ import { useBlockedIds } from '@/lib/blocks';
 
 import { mixSponsored, useSponsored } from '@/lib/ads';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { easeScrollTo, useEasedPaging } from '@/lib/eased-scroll';
 import Link from 'next/link';
 import { Loader2, MapPin, PlusCircle, Radio, RefreshCw, Users } from 'lucide-react';
 import { LessonFeed } from '@/components/community/lesson-feed';
@@ -184,6 +185,8 @@ export default function ForYouPage() {
   }, [mode, shown, friendReposts, byId, hidden, blocked]);
   // Which item is on screen, for the panel beside the feed on computers.
   const scroller = useRef<HTMLDivElement>(null);
+  // Wheel and arrow keys glide from item to item (a phone's own swipe already does).
+  useEasedPaging(scroller);
   // Pull down at the top (or tap For You again): a fresh mix, counting what was just watched.
   const refresh = async () => {
     await sendInterestsNow();
@@ -284,7 +287,7 @@ export default function ForYouPage() {
               onClick={() => {
                 if (mode !== t.value) return setMode(t.value);
                 if (t.value === 'learn' || refreshing) return;
-                scroller.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                if (scroller.current) void easeScrollTo(scroller.current, { top: 0 }, 600);
                 void refresh().catch(() => {});
               }}
               className={cn('rounded-full px-2.5 py-1', mode === t.value ? 'bg-primary text-primary-foreground' : 'text-foreground/70')}>{tr(t.label)}</button>

@@ -99,7 +99,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <style dangerouslySetInnerHTML={{ __html: SPLASH_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SPLASH }} />

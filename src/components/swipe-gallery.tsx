@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { easeScrollTo } from '@/lib/eased-scroll';
 import type { Product } from '@/lib/types';
 
 /** One picture or video of an item, in the order a shopper swipes through them. */
@@ -37,7 +38,7 @@ export function SwipeGallery<T>({ items, render, index: wanted, onIndexChange, c
   const go = useCallback((i: number) => {
     const el = strip.current;
     if (!el) return;
-    el.scrollTo({ left: Math.max(0, Math.min(items.length - 1, i)) * el.clientWidth, behavior: 'smooth' });
+    void easeScrollTo(el, { left: Math.max(0, Math.min(items.length - 1, i)) * el.clientWidth });
   }, [items.length]);
   useEffect(() => {
     if (wanted !== undefined && wanted !== index) go(wanted);

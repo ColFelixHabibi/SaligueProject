@@ -191,6 +191,11 @@ body {
   100% { opacity: 0; transform: translate(-50%, -110%) scale(0.9) rotate(-12deg); }
 }
 
+/* Links to a place on the page and "back to top" glide there (the feeds ease their own pages, lib/eased-scroll.ts). */
+html {
+  scroll-behavior: smooth;
+}
+
 /* Reduced motion (phone or computer set to "reduce motion"): the floating shapes, the hearts rising over a live,
    the gift sliding in and every other animation stop instead of moving. Nothing is hidden and nothing is lost:
    a spinner still turns once, a screen still changes, the app simply stops moving on its own. */
