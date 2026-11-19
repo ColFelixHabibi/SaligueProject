@@ -3,10 +3,17 @@
 Everything the iOS side needs, taken from this repository. Like `deploy/play-store.md`, each claim names the file it
 comes from so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionName **2.66**, build **77** — the same two numbers as the Android app,
+Current build: `com.indeciana.saligue`, versionName **1.0.0**, build **78** — the same two numbers as the Android app,
 so the two stores never drift. They live in `ios/App/App.xcodeproj/project.pbxproj` (`MARKETING_VERSION`,
 `CURRENT_PROJECT_VERSION`) and reach the app through `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` in
 `ios/App/App/Info.plist`.
+
+**Version numbers (from 2026-11-19).** The name people see started again at **1.0.0** (after 2.66): the third number
+for fixes (1.0.1), the second for new features (1.1.0), the first for a big change (2.0.0). The hidden build number
+(`versionCode` here, `CURRENT_PROJECT_VERSION` on iOS) did **not** start again and never may: it only goes up (78,
+79, …), because phones and both stores refuse a lower one and the in-app update check compares it. The name is only
+shown; the build number decides. Apple also wants each new name to be higher than the last one it saw, so 1.0.0 is
+fine only because no 2.x build was ever sent to App Store Connect.
 
 **An `.ipa` can only be produced on macOS.** Xcode and `xcodebuild` do not run on Linux, so the live server cannot
 build it — the web assets can be prepared here, the signed app cannot. Two ways to get the app: the GitHub Actions

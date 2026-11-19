@@ -4,8 +4,15 @@ Everything the Play Console asks for, taken from this repository: the exact comm
 data-safety answers that match what the code actually does. Nothing here is guessed — each claim names the file it
 comes from, so it can be re-checked when the code changes.
 
-Current build: `com.indeciana.saligue`, versionCode **77**, versionName **2.66**, minSdk 24, targetSdk 36.
+Current build: `com.indeciana.saligue`, versionCode **78**, versionName **1.0.0**, minSdk 24, targetSdk 36.
 The iOS app carries the same two numbers (`ios/App/App.xcodeproj/project.pbxproj`), so the two stores never drift.
+
+**Version numbers (from 2026-11-19).** The name people see started again at **1.0.0** (after 2.66): the third number
+for fixes (1.0.1), the second for new features (1.1.0), the first for a big change (2.0.0). The hidden build number
+(`versionCode` here, `CURRENT_PROJECT_VERSION` on iOS) did **not** start again and never may: it only goes up (78,
+79, …), because phones and both stores refuse a lower one and the in-app update check compares it. The name is only
+shown; the build number decides. Apple also wants each new name to be higher than the last one it saw, so 1.0.0 is
+fine only because no 2.x build was ever sent to App Store Connect.
 
 ---
 
@@ -15,7 +22,7 @@ Play takes a **bundle**, not an APK. The release script already produces one, si
 
 ```bash
 node scripts/build-app.mjs --aab
-# → dist/saligue-2.66-77.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
+# → dist/saligue-1.0.0-78.aab   (and data/downloads/saligue.apk, and the live website rebuilt)
 ```
 
 **Upload that `.aab`. Never the `.apk`.** The bundle goes to `dist/`, deliberately never to `data/downloads/`
