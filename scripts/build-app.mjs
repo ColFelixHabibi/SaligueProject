@@ -26,6 +26,7 @@ const versionName = /versionName\s+"([^"]+)"/.exec(gradle)?.[1] ?? '';
 const env = {
   ...process.env,
   NEXT_PUBLIC_APP_VERSION: String(versionCode),
+  NEXT_PUBLIC_APP_VERSION_NAME: versionName,
   NEXT_PUBLIC_BASE_PATH: '',
   NEXT_PUBLIC_API_URL: server,
   ...(apk ? { NEXT_PUBLIC_BUNDLED_MODELS: '0', NEXT_PUBLIC_MODELS_URL: `${server}/models` } : { NEXT_PUBLIC_BUNDLED_MODELS: '1' }),

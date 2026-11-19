@@ -909,6 +909,15 @@ db.exec(`
     primary key (user_id, product_id)
   );
   create index if not exists view_history_user on view_history(user_id, seen_at desc);
+  -- Which version of the phone app each account last opened (Admin → Platform: phones on each version). One row per
+  -- account, overwritten each time; version_code 0 is an app from before apps said their version (2.65 and older).
+  create table if not exists app_versions (
+    user_id text primary key references users(id) on delete cascade,
+    version_code integer not null,
+    version_name text,
+    platform text,
+    seen_at text not null
+  );
 `);
 
 // Columns added after the first release.

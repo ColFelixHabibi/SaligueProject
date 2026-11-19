@@ -3968,6 +3968,30 @@ const saveConfig = (key, value) =>
     : db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(key, json(value));
 const masked = (secret) => (secret ? `••••${String(secret).slice(-4)}` : null);
 
+// The phone app asks /api/app/version when it opens and when it comes back to the screen, and says its version
+// (?v=76&n=2.65, from 2.66 on). An app that does not say it is older than that: it is still known to be the app by
+// where it calls from (Capacitor's https://localhost on Android, capacitor://localhost on iPhone), while the website
+// calls from its own address. Only the version is kept, one row per account — no device, no address.
+function noteAppVersion(req, url) {
+  try {
+    const origin = String(req.headers.origin ?? '');
+    const said = Number(url.searchParams.get('v'));
+    const fromApp = /^(https?|capacitor):\/\/localhost$/.test(origin);
+    if (!(said > 0) && !fromApp) return;
+    const user = userOf(req);
+    if (!user) return;
+    const code = said > 0 && said < 100_000 ? Math.floor(said) : 0;
+    const name = code ? String(url.searchParams.get('n') ?? '').slice(0, 20) || null : null;
+    const platform = origin.startsWith('capacitor:') ? 'ios' : 'android';
+    db.prepare(`insert into app_versions (user_id, version_code, version_name, platform, seen_at) values (?, ?, ?, ?, ?)
+      on conflict(user_id) do update set version_code = excluded.version_code, version_name = excluded.version_name,
+      platform = excluded.platform, seen_at = excluded.seen_at`).run(user.id, code, name, platform, now());
+  } catch (error) {
+    // Counting must never stop the update check itself.
+    console.error('App version not noted:', error.message);
+  }
+}
+
 route('GET', '/api/admin/platform', async ({ user }) => {
   requireAdmin(user, 'platform');
   const own = ownAi();
@@ -3988,6 +4012,9 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     hf: { key: masked(hfToken()), fromEnv: !!process.env.HF_TOKEN },
     aiServer: own ? { url: own.url, ...ownStatus, fromEnv: !!process.env.AI_SERVER_URL } : null,
     live: { enabled: liveSettings().enabled },
+    // Accounts that opened the phone app in the last 30 days, by version (newest first).
+    appVersions: db.prepare(`select version_code as code, max(version_name) as name, count(*) as n from app_versions
+      where seen_at > ? group by version_code order by version_code desc`).all(new Date(Date.now() - 30 * 86_400_000).toISOString()),
     stats: {
       users: count('select count(*) as n from users where is_guest = 0'),
       // Apps up to 2.46 still read this and crash on the admin page without it. One account per person, so it is
@@ -7006,6 +7033,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/media/')) return serveMedia(res, url.pathname, req);
   // The newest Android app on the server: installed apps show an Update banner when theirs is older.
   if (url.pathname === '/api/app/version') {
+    noteAppVersion(req, url);
     const info = join(resolve(process.env.SALIGUE_DATA || 'data'), 'downloads', 'saligue.json');
     let latest = null;
     try {

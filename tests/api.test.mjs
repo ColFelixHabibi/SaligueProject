@@ -2826,3 +2826,31 @@ describe('item photos', () => {
     assert.deepEqual((await call(`/products/${item.id}`)).json.photos, []);
   });
 });
+
+// Admin → Platform shows how many accounts opened the phone app on each version. The app says its version from 2.66
+// on; an older app is still known by where it calls from (Capacitor's localhost), and the website is never counted.
+describe('app versions', () => {
+  test('counted per account: the version an app says, older apps as 0, the website not at all', async () => {
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    const fresh = await register('New App Phone');
+    const old = await register('Old App Phone');
+    const web = await register('Website Visitor');
+    const admin = await register('Version Admin');
+    sql('update users set admin = 1, admin_level = 1 where id = ?', admin.id);
+
+    assert.equal((await call('/app/version?v=77&n=2.66', { token: fresh.token })).status, 200);
+    assert.equal((await call('/app/version', { token: old.token, headers: { Origin: 'https://localhost' } })).status, 200);
+    assert.equal((await call('/app/version', { token: web.token })).status, 200);
+    // The same phone opening twice is one line, and the newest version it said.
+    await call('/app/version?v=77&n=2.66', { token: fresh.token, headers: { Origin: 'https://localhost' } });
+
+    const rows = (await call('/admin/platform', { token: admin.token })).json.appVersions;
+    assert.deepEqual(rows.find((r) => r.code === 77), { code: 77, name: '2.66', n: 1 });
+    assert.equal(rows.find((r) => r.code === 0)?.n, 1, 'an app too old to say its version');
+    assert.equal(rows.reduce((sum, r) => sum + r.n, 0), 2, 'the website is not counted');
+    assert.equal((await call('/admin/platform', { token: fresh.token })).status, 403);
+  });
+});

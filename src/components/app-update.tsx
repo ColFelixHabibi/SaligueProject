@@ -10,6 +10,7 @@ import { absoluteUrl } from '@/lib/paths';
 
 // Set by scripts/build-app.mjs: the version code of this Android app. Empty on the website.
 const MINE = Number(process.env.NEXT_PUBLIC_APP_VERSION || 0);
+const MY_NAME = process.env.NEXT_PUBLIC_APP_VERSION_NAME || '';
 const KEY = 'saligue-update-dismissed';
 
 type Latest = { versionCode: number; versionName: string; minVersionCode?: number; url: string };
@@ -26,7 +27,8 @@ export function AppUpdate() {
   const [required, setRequired] = useState(false);
   useEffect(() => {
     if (!MINE) return;
-    const check = () => api<Latest | null>('/app/version').then((v) => {
+    // It says its own version, so Admin → Platform can show how many phones are on each one.
+    const check = () => api<Latest | null>(`/app/version?v=${MINE}&n=${encodeURIComponent(MY_NAME)}`).then((v) => {
       if (!v) return;
       if ((v.minVersionCode ?? 0) > MINE) {
         setRequired(true);

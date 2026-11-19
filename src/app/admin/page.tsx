@@ -39,6 +39,7 @@ type Platform = {
   hf?: { key: string | null; fromEnv: boolean };
   aiServer: { url: string; ok: boolean; reason?: string; gpu?: string | null; memoryGb?: number | null; ready?: boolean; busy?: boolean; fromEnv: boolean } | null;
   live: { enabled: boolean };
+  appVersions?: { code: number; name: string | null; n: number }[];
   stats: { users: number; products: number; orders: number };
 };
 
@@ -345,11 +346,41 @@ function PlatformSettings() {
           </div>
           <CardDescription>Live video runs on your own server. The Android app is ready to install.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild><Link href="/live">Open Live</Link></Button>
-          <Button variant="outline" asChild><a href="/download/saligue.apk">Download the Android app</a></Button>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild><Link href="/live">Open Live</Link></Button>
+            <Button variant="outline" asChild><a href="/download/saligue.apk">Download the Android app</a></Button>
+          </div>
+          <AppVersions rows={data.appVersions ?? []} />
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** How many accounts opened the phone app in the last 30 days, on each version: who has updated and who has not. */
+function AppVersions({ rows }: { rows: NonNullable<Platform['appVersions']> }) {
+  const total = rows.reduce((sum, r) => sum + r.n, 0);
+  const newest = rows.find((r) => r.code > 0)?.code ?? 0;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">Phones on each version <span className="font-normal text-muted-foreground">· last 30 days</span></p>
+      {total === 0 ? (
+        <p className="text-sm text-muted-foreground">No app has opened since counting began. Each phone is counted the next time it opens Saligue.</p>
+      ) : (
+        <div className="divide-y rounded-lg border">
+          {rows.map((r) => (
+            <div key={r.code} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="w-28 shrink-0 font-medium">{r.code ? `${r.name ? `${r.name} ` : ''}(${r.code})` : '2.65 or older'}</span>
+              <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                <span className={cn('block h-full rounded-full', r.code && r.code === newest ? 'bg-emerald-500' : 'bg-amber-500')} style={{ width: `${(r.n / total) * 100}%` }} />
+              </span>
+              <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">{r.n} · {Math.round((r.n / total) * 100)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">One line per account that opened the app. Green is the newest version; amber still has to update.</p>
     </div>
   );
 }
