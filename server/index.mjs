@@ -1406,6 +1406,10 @@ route('POST', '/api/products/([\\w-]+)/resaligue', ({ user, params }) => {
 });
 route('GET', '/api/me/resaligues', ({ user }) => (user ? db.prepare('select product_id from reposts where user_id = ? order by created_at desc').all(user.id).map((r) => r.product_id) : []));
 // A profile's Resaligued tab: newest first, only items still for sale.
+// How many times each of a profile's items was viewed (all days), shown as ▷ on the profile grid and used for its
+// "Popular" order. Only items still listed.
+route('GET', '/api/profiles/([\\w-]+)/views', ({ params }) => Object.fromEntries(db.prepare(`select v.product_id, sum(v.views) as n from product_views v
+  join products p on p.id = v.product_id where p.seller_id = ? and p.status = 'active' group by v.product_id`).all(params[0]).map((r) => [r.product_id, r.n])));
 route('GET', '/api/profiles/([\\w-]+)/resaligues', ({ params }) =>
   db.prepare("select r.product_id from reposts r join products p on p.id = r.product_id where r.user_id = ? and p.status = 'active' and p.hidden = 0 order by r.created_at desc limit 300")
     .all(params[0]).map((r) => r.product_id));
@@ -3243,10 +3247,32 @@ function liveOut(l) {
     replayStatus: l.replay_status ?? null,
     // Hearts the host hopes to reach (0 = no goal), shown as a bar to everyone.
     heartGoal: l.heart_goal ?? 0,
+    // How many guests may be on camera at once (the host chooses, 1–8).
+    guestSeats: guestSeatsOf(l),
+    // Who supports this live most (coins sent in gifts, to the host or a guest), the top three shown in the top bar and
+    // as No. 1–3 beside their name in the chat; and the coins each person on camera has received.
+    ...liveSupport(l.id),
+    // People who shared this live to their own followers.
+    reposts: db.prepare('select count(*) as n from live_reposts where live_id = ?').get(l.id).n,
     poll: pollOut(l.poll),
     startedAt: l.started_at,
     endedAt: l.ended_at,
   };
+}
+
+const GUEST_SEATS_MAX = 8;
+// Missing → three (the old fixed number); anything else is kept between 1 and 8 (0 asks for the fewest, one).
+const guestSeatsOf = (l) => {
+  const n = Math.floor(Number(l?.guest_seats));
+  return l?.guest_seats == null || !Number.isFinite(n) ? 3 : Math.min(GUEST_SEATS_MAX, Math.max(1, n));
+};
+function liveSupport(liveId) {
+  const supporters = db.prepare(`select t.from_user as uid, sum(t.amount) as dollars, u.display_name, u.email, u.is_guest, u.avatar
+    from tips t join users u on u.id = t.from_user where t.live_id = ? and t.status = 'paid' group by t.from_user order by dollars desc, min(t.created_at) limit 3`).all(liveId)
+    .map((r) => ({ uid: r.uid, name: personNameOf(r), avatar: r.avatar ?? null, coins: Math.round(r.dollars * 100) }));
+  const giftsTo = Object.fromEntries(db.prepare("select to_user, sum(amount) as dollars from tips where live_id = ? and status = 'paid' group by to_user").all(liveId)
+    .map((r) => [r.to_user, Math.round(r.dollars * 100)]));
+  return { supporters, giftsTo };
 }
 
 // A live poll: a question with 2–4 answers; everyone sees the counts, nobody sees who voted what.
@@ -3266,7 +3292,7 @@ const blockedWordIn = (live, text) => {
   return words.some((w) => w && lower.includes(w));
 };
 
-const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.kind, replyTo: parse(c.reply_to ?? null), gift: parse(c.gift ?? null), createdAt: c.created_at });
+const liveCommentOut = (c) => ({ id: c.id, uid: c.user_id, name: c.name, text: c.text, kind: c.event === 'like' ? 'like' : c.kind, replyTo: parse(c.reply_to ?? null), gift: parse(c.gift ?? null), createdAt: c.created_at });
 
 function getLive(id) {
   const live = db.prepare('select * from lives where id = ?').get(id);
@@ -3508,10 +3534,11 @@ route('POST', '/api/lives', async ({ user, body }) => {
   const id = randomUUID();
   const productIds = sellerProductIds(user.id, body.productIds);
   const thumbnail = body.thumbnail ? liveThumbnail(body.thumbnail) : null;
+  const guestSeats = guestSeatsOf({ guest_seats: body.guestSeats });
   // The server records the live when its recorder is running; otherwise the host's phone does.
   const recorder = (await recorderReady()) ? 'server' : 'phone';
-  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at, recorder) values (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now(), recorder);
+  db.prepare('insert into lives (id, seller_id, title, description, product_ids, pinned_product_id, thumbnail, started_at, recorder, guest_seats) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, title, String(body.description ?? '').trim().slice(0, 1000), json(productIds), productIds[0] ?? null, thumbnail, now(), recorder, guestSeats);
   broadcast('lives');
   // Tell the shop's followers, past customers and whoever asked to be reminded (once each, in the app).
   const shopName = shopNameOf(user);
@@ -3565,6 +3592,8 @@ route('PATCH', '/api/lives/([\\w-]+)', ({ user, params, body }) => {
   // Moderators look after the chat; the live itself (title, items, picture) stays the host's.
   if (live.seller_id !== user.id && Object.keys(body).some((k) => !['pinnedCommentId', 'chatMode', 'slowSeconds', 'poll', 'pollOpen', 'blockedWords'].includes(k))) fail(403, 'forbidden', 'Only the host can change this.');
   if (body.thumbnail !== undefined) db.prepare('update lives set thumbnail = ? where id = ?').run(body.thumbnail ? liveThumbnail(body.thumbnail) : null, live.id);
+  // Fewer seats never pushes anyone off camera: it only stops new guests until enough have left.
+  if (body.guestSeats !== undefined) db.prepare('update lives set guest_seats = ? where id = ?').run(guestSeatsOf({ guest_seats: body.guestSeats }), live.id);
   if (body.heartGoal !== undefined) db.prepare('update lives set heart_goal = ? where id = ?').run(Math.min(10_000_000, Math.max(0, Math.floor(Number(body.heartGoal) || 0))), live.id);
   // A live-only deal on one of the host's own items: { productId, price, minutes } (price null ends it).
   if (body.deal !== undefined) {
@@ -3866,6 +3895,12 @@ route('POST', '/api/lives/([\\w-]+)/like', ({ user, params, body }) => {
   const emoji = ['❤️', '🔥', '😍', '👏'].includes(body.emoji) ? body.emoji : '❤️';
   db.prepare('insert into live_hearts (live_id, count, emoji, created_at) values (?, ?, ?, ?)').run(live.id, count, emoji, now());
   liveEvent(live.id, { type: 'likes', likeCount, count, emoji, from: user.id });
+  // "… liked the LIVE" in the chat, once per person per live (never for the host's own hearts).
+  if (live.seller_id !== user.id && !db.prepare("select 1 from live_comments where live_id = ? and user_id = ? and event = 'like'").get(live.id, user.id)) {
+    const c = { id: randomUUID(), live_id: live.id, user_id: user.id, name: personNameOf(user).slice(0, 60), text: 'liked the LIVE', kind: 'comment', event: 'like', created_at: now() };
+    db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, event, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, c.live_id, c.user_id, c.name, c.text, c.kind, c.event, c.created_at);
+    liveEvent(live.id, { type: 'comment', comment: liveCommentOut(c) });
+  }
   return { likeCount };
 });
 
@@ -3900,6 +3935,11 @@ route('POST', '/api/lives/([\\w-]+)/gift', ({ user, params, body }) => {
   if (blockedBetween(user.id, live.seller_id)) fail(403, 'blocked', 'You can’t send gifts here.');
   const gift = GIFTS.find((g) => g.id === body.gift);
   if (!gift) fail(400, 'invalid', 'Choose a gift.');
+  // A gift may go to a guest on camera instead of the host: it becomes that guest's tip.
+  const toId = body.to && body.to !== live.seller_id ? String(body.to) : live.seller_id;
+  if (toId !== live.seller_id && !db.prepare("select 1 from live_guests where live_id = ? and user_id = ? and status = 'accepted'").get(live.id, toId)) fail(400, 'not_on_camera', 'That person is no longer on camera.');
+  if (toId === user.id) fail(400, 'host', 'You can’t send gifts to yourself.');
+  const receiver = toId === live.seller_id ? null : db.prepare('select id, display_name, email, is_guest from users where id = ?').get(toId);
   const name = personNameOf(user).slice(0, 60);
   const comment = transaction(() => {
     if (coinBalance(user.id) < gift.coins) fail(402, 'not_enough_coins', 'Not enough coins. Get more coins to send this gift.');
@@ -3907,15 +3947,37 @@ route('POST', '/api/lives/([\\w-]+)/gift', ({ user, params, body }) => {
     const dollars = gift.coins / 100;
     const tipId = randomUUID();
     db.prepare("insert into tips (id, from_user, to_user, live_id, amount, share, message, status, reference, created_at, paid_at) values (?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)")
-      .run(tipId, user.id, live.seller_id, live.id, dollars, Math.round(dollars * tipRules().share * 100) / 100, `${gift.emoji} ${gift.name} in your live`, `GIFT-${tipId.slice(0, 6).toUpperCase()}`, now(), now());
-    const c = { id: randomUUID(), live_id: live.id, user_id: user.id, name, text: `sent ${gift.emoji} ${gift.name}`, kind: 'comment', gift: json({ id: gift.id, emoji: gift.emoji, name: gift.name, coins: gift.coins }), created_at: now() };
-    db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, gift, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, c.live_id, c.user_id, c.name, c.text, c.kind, c.gift, c.created_at);
+      .run(tipId, user.id, toId, live.id, dollars, Math.round(dollars * tipRules().share * 100) / 100, receiver ? `${gift.emoji} ${gift.name} on camera in a live` : `${gift.emoji} ${gift.name} in your live`, `GIFT-${tipId.slice(0, 6).toUpperCase()}`, now(), now());
+    const to = receiver ? { uid: receiver.id, name: personNameOf(receiver).slice(0, 60) } : null;
+    const c = { id: randomUUID(), live_id: live.id, user_id: user.id, name, text: `sent ${gift.emoji} ${gift.name}${to ? ` to ${to.name}` : ''}`, kind: 'comment', gift: json({ id: gift.id, emoji: gift.emoji, name: gift.name, coins: gift.coins, to }), gift_to: receiver?.id ?? null, created_at: now() };
+    db.prepare('insert into live_comments (id, live_id, user_id, name, text, kind, gift, gift_to, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, c.live_id, c.user_id, c.name, c.text, c.kind, c.gift, c.gift_to, c.created_at);
     return c;
   });
   liveEvent(live.id, { type: 'comment', comment: liveCommentOut(comment) });
-  liveEvent(live.id, { type: 'gift', from: name, emoji: gift.emoji, name: gift.name, coins: gift.coins });
+  liveEvent(live.id, { type: 'gift', from: name, emoji: gift.emoji, name: gift.name, coins: gift.coins, to: receiver ? personNameOf(receiver) : null });
+  // The supporters' ranking and each tile's count change with every gift.
+  liveEvent(live.id, { type: 'updated', live: liveOut(db.prepare('select * from lives where id = ?').get(live.id)) });
   engage(user.id, live.seller_id, 'gifts', gift.coins);
+  if (receiver) notify(receiver.id, { type: 'account', title: `${name} sent you ${gift.emoji} ${gift.name}`, body: 'On camera in a live. It is added to your tips.', link: `/live/watch?id=${live.id}`, email: false });
   return { balance: coinBalance(user.id) };
+});
+
+// Repost a live to your own followers (once per live): they are told it is on, like a repost of an item.
+route('POST', '/api/lives/([\\w-]+)/repost', ({ user, params }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Create an account to repost.');
+  const live = getLive(params[0]);
+  if (live.status !== 'live') fail(410, 'ended', 'This live has ended.');
+  if (live.seller_id === user.id) fail(400, 'host', 'Your followers were already told you are live.');
+  const fresh = db.prepare('insert or ignore into live_reposts (live_id, user_id, created_at) values (?, ?, ?)').run(live.id, user.id, now()).changes > 0;
+  if (fresh) {
+    const who = personNameOf(user);
+    const shop = shopNameOf(db.prepare('select display_name, shop from users where id = ?').get(live.seller_id));
+    for (const { uid } of db.prepare('select follower_id as uid from follows where seller_id = ? limit 5000').all(user.id)) {
+      if (uid !== live.seller_id && !blockedBetween(uid, live.seller_id)) notify(uid, { type: 'message', title: `${who} reposted a live`, body: `${shop} is live: ${live.title}`, link: `/live/watch?id=${live.id}`, email: false });
+    }
+    liveEvent(live.id, { type: 'updated', live: liveOut(db.prepare('select * from lives where id = ?').get(live.id)) });
+  }
+  return { reposted: true, reposts: db.prepare('select count(*) as n from live_reposts where live_id = ?').get(live.id).n };
 });
 
 // Joining on camera: a viewer asks, the host accepts (the guest then gets a pass with camera rights) or declines.
@@ -3930,7 +3992,7 @@ route('POST', '/api/lives/([\\w-]+)/guests', ({ user, params, body }) => {
     db.prepare('update lives set invited = ? where id = ?').run(json(invited.filter((x) => x !== user.id)), live.id);
     if (body.accept) {
       const accepted = db.prepare("select count(*) as n from live_guests where live_id = ? and status = 'accepted'").get(live.id).n;
-      if (accepted >= 3) fail(400, 'full', 'The live already has 3 guests on camera.');
+      if (accepted >= guestSeatsOf(live)) fail(400, 'full', `The live already has ${guestSeatsOf(live)} ${guestSeatsOf(live) === 1 ? 'guest' : 'guests'} on camera.`);
       db.prepare("insert into live_guests (live_id, user_id, status, created_at) values (?, ?, 'accepted', ?) on conflict(live_id, user_id) do update set status = 'accepted'").run(live.id, user.id, now());
     }
     sendTo([live.seller_id], 'live', { liveId: live.id, type: 'invite_answer', uid: user.id, name: personNameOf(user), accepted: !!body.accept });
@@ -3949,7 +4011,7 @@ route('POST', '/api/lives/([\\w-]+)/guests/([\\w-]+)', async ({ user, params, bo
   const decision = body.decision;
   if (!['accept', 'decline', 'remove', 'invite'].includes(decision)) fail(400, 'invalid', 'Choose accept, decline, remove or invite.');
   const accepted = db.prepare("select count(*) as n from live_guests where live_id = ? and status = 'accepted'").get(live.id).n;
-  if ((decision === 'accept' || decision === 'invite') && accepted >= 3) fail(400, 'full', 'Up to 3 guests can be on camera at once.');
+  if ((decision === 'accept' || decision === 'invite') && accepted >= guestSeatsOf(live)) fail(400, 'full', `Every seat is taken (${guestSeatsOf(live)}). Remove a guest or add seats first.`);
   // Invite a viewer on camera without waiting for them to ask; they choose to come on or not.
   if (decision === 'invite') {
     const target = db.prepare('select id, is_guest from users where id = ?').get(guestId);

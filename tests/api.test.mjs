@@ -834,6 +834,61 @@ describe('profiles, lives and the admin log', () => {
     await call(`/lives/${live.json.id}/end`, { token: shop.token, body: {} });
   });
 
+  // Seats on camera are the host's choice (1–8); a gift can go to a guest on camera and counts on their tile; the top
+  // supporters are ranked; the first heart says "liked the LIVE" once; a live can be reposted to followers once.
+  test('seats, gifts to guests, supporters, "liked the LIVE" and reposting a live', async () => {
+    const product = (await call('/products?limit=1')).json[0];
+    const shop = await sampleShop(product.id);
+    const live = (await call('/lives', { token: shop.token, body: { title: 'Many guests', productIds: [product.id], guestSeats: 1 } })).json;
+    assert.equal(live.guestSeats, 1);
+    const at = `/lives/${live.id}`;
+    assert.equal((await call(at, { method: 'PATCH', token: shop.token, body: { guestSeats: 20 } })).json.guestSeats, 8);
+    assert.equal((await call(at, { method: 'PATCH', token: shop.token, body: { guestSeats: 0 } })).json.guestSeats, 1);
+
+    const guest = await register('On Camera');
+    const other = await register('Second Guest');
+    const fan = await register('Big Fan');
+    // One seat: the first invited guest comes on, the second finds it full.
+    await call(`${at}/guests/${guest.id}`, { token: shop.token, body: { decision: 'invite' } });
+    assert.equal((await call(`${at}/guests`, { token: guest.token, body: { accept: true } })).json.status, 'accepted');
+    assert.equal((await call(`${at}/guests/${other.id}`, { token: shop.token, body: { decision: 'invite' } })).json.error.code, 'full');
+
+    // Coins for the fan, then a gift to the guest (it is the guest's tip) and one to the host.
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare("insert into coins (id, user_id, amount, reason, created_at) values (?, ?, 500, 'test', ?)").run(`test-${Date.now()}`, fan.id, new Date().toISOString());
+    const toGuest = await call(`${at}/gift`, { token: fan.token, body: { gift: 'heart', to: guest.id } });
+    assert.equal(toGuest.status, 200, JSON.stringify(toGuest.json));
+    assert.equal(db.prepare('select to_user from tips where live_id = ? order by created_at desc limit 1').get(live.id).to_user, guest.id);
+    db.close();
+    assert.equal((await call(`${at}/gift`, { token: fan.token, body: { gift: 'rose', to: other.id } })).json.error.code, 'not_on_camera');
+    assert.equal((await call(`${at}/gift`, { token: fan.token, body: { gift: 'rose' } })).status, 200);
+    const seen = (await call(at, { token: fan.token })).json;
+    const state = seen.live ?? seen;
+    assert.equal(state.supporters[0].uid, fan.id);
+    assert.equal(state.supporters[0].coins, 60);
+    assert.equal(state.giftsTo[guest.id], 50);
+    assert.equal(state.giftsTo[shop.id], 10);
+    assert.ok((seen.comments ?? []).some((c) => c.gift?.to?.uid === guest.id), 'the chat says who the gift was for');
+
+    // Hearts: one "liked the LIVE" line per person, however many hearts.
+    await call(`${at}/like`, { token: fan.token, body: { count: 3 } });
+    await call(`${at}/like`, { token: fan.token, body: { count: 2 } });
+    const likes = ((await call(at, { token: fan.token })).json.comments ?? []).filter((c) => c.kind === 'like' && c.uid === fan.id);
+    assert.equal(likes.length, 1);
+
+    // Repost: once per person, never by the host.
+    assert.equal((await call(`${at}/repost`, { token: fan.token, body: {} })).json.reposts, 1);
+    assert.equal((await call(`${at}/repost`, { token: fan.token, body: {} })).json.reposts, 1);
+    assert.equal((await call(`${at}/repost`, { token: shop.token, body: {} })).json.error.code, 'host');
+
+    // Views per item for the profile grid ("Popular" order and ▷ counts).
+    const views = await call(`/profiles/${shop.id}/views`);
+    assert.equal(views.status, 200);
+    assert.equal(typeof views.json, 'object');
+    await call(`${at}/end`, { token: shop.token, body: {} });
+  });
+
   // A live drop: the host holds an item up, shoppers claim a place, ten minutes to pay. The place — not the
   // stock — is held, so a shopper who never pays cannot keep the item away from everyone else.
   test('a drop gives one place per person, frees it when given back or closed, and ends with the live', async () => {

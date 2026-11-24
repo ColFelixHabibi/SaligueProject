@@ -314,6 +314,18 @@ Both commands rebuild the website into the native projects, so the apps always c
 app can be built anywhere with the Android SDK; the iPhone app needs macOS and Xcode — see
 [deploy/play-store.md](deploy/play-store.md) and [deploy/ios.md](deploy/ios.md).
 
+**Lives with many guests, and who chooses what.** The host picks how many guests can be on camera (1–8, Studio →
+Guests on camera; fewer seats never removes anyone already on), and past three everyone shares a 3-across grid,
+which the server's recording follows too. A gift can go to the host or to any guest on camera (it becomes that
+person's tip), each tile shows the coins its person received, guests have their own Follow +, and the top three
+supporters of a live sit in its top bar and carry No. 1–3 in the chat. A viewer's first heart says "… liked the
+LIVE" once (stored as a comment with `event = 'like'`: the table's check allows only comment, question and join).
+Viewers choose on their own device whether lives appear as full slides in For You with a silent preview, and
+whether a live may suggest a gift after a minute (Settings → Personalisation); anyone can repost a live to their
+own followers once. On a profile the visitor chooses Latest or Popular (views from `product_views`) and can search
+it; your own profile adds Liked and Saved tabs only you see. `tests/api.test.mjs` (seats, gifts to guests,
+supporters…) covers the server side.
+
 Shared links open the app, not a browser tab: a Saligue link sent on WhatsApp lands on that product, look, live or
 lesson. Android is switched on by `public/.well-known/assetlinks.json` (`scripts/assetlinks.mjs`), the iPhone by
 `public/.well-known/apple-app-site-association` plus the Associated Domains entitlement

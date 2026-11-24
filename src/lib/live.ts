@@ -30,7 +30,7 @@ export function useLive(id: string | null, me: string | null) {
   const [myVote, setMyVote] = useState<number | null>(null);
   const [blockedWords, setBlockedWords] = useState<string[]>([]);
   // The newest gift, shown big for a few seconds to everyone.
-  const [gift, setGift] = useState<{ key: number; from: string; emoji: string; name: string } | null>(null);
+  const [gift, setGift] = useState<{ key: number; from: string; emoji: string; name: string; to?: string | null } | null>(null);
   const burstId = useRef(0);
   // The poll on screen now: my answer means nothing once the host opens a new one.
   const pollId = useRef<string | null>(null);
@@ -97,7 +97,7 @@ export function useLive(id: string | null, me: string | null) {
       if (d.type === 'guest_invite') setInvited(true);
       if (d.type === 'gift') {
         const key = Date.now();
-        setGift({ key, from: d.from, emoji: d.emoji, name: d.name });
+        setGift({ key, from: d.from, emoji: d.emoji, name: d.name, to: d.to ?? null });
         burst(d.emoji, 6);
         setTimeout(() => setGift((g) => (g?.key === key ? null : g)), 3500);
       }
@@ -112,14 +112,17 @@ export function useLive(id: string | null, me: string | null) {
 }
 
 // Actions
-export const goLive = (body: { title: string; description: string; productIds: string[]; thumbnail?: string | null }) => api<Live>('/lives', { body });
+export const goLive = (body: { title: string; description: string; productIds: string[]; thumbnail?: string | null; guestSeats?: number }) => api<Live>('/lives', { body });
 export const endLive = (id: string) => api<Live>(`/lives/${id}/end`, { body: {} });
-export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill'; layout: 'side' | 'grid'; deal: { productId: string; price: number | null; minutes?: number }; thumbnail: string | null; heartGoal: number; blockedWords: string[]; poll: { question: string; options: string[] } | null; pollOpen: boolean }>) =>
+export const updateLive = (id: string, body: Partial<{ title: string; description: string; productIds: string[]; pinnedProductId: string | null; pinnedCommentId: string | null; viewers: number; chatMode: 'everyone' | 'followers' | 'off'; slowSeconds: number; videoFit: 'fit' | 'fill'; layout: 'side' | 'grid'; deal: { productId: string; price: number | null; minutes?: number }; thumbnail: string | null; heartGoal: number; guestSeats: number; blockedWords: string[]; poll: { question: string; options: string[] } | null; pollOpen: boolean }>) =>
   api<Live>(`/lives/${id}`, { method: 'PATCH', body }).then(withMedia);
 export const votePoll = (id: string, option: number) => api<{ myVote: number; poll: LivePoll }>(`/lives/${id}/poll`, { body: { option } });
 export const sendLiveComment = (id: string, text: string, kind: 'comment' | 'question' | 'join' = 'comment', replyToId?: string | null) =>
   api<LiveComment>(`/lives/${id}/comments`, { body: { text, kind, replyToId: replyToId ?? undefined } });
-export const sendGift = (id: string, gift: string) => api<{ balance: number }>(`/lives/${id}/gift`, { body: { gift } });
+/** A gift to the host, or (`to`) to a guest on camera: it becomes that person's tip. */
+export const sendGift = (id: string, gift: string, to?: string | null) => api<{ balance: number }>(`/lives/${id}/gift`, { body: { gift, to: to ?? undefined } });
+/** Share a live to your own followers (once per live). */
+export const repostLive = (id: string) => api<{ reposted: boolean; reposts: number }>(`/lives/${id}/repost`, { body: {} });
 /** Host: hold one of your items up in the live. */
 export const dropItem = (id: string, productId: string, slots?: number) =>
   api<LiveDrop>(`/lives/${id}/drops`, { body: { productId, slots } }).then(withDropMedia);

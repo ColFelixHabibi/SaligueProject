@@ -17,7 +17,9 @@ import { LessonSlide } from '@/components/community/lesson-slide';
 import { BreakReminder, CaughtUp } from '@/components/calm/break-reminder';
 import { useLessons } from '@/lib/lessons';
 import { cn } from '@/lib/utils';
-import { useLives } from '@/lib/lives';
+import { useLives, type Live } from '@/lib/lives';
+import { LiveSlide } from '@/components/live/live-slide';
+import { useLivePref } from '@/lib/live-prefs';
 import { StatusButton } from '@/components/social/story-bar';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Button } from '@/components/ui/button';
@@ -41,6 +43,17 @@ type Mode = 'foryou' | 'following' | 'local' | 'learn';
 type SavedFeed = { feed: FeedItem[]; mode: Mode; current: string | null; at: number };
 const FEED_STATE = 'saligue-feed-state';
 
+/** Lives slotted into the feed: the first after the 2nd slide, the next after the 9th (each live once). */
+function withLiveSlides(lives: Live[], slides: React.ReactElement[]) {
+  if (!lives.length) return slides;
+  const out = [...slides];
+  [9, 2].forEach((at, i) => {
+    const live = lives[1 - i];
+    if (live && out.length >= at) out.splice(at, 0, <LiveSlide key={`live-${live.id}`} live={live} />);
+  });
+  return out;
+}
+
 // "For You": a full-screen, swipeable feed ranked by what the visitor likes and saves.
 export default function ForYouPage() {
   const { products, isInitialized, error } = useProductStore();
@@ -48,6 +61,7 @@ export default function ForYouPage() {
   const { ids: savedIds, isInitialized: savesInitialized } = useWishlistStore();
   const cartEntries = useCartStore((s) => s.entries);
   const lives = useLives()?.lives ?? [];
+  const liveInFeed = useLivePref('liveInFeed');
   const orders = useOrders('buyer');
   const bought = useMemo(() => new Set((orders ?? []).filter((o) => o.status !== 'cancelled').flatMap((o) => o.items.map((i) => i.productId))), [orders]);
   // Refresh the ranking when catalog membership or ranking metadata changes, but
@@ -361,8 +375,9 @@ export default function ForYouPage() {
           </Button>
         </div>
       ) : (
-        // Live data (like counts) from the store, order from the ranking.
-        mixSponsored(
+        // Live data (like counts) from the store, order from the ranking. In For You, who is live right now comes in as
+        // full slides with a silent preview (after the 2nd post, and another after the 9th) unless the viewer turned it off.
+        withLiveSlides(mode === 'foryou' && on('live') && liveInFeed ? lives.filter((l) => !blocked.has(l.sellerId)) : [], mixSponsored(
           shown,
           // Ads only in For You: Following and Local show exactly what the viewer chose.
           (mode === 'foryou' ? sponsored : []).map((a) => ({ item: byId.get(a.productId)!, campaignId: a.serveId })).filter((a) => a.item?.status === 'active'),
@@ -372,7 +387,7 @@ export default function ForYouPage() {
           <FeedSlide key={`${p.id}${p.sponsoredBy ?? ''}`} product={p} reason={p.sponsoredBy ? null : mode === 'local' ? `A shop in ${city}` : reasons.get(p.id) ?? null} sponsoredBy={p.sponsoredBy}
             resaliguedBy={p.sponsoredBy || mode !== 'foryou' ? null : resaliguers.get(p.id) ?? null}
             onHide={() => setHidden((h) => new Set(h).add(p.id))} />
-        )).concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
+        ))).concat(<CaughtUp key="caught-up" onLearn={() => setMode('learn')} />)
       )}
       <BreakReminder />
     </div>

@@ -37,7 +37,10 @@ export function useVideoShape(video: React.RefObject<HTMLVideoElement | null>) {
   return wide;
 }
 
-function VideoView({ tile, cover, small }: { tile: Tile; cover?: boolean; small?: boolean }) {
+/** What a screen adds on each person on camera (the viewer's page: a Follow + and the coins they received). */
+export type TileExtra = (tile: Tile, small: boolean) => React.ReactNode;
+
+function VideoView({ tile, cover, small, silent, extra }: { tile: Tile; cover?: boolean; small?: boolean; silent?: boolean; extra?: TileExtra }) {
   const video = useRef<HTMLVideoElement>(null);
   const backdrop = useRef<HTMLVideoElement>(null);
   const audio = useRef<HTMLAudioElement>(null);
@@ -45,13 +48,14 @@ function VideoView({ tile, cover, small }: { tile: Tile; cover?: boolean; small?
   useEffect(() => attach(tile.video, video.current), [tile.video]);
   useEffect(() => (wide && !cover ? attach(tile.video, backdrop.current) : () => {}), [tile.video, wide, cover]);
   // Your own voice is never played back to you.
-  useEffect(() => (tile.isLocal ? () => {} : attach(tile.audio, audio.current)), [tile.audio, tile.isLocal]);
+  // A silent stage (the preview in For You) plays no sound at all.
+  useEffect(() => (tile.isLocal || silent ? () => {} : attach(tile.audio, audio.current)), [tile.audio, tile.isLocal, silent]);
   return (
     <div className={cn('relative h-full w-full overflow-hidden bg-neutral-900', tile.speaking && tile.role === 'guest' && 'ring-4 ring-inset ring-primary')}>
       {tile.video ? (
         <>
           {wide && !cover && <video ref={backdrop} autoPlay playsInline muted aria-hidden className={cn('absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl', tile.mirror && '-scale-x-110')} />}
-          <video ref={video} data-live-video={tile.role} autoPlay playsInline muted={tile.isLocal} className={cn('relative h-full w-full', cover ? 'object-cover' : 'object-contain', tile.mirror && 'scale-x-[-1]')} />
+          <video ref={video} data-live-video={tile.role} autoPlay playsInline muted={tile.isLocal || silent} className={cn('relative h-full w-full', cover ? 'object-cover' : 'object-contain', tile.mirror && 'scale-x-[-1]')} />
         </>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/70">
@@ -59,7 +63,8 @@ function VideoView({ tile, cover, small }: { tile: Tile; cover?: boolean; small?
           <span className="text-sm">{tile.name}</span>
         </div>
       )}
-      {!tile.isLocal && <audio ref={audio} autoPlay />}
+      {!tile.isLocal && !silent && <audio ref={audio} autoPlay />}
+      {extra?.(tile, !!small)}
       {tile.role === 'guest' && (small
         ? <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-3 text-[10px] font-semibold text-white">{tile.name}{tile.isLocal ? ' (you)' : ''}</span>
         : <span className="absolute left-2 top-16 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold text-white">{tile.name}{tile.isLocal ? ' (you)' : ''}</span>
@@ -75,7 +80,7 @@ function VideoView({ tile, cover, small }: { tile: Tile; cover?: boolean; small?
  * Host full screen. Guests on camera either sit in small tiles down the right side ('side', like TikTok multi-guest
  * lives) or share the screen equally ('grid'). The host chooses; the server's recording uses the same layout.
  */
-export function LiveStage({ tiles, waiting, fill, cover, layout = 'side' }: { tiles: Tile[]; waiting: string; fill?: boolean; cover?: string | null; layout?: 'side' | 'grid' }) {
+export function LiveStage({ tiles, waiting, fill, cover, layout = 'side', silent, extra }: { tiles: Tile[]; waiting: string; fill?: boolean; cover?: string | null; layout?: 'side' | 'grid'; silent?: boolean; extra?: TileExtra }) {
   // Until the video arrives: the live's cover (whole, on a soft blurred copy of itself), like TikTok.
   if (!tiles.length || !tiles.some((t) => t.video)) {
     return (
@@ -93,17 +98,18 @@ export function LiveStage({ tiles, waiting, fill, cover, layout = 'side' }: { ti
       </div>
     );
   }
-  if (tiles.length === 1) return <VideoView tile={tiles[0]} cover={fill} />;
-  if (layout === 'side') {
+  if (tiles.length === 1) return <VideoView tile={tiles[0]} cover={fill} silent={silent} extra={extra} />;
+  // Down the side fits three guests; with more on camera (up to eight) everyone shares a grid.
+  if (layout === 'side' && tiles.length <= 4) {
     const [host, ...guests] = tiles;
     return (
       <div className="relative h-full w-full bg-black">
-        <VideoView tile={host} cover={fill} />
+        <VideoView tile={host} cover={fill} silent={silent} extra={extra} />
         {/* Sized by the screen's height, so three guests still end above the buttons at the bottom. */}
         <div className="absolute right-2 top-[calc(5rem+var(--sat))] z-[5] flex flex-col gap-1.5">
           {guests.map((t) => (
             <div key={t.identity} className="aspect-[3/4] h-[min(13dvh,150px)] overflow-hidden rounded-xl shadow-lg ring-1 ring-white/25">
-              <VideoView tile={t} cover small />
+              <VideoView tile={t} cover small silent={silent} extra={extra} />
             </div>
           ))}
         </div>
@@ -111,8 +117,9 @@ export function LiveStage({ tiles, waiting, fill, cover, layout = 'side' }: { ti
     );
   }
   return (
-    <div className={cn('grid h-full w-full gap-0.5 bg-black', tiles.length === 2 ? 'grid-rows-2' : 'grid-cols-2 grid-rows-2')}>
-      {tiles.map((t) => <VideoView key={t.identity} tile={t} cover={fill} />)}
+    // 2: one above the other; 3–4: two by two; 5–9: three across (the host first, top left).
+    <div className={cn('grid h-full w-full gap-0.5 bg-black', tiles.length === 2 ? 'grid-rows-2' : tiles.length <= 4 ? 'grid-cols-2 grid-rows-2' : tiles.length <= 6 ? 'grid-cols-3 grid-rows-2' : 'grid-cols-3 grid-rows-3')}>
+      {tiles.map((t) => <VideoView key={t.identity} tile={t} cover={fill} small={tiles.length > 4} silent={silent} extra={extra} />)}
     </div>
   );
 }
@@ -129,7 +136,8 @@ export function Hearts({ bursts }: { bursts: Burst[] }) {
 }
 
 /** Top bar: who is live, LIVE badge, how long, how many watching. */
-export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { live: Live; viewers: number; elapsed: string; onViewers?: () => void; children?: React.ReactNode }) {
+export function LiveTopBar({ live, viewers, elapsed, onViewers, onSupporters, children }: { live: Live; viewers: number; elapsed: string; onViewers?: () => void; onSupporters?: () => void; children?: React.ReactNode }) {
+  const supporters = live.supporters ?? [];
   const hideLikes = useHideLikes();
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pb-10 pt-[calc(0.75rem+var(--sat))]">
@@ -147,6 +155,20 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* The top three supporters of this live (coins sent in gifts), first on the left. */}
+        {supporters.length > 0 && (
+          <button type="button" onClick={onSupporters} disabled={!onSupporters} className="hidden -space-x-2 min-[380px]:flex" aria-label="Top supporters" title="Top supporters">
+            {supporters.map((s, i) => (
+              <span key={s.uid} className={cn('relative rounded-full ring-2', i === 0 ? 'ring-amber-400' : i === 1 ? 'ring-slate-300' : 'ring-orange-400')}>
+                <Avatar className="h-7 w-7">
+                  <AvatarImage src={s.avatar ?? undefined} className="object-cover" />
+                  <AvatarFallback className="bg-neutral-700 text-[10px] text-white">{s.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-black/80 px-1 text-[8px] font-extrabold leading-tight text-white">{i + 1}</span>
+              </span>
+            ))}
+          </button>
+        )}
         <span className={cn('rounded-md px-2 py-1 text-xs font-extrabold tracking-wide text-white', live.status === 'live' ? 'bg-primary' : 'bg-neutral-600')}>
           {live.status === 'live' ? 'LIVE' : 'ENDED'} · {elapsed}
         </span>
@@ -165,7 +187,7 @@ export function LiveTopBar({ live, viewers, elapsed, onViewers, children }: { li
  * Chat over the video, newest at the bottom. You can scroll back freely: new messages don't pull you down,
  * a "new" pill does. Questions, replies, gifts and the pinned comment stand out. Tap a comment to act on it.
  */
-export function LiveChat({ comments, pinned, onAction, roles, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; roles?: Record<string, 'Host' | 'Mod'>; className?: string }) {
+export function LiveChat({ comments, pinned, onAction, roles, ranks, className }: { comments: LiveComment[]; pinned?: LiveComment | null; onAction?: (c: LiveComment) => void; roles?: Record<string, 'Host' | 'Mod'>; ranks?: Record<string, number>; className?: string }) {
   const list = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const [unseen, setUnseen] = useState(0);
@@ -200,15 +222,17 @@ export function LiveChat({ comments, pinned, onAction, roles, className }: { com
             type="button"
             key={c.id}
             onClick={() => onAction?.(c)}
-            disabled={!onAction || c.kind === 'join'}
+            disabled={!onAction || c.kind === 'join' || c.kind === 'like'}
             className={cn('w-fit max-w-full shrink-0 rounded-2xl px-3 py-1.5 text-left text-sm text-white',
-              c.gift ? 'bg-gradient-to-r from-amber-500/90 to-pink-500/90 font-semibold' : c.kind === 'question' ? 'bg-primary/85' : c.kind === 'join' ? 'bg-transparent py-0.5 text-xs text-white/70' : 'bg-black/40 backdrop-blur-sm')}
+              c.gift ? 'bg-gradient-to-r from-amber-500/90 to-pink-500/90 font-semibold' : c.kind === 'question' ? 'bg-primary/85' : c.kind === 'join' || c.kind === 'like' ? 'bg-transparent py-0.5 text-xs text-white/70' : 'bg-black/40 backdrop-blur-sm')}
           >
             {c.replyTo && <span className="mb-0.5 block truncate border-l-2 border-white/60 pl-1.5 text-[11px] text-white/80">↪ <b>{c.replyTo.name}</b> {c.replyTo.text}</span>}
             {c.kind === 'question' && <HelpCircle className="mr-1 inline h-3.5 w-3.5" />}
+            {c.kind === 'like' && <Heart className="mr-1 inline h-3 w-3 fill-primary text-primary" />}
             {roles?.[c.uid] && <span className={cn('mr-1 rounded px-1 py-px text-[10px] font-extrabold uppercase', roles[c.uid] === 'Host' ? 'bg-primary text-white' : 'bg-sky-500 text-white')}>{roles[c.uid]}</span>}
-            <b className="mr-1.5">{c.name}</b>
-            <span className="line-clamp-3 break-words">{c.gift ? <>sent <span className="text-base">{c.gift.emoji}</span> {c.gift.name}</> : <RichText text={c.text} />}</span>
+            <b className={cn(ranks?.[c.uid] ? 'mr-1' : 'mr-1.5')}>{c.name}</b>
+            {ranks?.[c.uid] && <span className={cn('mr-1.5 rounded px-1 py-px align-middle text-[10px] font-extrabold', ranks[c.uid] === 1 ? 'bg-amber-400 text-black' : ranks[c.uid] === 2 ? 'bg-slate-300 text-black' : 'bg-orange-400 text-black')} title="Top supporter">No. {ranks[c.uid]}</span>}
+            <span className="line-clamp-3 break-words">{c.gift ? <>sent <span className="text-base">{c.gift.emoji}</span> {c.gift.name}{c.gift.to ? <> to <b>{c.gift.to.name}</b></> : null}</> : <RichText text={c.text} />}</span>
           </button>
         ))}
       </div>
@@ -222,12 +246,12 @@ export function LiveChat({ comments, pinned, onAction, roles, className }: { com
 }
 
 /** A gift, big, for everyone (a few seconds). */
-export function GiftBanner({ gift }: { gift: { key: number; from: string; emoji: string; name: string } | null }) {
+export function GiftBanner({ gift }: { gift: { key: number; from: string; emoji: string; name: string; to?: string | null } | null }) {
   if (!gift) return null;
   return (
     <div key={gift.key} className="pointer-events-none absolute left-3 top-1/3 z-20 flex animate-[gift-in_0.4s_ease-out] items-center gap-2 rounded-full bg-gradient-to-r from-amber-500 to-pink-500 py-1.5 pl-1.5 pr-4 text-white shadow-xl">
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/25 text-3xl">{gift.emoji}</span>
-      <span className="leading-tight"><b className="block max-w-[11rem] truncate text-sm">{gift.from}</b><span className="text-xs">sent {gift.name}</span></span>
+      <span className="leading-tight"><b className="block max-w-[11rem] truncate text-sm">{gift.from}</b><span className="text-xs">sent {gift.name}{gift.to ? ` to ${gift.to}` : ''}</span></span>
     </div>
   );
 }

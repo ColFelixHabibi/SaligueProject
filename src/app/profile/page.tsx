@@ -12,7 +12,7 @@ import { TipButton } from '@/components/tip-button';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Ban, BadgeCheck, Clock, Coins, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store, UserCheck, UserPlus } from 'lucide-react';
+import { ArrowDownUp, Ban, BadgeCheck, Bookmark, Clock, Coins, Heart, Lock, Search, X, MoreHorizontal, GraduationCap, Grid3x3, History, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, Pin, Play, Radio, Repeat2, Settings, Share2, Store, UserCheck, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -29,6 +29,10 @@ import { ProfileAvatar, profileHref } from '@/components/profile-avatar';
 import { SellerAvatar } from '@/components/seller-avatar';
 import { Stars } from '@/components/stars';
 import { useProductStore } from '@/hooks/use-product-store';
+import { useLikesStore } from '@/hooks/use-likes';
+import { useWishlist } from '@/hooks/use-wishlist';
+import { useHideLikes } from '@/lib/hide-likes';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { api, mediaUrl } from '@/lib/api';
 import { updateAccount } from '@/lib/auth-actions';
@@ -48,7 +52,18 @@ function ProfileView({ id }: { id: string }) {
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'items' | 'videos' | 'lessons' | 'replays' | 'resaligued'>('items');
+  const [tab, setTab] = useState<'items' | 'videos' | 'lessons' | 'replays' | 'resaligued' | 'liked' | 'saved'>('items');
+  // The visitor's own choices on this profile: newest or most viewed first, and a search inside it.
+  const [sort, setSort] = useState<'latest' | 'popular'>('latest');
+  const [query, setQuery] = useState<string | null>(null);
+  const [views, setViews] = useState<Record<string, number>>({});
+  useEffect(() => {
+    api<Record<string, number>>(`/profiles/${id}/views`).then(setViews).catch(() => setViews({}));
+  }, [id]);
+  const hideCounts = useHideLikes();
+  // Only on your own profile: what you liked and saved (nobody else sees these tabs).
+  const likedIds = useLikesStore((s) => s.liked);
+  const { wishlistItems } = useWishlist();
   // Lives the shop recorded: a playlist to watch again.
   const [replays, setReplays] = useState<Live[] | null>(null);
   // Items this person Resaligued (reposted), newest first.
@@ -78,9 +93,12 @@ function ProfileView({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, follow.following]);
 
-  // Pinned items first (newest pin first), then the rest as listed.
+  // Pinned items first (newest pin first), then newest — or, chosen, the most viewed (then most liked) first.
   const items = useMemo(() => products.filter((p) => p.sellerId === id && p.status === 'active')
-    .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')), [products, id]);
+    .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '')
+      || (sort === 'popular' ? (views[b.id] ?? 0) - (views[a.id] ?? 0) || (b.likeCount ?? 0) - (a.likeCount ?? 0) : 0)
+      || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')), [products, id, sort, views]);
+  const liked = useMemo(() => products.filter((p) => likedIds.has(p.id) && p.status === 'active'), [products, likedIds]);
   const reposted = useMemo(() => {
     const byId = new Map(products.map((p) => [p.id, p]));
     return (resaligued ?? []).map((pid) => byId.get(pid)).filter((p): p is Product => !!p && p.status === 'active');
@@ -116,6 +134,9 @@ function ProfileView({ id }: { id: string }) {
   if (error) return <p className="p-10 text-center text-muted-foreground">{error}</p>;
   if (!profile) return <Skeleton className="mx-auto mt-6 h-[70vh] max-w-2xl rounded-2xl" />;
 
+  const q = (query ?? '').trim().toLowerCase();
+  const match = <T extends { name?: string; title?: string }>(list: T[]) => (q ? list.filter((x) => (x.name ?? x.title ?? '').toLowerCase().includes(q)) : list);
+  const viewsOf = (pid: string) => (hideCounts && !profile.mine ? undefined : views[pid]);
   const round = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background transition hover:bg-muted';
   const tabs = [
     { value: 'items', icon: Grid3x3, label: 'Items', count: items.length, show: profile.isShop },
@@ -123,6 +144,8 @@ function ProfileView({ id }: { id: string }) {
     { value: 'lessons', icon: GraduationCap, label: 'Lessons', count: lessons?.length ?? 0, show: true },
     { value: 'replays', icon: History, label: 'Replays', count: replays?.length ?? 0, show: profile.isShop && !!replays?.length },
     { value: 'resaligued', icon: Repeat2, label: 'Resaligued', count: reposted.length, show: reposted.length > 0 },
+    { value: 'liked', icon: Heart, label: 'Liked · only you see this', count: liked.length, show: profile.mine },
+    { value: 'saved', icon: Bookmark, label: 'Saved · only you see this', count: wishlistItems.length, show: profile.mine },
   ].filter((t) => t.show) as { value: typeof tab; icon: typeof Grid3x3; label: string; count: number }[];
   const current = tabs.some((t) => t.value === tab) ? tab : tabs[0].value;
 
@@ -189,18 +212,40 @@ function ProfileView({ id }: { id: string }) {
         ))}
       </div>
 
-      <div className="mt-4">
-        {current === 'items' && (items.length ? <div className="grid grid-cols-3 gap-0.5">{items.map((p) => <ItemTile key={p.id} product={p} />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
-        {current === 'resaligued' && <div className="grid grid-cols-3 gap-0.5">{reposted.map((p) => <ItemTile key={p.id} product={p} />)}</div>}
-        {current === 'videos' && (videos.length ? <div className="grid grid-cols-3 gap-1">{videos.map((p) => <PosterTile key={p.id} href={`/product?id=${p.id}`} poster={p.videoPoster ?? p.image} label={p.name} />)}</div> : <Empty icon={Play} text="No videos yet" />)}
+      {/* Sort and search inside this profile. */}
+      <div className="mt-2 flex items-center gap-2">
+        {query === null ? (
+          <>
+            {(current === 'items' || current === 'videos') && (
+              <button type="button" onClick={() => setSort((v) => (v === 'latest' ? 'popular' : 'latest'))} className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold" aria-label={`Order: ${sort === 'latest' ? 'Latest' : 'Popular'} (tap to change)`}>
+                <ArrowDownUp className="h-3.5 w-3.5" /> {sort === 'latest' ? 'Latest' : 'Popular'}
+              </button>
+            )}
+            {(current === 'liked' || current === 'saved') && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="h-3.5 w-3.5" /> Only you can see this</span>}
+            <button type="button" onClick={() => setQuery('')} className="ml-auto flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted" aria-label="Search this profile" title="Search this profile"><Search className="h-4 w-4" /></button>
+          </>
+        ) : (
+          <>
+            <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${profile.name}`} className="h-9 rounded-full" />
+            <button type="button" onClick={() => setQuery(null)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-muted" aria-label="Close search" title="Close search"><X className="h-4 w-4" /></button>
+          </>
+        )}
+      </div>
+
+      <div className="mt-3">
+        {current === 'items' && (items.length ? <div className="grid grid-cols-3 gap-0.5">{match(items).map((p) => <ItemTile key={p.id} product={p} views={viewsOf(p.id)} />)}</div> : <Empty icon={Grid3x3} text="No items yet" />)}
+        {current === 'resaligued' && <div className="grid grid-cols-3 gap-0.5">{match(reposted).map((p) => <ItemTile key={p.id} product={p} />)}</div>}
+        {current === 'liked' && (liked.length ? <div className="grid grid-cols-3 gap-0.5">{match(liked).map((p) => <ItemTile key={p.id} product={p} />)}</div> : <Empty icon={Heart} text="Items you like show here" />)}
+        {current === 'saved' && (wishlistItems.length ? <div className="grid grid-cols-3 gap-0.5">{match(wishlistItems).map((p) => <ItemTile key={p.id} product={p} />)}</div> : <Empty icon={Bookmark} text="Items you save show here" />)}
+        {current === 'videos' && (videos.length ? <div className="grid grid-cols-3 gap-1">{match(videos).map((p) => <PosterTile key={p.id} href={`/product?id=${p.id}`} poster={p.videoPoster ?? p.image} label={p.name} views={viewsOf(p.id)} />)}</div> : <Empty icon={Play} text="No videos yet" />)}
         {current === 'replays' && (
           <div className="grid grid-cols-3 gap-1">
-            {(replays ?? []).map((l) => <PosterTile key={l.id} href={`/live/watch?id=${l.id}`} poster={l.replay?.poster ?? l.thumbnail ?? ''} label={l.title} />)}
+            {match(replays ?? []).map((l) => <PosterTile key={l.id} href={`/live/watch?id=${l.id}`} poster={l.replay?.poster ?? l.thumbnail ?? ''} label={l.title} />)}
           </div>
         )}
         {current === 'lessons' && (lessons === null ? <Skeleton className="h-40" /> : lessons.length ? (
           <div className="grid grid-cols-3 gap-1">
-            {lessons.map((l) => {
+            {match(lessons).map((l) => {
               const Icon = topicOf(l.topic).icon;
               return (
                 <div key={l.id}>
@@ -236,7 +281,7 @@ function ProfileView({ id }: { id: string }) {
 }
 
 /** An item in the profile grid (like an Instagram shop): the photo, its price, and a mark for a video or sold out. */
-function ItemTile({ product }: { product: Product }) {
+function ItemTile({ product, views }: { product: Product; views?: number }) {
   return (
     <Link href={`/product?id=${product.id}`} className="relative block aspect-[3/4] overflow-hidden bg-muted" title={product.name}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -245,16 +290,19 @@ function ItemTile({ product }: { product: Product }) {
       {product.video && <Play className="absolute right-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />}
       {product.stock === 0 && <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs font-bold text-white">Sold out</span>}
       <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-bold text-white"><Price product={product} /></span>
+      {!!views && <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 text-[11px] font-bold text-white drop-shadow"><Play className="h-3 w-3" /> {compact(views)}</span>}
     </Link>
   );
 }
 
-function PosterTile({ href, poster, label, badge }: { href: string; poster: string; label: string; badge?: React.ReactNode }) {
+function PosterTile({ href, poster, label, badge, views }: { href: string; poster: string; label: string; badge?: React.ReactNode; views?: number }) {
   return (
     <Link href={href} className="relative block aspect-[9/16] overflow-hidden rounded-md bg-muted" title={label}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {poster && <img src={poster} alt={label} className="h-full w-full object-cover" />}
-      <Play className="absolute left-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />
+      {views ? (
+        <span className="absolute left-1.5 top-1.5 flex items-center gap-0.5 text-[11px] font-bold text-white drop-shadow"><Play className="h-3.5 w-3.5 fill-white" /> {compact(views)}</span>
+      ) : <Play className="absolute left-1.5 top-1.5 h-4 w-4 fill-white text-white drop-shadow" />}
       {badge && <span className="absolute right-1.5 top-1.5 rounded-full bg-primary p-1 text-white">{badge}</span>}
       <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-black/70 to-transparent p-1.5 pt-6 text-[11px] font-semibold text-white">{label}</span>
     </Link>

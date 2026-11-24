@@ -695,6 +695,13 @@ db.exec(`
   );
 
   -- Hearts during a live, in batches with their time: they float up again at the same moment in the replay.
+  -- A live shared to the reposter's own followers (once per person per live): they are told, like a repost of an item.
+  create table if not exists live_reposts (
+    live_id text not null references lives(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    created_at text not null,
+    primary key (live_id, user_id)
+  );
   create table if not exists live_hearts (
     live_id text not null references lives(id) on delete cascade,
     count integer not null,
@@ -978,6 +985,12 @@ for (const [table, column, type] of [
   // their bank and the transaction ID), so the shop can match the money to this order (server/index.mjs,
   // cleanPaymentDetails). Left empty for orders paid online or at the door.
   ['orders', 'payment_details', 'text'],
+  // How many guests the host lets on camera at once (1–8; the stage turns into a grid past three), and gifts that go to a
+  // guest on camera instead of the host (null = the host) — so each person on camera has their own count.
+  ['lives', 'guest_seats', 'integer not null default 3'], ['live_comments', 'gift_to', 'text'],
+  // A chat line that is an event rather than words: 'like' ("… liked the LIVE"). Stored as kind 'comment', because
+  // the table's own check only allows comment, question and join, and changing a check means rebuilding the table.
+  ['live_comments', 'event', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
   // Resaligue count, and when the shop pinned the item to the top of its profile.
   ['products', 'repost_count', 'integer not null default 0'], ['products', 'pinned_at', 'text'],

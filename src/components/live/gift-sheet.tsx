@@ -16,8 +16,18 @@ import { cn } from '@/lib/utils';
  * Gifts in a live, like TikTok: coins are bought once (a pack), then each gift is instant. The host receives the
  * gift as a tip (100 coins = $1, minus Saligue's share), paid out with their tips.
  */
-export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: string; open: boolean; onOpenChange: (v: boolean) => void; signedIn: boolean }) {
+export function GiftSheet({ liveId, open, onOpenChange, signedIn, recipients, to: initialTo }: {
+  liveId: string; open: boolean; onOpenChange: (v: boolean) => void; signedIn: boolean;
+  // Everyone a gift can go to: the host first, then each guest on camera. The viewer chooses (the host by default).
+  recipients?: { uid: string; name: string }[]; to?: string | null;
+}) {
   const { toast } = useToast();
+  const [to, setTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) setTo(initialTo ?? recipients?.[0]?.uid ?? null);
+    // Chosen again each time the sheet opens, not on every update of who is on camera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTo]);
   const [info, setInfo] = useState<CoinsInfo | null>(null);
   const [buying, setBuying] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -38,7 +48,7 @@ export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: st
     if (info && info.balance < cost) return setBuying(true);
     setBusy(giftId);
     try {
-      const r = await sendGift(liveId, giftId);
+      const r = await sendGift(liveId, giftId, to && to !== recipients?.[0]?.uid ? to : null);
       setInfo((i) => (i ? { ...i, balance: r.balance } : i));
       onOpenChange(false);
     } catch (error) {
@@ -112,6 +122,17 @@ export function GiftSheet({ liveId, open, onOpenChange, signedIn }: { liveId: st
           </div>
         ) : (
           <div className="mt-4 space-y-3">
+            {(recipients?.length ?? 0) > 1 && (
+              <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]" role="radiogroup" aria-label="Send to">
+                <span className="shrink-0 self-center text-xs font-semibold text-muted-foreground">To</span>
+                {recipients!.map((r, i) => (
+                  <button key={r.uid} type="button" role="radio" aria-checked={to === r.uid} onClick={() => setTo(r.uid)}
+                    className={cn('max-w-[9rem] shrink-0 truncate rounded-full border px-3 py-1 text-xs font-semibold', to === r.uid ? 'border-primary bg-primary text-primary-foreground' : 'bg-background')}>
+                    {r.name}{i === 0 ? ' · host' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               {(info?.gifts ?? []).map((g) => (
                 <button key={g.id} type="button" onClick={() => give(g.id, g.coins)} disabled={!!busy}

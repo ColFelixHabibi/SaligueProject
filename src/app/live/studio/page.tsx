@@ -447,6 +447,13 @@ function Studio({ id }: { id: string }) {
           <Button type="button" variant={live.layout !== 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'side' }))}><PanelRight className="mr-2 h-4 w-4" /> Side</Button>
           <Button type="button" variant={live.layout === 'grid' ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { layout: 'grid' }))}><LayoutGrid className="mr-2 h-4 w-4" /> Grid</Button>
         </div>
+        {/* Seats: how many guests can be on camera at once. Past three, everyone shares a grid. */}
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Seats for guests">
+          {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+            <Button key={n} type="button" size="sm" role="radio" aria-checked={(live.guestSeats ?? 3) === n} className="min-w-10 rounded-full" variant={(live.guestSeats ?? 3) === n ? 'default' : 'outline'} onClick={() => act(() => updateLive(id, { guestSeats: n }))}>{n}</Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Seats for guests. With more than three on camera, everyone shares a grid. Fewer seats never removes anyone already on.</p>
       </div>
       <div className="space-y-2">
         <p className="text-sm font-semibold">Picture</p>
@@ -554,7 +561,7 @@ function Studio({ id }: { id: string }) {
           </button>
         )}
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+var(--sab))] pt-16">
-          <LiveChat comments={comments} pinned={pinnedComment} roles={roles} onAction={(c) => c.kind !== 'join' && setSelected(c)} />
+          <LiveChat comments={comments} pinned={pinnedComment} roles={roles} ranks={Object.fromEntries((live.supporters ?? []).map((s, i) => [s.uid, i + 1]))} onAction={(c) => c.kind !== 'join' && c.kind !== 'like' && setSelected(c)} />
           {pinned && <PinnedProduct product={pinned} compact />}
           <form className="flex gap-2" onSubmit={(e) => {
             e.preventDefault();

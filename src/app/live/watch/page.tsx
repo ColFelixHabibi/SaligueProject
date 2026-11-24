@@ -6,11 +6,13 @@ import { shareLink } from '@/components/share-sheet';
 import { useBlockedIds } from '@/lib/blocks';
 
 import { ExpandableText } from '@/components/expandable-text';
-import { FollowButton } from '@/components/follow-button';
+import { FollowButton, useFollow } from '@/components/follow-button';
+import { useFeatures } from '@/lib/features';
+import { setLivePref, useLivePref } from '@/lib/live-prefs';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, Gift, Heart, HelpCircle, History, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Reply, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
+import { Check, Coins, Crown, Eye, EyeOff, Gift, Heart, Plus, Repeat2, HelpCircle, History, Loader2, MessageCircle, Mic, MicOff, MoreHorizontal, PictureInPicture2, Pin, PinOff, Radio, Reply, Send, Share2, Shield, ShoppingBag, Smile, Trash2, UserPlus, Video, VideoOff, VolumeX, X } from 'lucide-react';
 import { ask } from '@/components/confirm-dialog';
 import { api } from '@/lib/api';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -18,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/components/auth/auth-provider';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import { GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip, useDoubleTapHeart } from '@/components/live/live-parts';
+import { GiftBanner, HeartGoal, Hearts, LiveChat, LiveInput, LiveRail, LiveStage, LiveTopBar, PinnedProduct, PollBubble, ProductStrip, useDoubleTapHeart, type TileExtra } from '@/components/live/live-parts';
 import { GiftSheet } from '@/components/live/gift-sheet';
 import { LiveDropCard } from '@/components/live/live-drop';
 import ProductCard from '@/components/product-card';
@@ -26,13 +28,25 @@ import { useCart } from '@/hooks/use-cart-store';
 import { useProductStore } from '@/hooks/use-product-store';
 import { useToast } from '@/hooks/use-toast';
 import { friendlyError } from '@/lib/errors';
-import { answerInvite, askToJoin, claimDrop, muteInLive, releaseClaim, removeLiveComment, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, votePoll, type LiveComment, type LiveDrop } from '@/lib/live';
+import { answerInvite, askToJoin, claimDrop, muteInLive, releaseClaim, removeLiveComment, repostLive, sendLiveComment, updateLive, useElapsed, useHearts, useLive, useLiveRoom, votePoll, type LiveComment, type LiveDrop } from '@/lib/live';
 import { formatPrice } from '@/lib/orders';
 import type { Product } from '@/lib/types';
 import { LiveTryOn } from '@/components/live/live-try-on';
 import { cn } from '@/lib/utils';
 
 const REACTIONS = ['🔥', '😍', '👏'];
+
+/** A guest's own Follow, on their tile: a small + that turns into ✓. */
+function TileFollow({ uid, small }: { uid: string; small: boolean }) {
+  const { following, toggle, own } = useFollow(uid);
+  if (own) return null;
+  return (
+    <button type="button" onClick={(e) => { e.stopPropagation(); void toggle(); }} aria-pressed={following} aria-label={following ? 'Following' : 'Follow'} title={following ? 'Following' : 'Follow'}
+      className={cn('absolute z-[6] flex items-center justify-center rounded-full text-white shadow', following ? 'bg-white/30' : 'bg-primary', small ? 'bottom-1 right-1 h-5 w-5' : 'bottom-24 right-2 h-7 w-7')}>
+      {following ? <Check className={small ? 'h-3 w-3' : 'h-4 w-4'} /> : <Plus className={small ? 'h-3 w-3' : 'h-4 w-4'} />}
+    </button>
+  );
+}
 
 function Watch() {
   const router = useRouter();
@@ -49,6 +63,13 @@ function Watch() {
   // Replying to a comment, and the gift sheet.
   const [replyTo, setReplyTo] = useState<LiveComment | null>(null);
   const [giftsOpen, setGiftsOpen] = useState(false);
+  // Who the gift sheet opens on (a guest's coin count on their tile opens it on them), and the supporters list.
+  const [giftTo, setGiftTo] = useState<string | null>(null);
+  const [supportersOpen, setSupportersOpen] = useState(false);
+  const on = useFeatures();
+  const giftNudgeOn = useLivePref('giftNudge');
+  const [nudge, setNudge] = useState(false);
+  const [reposted, setReposted] = useState(false);
   const isGuest = myGuestStatus === 'accepted';
   const { tiles, viewers, status, toggleCam, toggleMic, camOn, micOn, flipCamera } = useLiveRoom(id, live?.status === 'live', isGuest);
   const heart = useHearts(id, burst);
@@ -75,6 +96,53 @@ function Watch() {
     if (live) r[live.sellerId] = 'Host';
     return r;
   }, [live]);
+  // No. 1–3 beside the top supporters' names in the chat.
+  const ranks = useMemo(() => Object.fromEntries((live?.supporters ?? []).map((s, i) => [s.uid, i + 1])), [live?.supporters]);
+  // Everyone a gift can go to: the host, then each guest on camera.
+  const recipients = useMemo(() => (live ? [{ uid: live.sellerId, name: live.sellerName }, ...tiles.filter((t) => t.role === 'guest' && t.identity !== authUid).map((t) => ({ uid: t.identity, name: t.name }))] : []), [live, tiles, authUid]);
+  // A gift reminder, once per live, after a minute of watching (the viewer can switch these off for good).
+  useEffect(() => {
+    if (!id || !giftNudgeOn || !on('tips') || !user || live?.status !== 'live' || live.sellerId === authUid) return;
+    const key = `saligue-gift-nudge-${id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+    } catch { /* storage blocked: the reminder may come back once per visit */ }
+    const timer = setTimeout(() => {
+      setNudge(true);
+      try { sessionStorage.setItem(key, '1'); } catch { /* storage blocked */ }
+    }, 60_000);
+    return () => clearTimeout(timer);
+  }, [id, giftNudgeOn, on, user, live?.status, live?.sellerId, authUid]);
+  const openGifts = (to: string | null = null) => {
+    setNudge(false);
+    setGiftTo(to);
+    setGiftsOpen(true);
+  };
+  // On each person on camera: the coins they received in this live (tap to send them one), and a Follow for guests.
+  const tileExtra: TileExtra = (t, small) => {
+    if (tiles.length < 2 || t.isLocal) return null;
+    const coins = live?.giftsTo?.[t.identity] ?? 0;
+    return (
+      <>
+        <button type="button" onClick={(e) => { e.stopPropagation(); openGifts(t.identity === live?.sellerId ? null : t.identity); }} aria-label={`${coins} coins received: send ${t.name} a gift`} title={`Send ${t.name} a gift`}
+          className={cn('absolute z-[6] flex items-center gap-0.5 rounded-full bg-black/55 font-bold text-white', small ? 'left-1 top-1 px-1 py-px text-[10px]' : 'left-2 top-16 px-2 py-0.5 text-xs', !small && t.role === 'guest' && 'top-24')}>
+          <Coins className={cn('text-amber-400', small ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} /> {coins.toLocaleString()}
+        </button>
+        {t.role === 'guest' && user && <TileFollow uid={t.identity} small={small} />}
+      </>
+    );
+  };
+  const repost = async () => {
+    if (!id) return;
+    try {
+      const r = await repostLive(id);
+      setReposted(true);
+      toast({ title: 'Reposted to your followers', description: r.reposts > 1 ? `${r.reposts} people shared this live.` : 'They are told this live is on.' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Not reposted', description: friendlyError(err) });
+    }
+    setMore(false);
+  };
   const modAct = async (fn: () => Promise<unknown>, done: string) => {
     try {
       await fn();
@@ -280,12 +348,12 @@ function Watch() {
       <div onPointerUp={tap.onPointerUp} className="relative h-full w-full overflow-hidden bg-black md:aspect-[9/16] md:w-auto md:rounded-3xl md:shadow-2xl">
         {tap.layer}
         <GiftBanner gift={gift} />
-        <LiveStage tiles={tiles} cover={live.cover ?? live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
+        <LiveStage tiles={tiles} cover={live.cover ?? live.thumbnail} fill={live.videoFit === 'fill'} layout={live.layout} extra={on('tips') ? tileExtra : undefined} waiting={status === 'connecting' ? 'Connecting to the live…' : status === 'error' ? 'Connection lost. Reconnecting…' : 'The host’s camera is starting…'} />
         {clear ? (
           <button type="button" onClick={() => setClear(false)} className="absolute right-3 top-[calc(0.75rem+var(--sat))] z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white" aria-label="Show chat and buttons" title="Show chat and buttons"><Eye className="h-4 w-4" /> Show</button>
         ) : (
         <>
-        <LiveTopBar live={live} viewers={viewers} elapsed={elapsed}>
+        <LiveTopBar live={live} viewers={viewers} elapsed={elapsed} onSupporters={() => setSupportersOpen(true)}>
           {/* Small phones: just the + icon, so the host's name stays readable. */}
           <FollowButton sellerId={live.sellerId} onDark className="h-7 w-7 px-0 text-xs min-[420px]:w-auto min-[420px]:px-3" labelClassName="hidden min-[420px]:ml-1 min-[420px]:inline" />
           <button type="button" onClick={() => router.push('/live')} className="rounded-full bg-black/45 p-1.5 text-white" aria-label="Close" title="Close"><X className="h-4 w-4" /></button>
@@ -296,7 +364,7 @@ function Watch() {
 
         <div className="absolute inset-x-0 bottom-0 z-10 space-y-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3 pb-[calc(0.75rem+var(--sab))] pt-16">
           <div className="flex items-end gap-2">
-            <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} onAction={user ? (c) => c.kind !== 'join' && setSelected(c) : undefined} className="min-w-0 flex-1" />
+            <LiveChat comments={comments.filter((c) => !blocked.has(c.uid))} pinned={pinnedComment} roles={roles} ranks={ranks} onAction={user ? (c) => c.kind !== 'join' && c.kind !== 'like' && setSelected(c) : undefined} className="min-w-0 flex-1" />
             {/* Actions on the right, like TikTok and Instagram lives. */}
             <div className="relative flex shrink-0 flex-col items-center gap-2 pb-1">
               {featured.length > 0 && (
@@ -317,13 +385,22 @@ function Watch() {
                   ))}
                 </div>
               )}
-              <button type="button" onClick={() => setGiftsOpen(true)} className={cn(rail, 'bg-gradient-to-br from-amber-400/80 to-pink-500/80')} aria-label="Send a gift" title="Send a gift"><Gift className="h-5 w-5" /></button>
+              <button type="button" onClick={() => openGifts()} className={cn(rail, 'bg-gradient-to-br from-amber-400/80 to-pink-500/80')} aria-label="Send a gift" title="Send a gift"><Gift className="h-5 w-5" /></button>
               <button type="button" onClick={() => setReactions((v) => !v)} aria-pressed={reactions} className={cn(rail, reactions && 'bg-white/30')} aria-label="Reactions" title="Reactions"><Smile className="h-5 w-5" /></button>
               <button type="button" onClick={() => heart('❤️')} className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg active:scale-90" aria-label="Send a heart" title="Send a heart">
                 <Heart className="h-6 w-6 fill-current" />
               </button>
             </div>
           </div>
+          {nudge && (
+            <div className="relative ml-auto flex w-fit max-w-[15rem] animate-[gift-in_0.4s_ease-out] flex-col items-center gap-1.5 rounded-2xl bg-white/95 p-3 text-center text-foreground shadow-xl">
+              <button type="button" onClick={() => setNudge(false)} className="absolute right-2 top-2 text-muted-foreground" aria-label="Not now" title="Not now"><X className="h-3.5 w-3.5" /></button>
+              <Gift className="h-7 w-7 text-pink-500" />
+              <p className="text-sm font-semibold leading-tight">Enjoying {live.sellerName}? Show your support with a gift</p>
+              <Button size="sm" className="w-full rounded-full" onClick={() => openGifts()}>Send a gift</Button>
+              <button type="button" onClick={() => { setLivePref('giftNudge', false); setNudge(false); }} className="text-[11px] text-muted-foreground underline">Don’t remind me in lives</button>
+            </div>
+          )}
           {/* A drop the host has held up: claim a place, pay within ten minutes, or let it go. */}
           {activeDrop && (
             <LiveDropCard drop={activeDrop} signedIn={!!authUid} busy={claiming === activeDrop.id} onClaim={claim} onPay={payFor} onRelease={release} />
@@ -377,6 +454,9 @@ function Watch() {
               <button type="button" onClick={pictureInPicture} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold"><PictureInPicture2 className="h-6 w-6 text-primary" /> Small window</button>
             )}
             <button type="button" onClick={() => { setClear(true); setMore(false); }} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold"><EyeOff className="h-6 w-6 text-primary" /> Clear screen</button>
+            {user && (
+              <button type="button" onClick={repost} disabled={reposted} className="flex flex-col items-center gap-1.5 rounded-2xl border p-3 text-xs font-semibold disabled:opacity-60"><Repeat2 className="h-6 w-6 text-primary" /> {reposted ? 'Reposted' : 'Repost to followers'}{live.reposts ? ` · ${live.reposts}` : ''}</button>
+            )}
           </div>
           <div className="space-y-2">
             <p className="flex items-center gap-2 text-sm font-bold"><Radio className="h-4 w-4 text-primary" /> More lives</p>
@@ -385,7 +465,24 @@ function Watch() {
         </SheetContent>
       </Sheet>
 
-      {id && <GiftSheet liveId={id} open={giftsOpen} onOpenChange={setGiftsOpen} signedIn={!!user} />}
+      {id && <GiftSheet liveId={id} open={giftsOpen} onOpenChange={setGiftsOpen} signedIn={!!user} recipients={recipients} to={giftTo} />}
+
+      {/* Top supporters of this live: coins sent in gifts, to the host or a guest. */}
+      <Sheet open={supportersOpen} onOpenChange={setSupportersOpen}>
+        <SheetContent side="bottom" className="mx-auto max-w-lg rounded-t-3xl">
+          <p className="flex items-center gap-2 font-bold"><Crown className="h-5 w-5 text-amber-500" /> Top supporters</p>
+          <div className="mt-3 space-y-1">
+            {(live.supporters ?? []).map((s, i) => (
+              <Link key={s.uid} href={`/profile?id=${s.uid}`} className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted">
+                <span className="w-8 text-sm font-extrabold">No. {i + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{s.name}</span>
+                <span className="flex items-center gap-1 text-sm font-bold text-amber-600"><Coins className="h-4 w-4" /> {s.coins.toLocaleString()}</span>
+              </Link>
+            ))}
+          </div>
+          {on('tips') && <Button className="mt-3 w-full" onClick={() => { setSupportersOpen(false); openGifts(); }}><Gift className="mr-2 h-4 w-4" /> Send a gift</Button>}
+        </SheetContent>
+      </Sheet>
       <LiveTryOn product={trying} price={trying ? live.deals?.[trying.id]?.price : undefined} onClose={() => setTrying(null)} onBuy={buy} />
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>

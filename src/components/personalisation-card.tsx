@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Gauge, Sparkles, HeartOff } from 'lucide-react';
+import { Gauge, Gift, Radio, Sparkles, HeartOff } from 'lucide-react';
+import { setLivePref, useLivePref } from '@/lib/live-prefs';
 import { setDataSaver, useDataSaver } from '@/lib/data-saver';
 import { setHideLikes, useHideLikes } from '@/lib/hide-likes';
 import { BREAK_CHOICES, setBreakMinutes, useBreakMinutes } from '@/lib/break-reminder';
@@ -21,6 +22,8 @@ export function PersonalisationCard() {
   const { toast } = useToast();
   const saver = useDataSaver();
   const hideLikes = useHideLikes();
+  const liveInFeed = useLivePref('liveInFeed');
+  const giftNudge = useLivePref('giftNudge');
   const breakMinutes = useBreakMinutes();
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -80,6 +83,14 @@ export function PersonalisationCard() {
         <div className="flex items-center justify-between gap-4 border-t pt-4">
           <Label htmlFor="hide-likes" className="flex items-center gap-2 font-medium"><HeartOff className="h-4 w-4 text-primary" /> Hide like counts <span className="font-normal text-muted-foreground">· less comparing</span></Label>
           <Switch id="hide-likes" checked={hideLikes} onCheckedChange={setHideLikes} />
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t pt-4">
+          <Label htmlFor="live-in-feed" className="flex items-center gap-2 font-medium"><Radio className="h-4 w-4 text-primary" /> Lives in For You <span className="font-normal text-muted-foreground">· a silent preview while you scroll</span></Label>
+          <Switch id="live-in-feed" checked={liveInFeed} onCheckedChange={(v) => setLivePref('liveInFeed', v)} />
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t pt-4">
+          <Label htmlFor="gift-nudge" className="flex items-center gap-2 font-medium"><Gift className="h-4 w-4 text-primary" /> Gift reminders in lives <span className="font-normal text-muted-foreground">· once, after a minute</span></Label>
+          <Switch id="gift-nudge" checked={giftNudge} onCheckedChange={(v) => setLivePref('giftNudge', v)} />
         </div>
         <div className="space-y-2 border-t pt-4">
           <p className="flex items-center gap-2 text-sm font-medium"><Moon className="h-4 w-4 text-primary" /> Break reminder</p>

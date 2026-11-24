@@ -43,12 +43,19 @@ export type Live = {
   recorder?: 'server' | 'phone';
   // Live-only deals running now, by item.
   deals?: Record<string, { price: number; was: number; until: string }>;
+  // Guests the host lets on camera at once (1–8).
+  guestSeats?: number;
+  // The top three supporters (coins sent in gifts), and the coins each person on camera received, by account.
+  supporters?: { uid: string; name: string; avatar: string | null; coins: number }[];
+  giftsTo?: Record<string, number>;
+  // People who shared this live to their followers.
+  reposts?: number;
 };
 
 export type LivePoll = { id: string; question: string; open: boolean; total: number; options: { text: string; votes: number }[] };
-export type LiveGift = { id: string; emoji: string; name: string; coins: number };
+export type LiveGift = { id: string; emoji: string; name: string; coins: number; to?: { uid: string; name: string } | null };
 export type LiveComment = {
-  id: string; uid: string; name: string; text: string; kind: 'comment' | 'question' | 'join'; createdAt: string;
+  id: string; uid: string; name: string; text: string; kind: 'comment' | 'question' | 'join' | 'like'; createdAt: string;
   // The comment this one answers, and the gift it announces.
   replyTo?: { id: string; name: string; text: string } | null;
   gift?: LiveGift | null;
