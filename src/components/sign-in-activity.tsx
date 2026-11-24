@@ -20,7 +20,7 @@ const VERDICT = {
   suspicious: { label: 'Not recognised', icon: ShieldQuestion, tone: 'text-amber-600' },
   attacker: { label: 'Blocked attempt', icon: ShieldAlert, tone: 'text-destructive' },
 } as const;
-const OUTCOME: Record<string, string> = { ok: 'Signed in', wrong_password: 'Wrong password', locked: 'Locked after many tries', suspended: 'Refused (suspended)', no_account: 'Wrong email' };
+const OUTCOME: Record<string, string> = { ok: 'Signed in', wrong_password: 'Wrong password', wrong_code: 'Wrong sign-in code', locked: 'Locked after many tries', suspended: 'Refused (suspended)', no_account: 'Wrong email' };
 
 /** Settings: where this account was signed in from, and every try that failed — so a stranger stands out. */
 export function SignInActivity() {

@@ -152,6 +152,20 @@ db.exec(`
     expires_at text not null
   );
 
+  -- Two-step sign-in by email (users.two_factor): the 6-digit code sent when someone signs in, kept as a hash with
+  -- the ticket it belongs to, so a copy of this database cannot be used to pass the step. A ticket is one step only:
+  -- signing in, turning two-step on, or turning it off.
+  create table if not exists login_codes (
+    ticket_hash text primary key,       -- SHA-256 of the ticket the browser holds
+    user_id text not null references users(id) on delete cascade,
+    code_hash text not null,            -- SHA-256 of that ticket and the 6 digits together
+    purpose text not null default 'sign_in',  -- sign_in | on | off
+    tries integer not null default 0,   -- wrong codes so far (the ticket dies after a few)
+    expires_at text not null,
+    created_at text not null
+  );
+  create index if not exists login_codes_user on login_codes(user_id);
+
   create table if not exists reports (
     product_id text not null references products(id) on delete cascade,
     user_id text not null references users(id) on delete cascade,
@@ -926,6 +940,9 @@ for (const [table, column, type] of [
   ['users', 'terms_accepted_at', 'text'], ['users', 'terms_version', 'text'],
   // The date of birth a new account stated, and the day it was stated (the age gate: 16+, server/index.mjs).
   ['users', 'birth_date', 'text'], ['users', 'age_checked_at', 'text'],
+  // Two-step sign-in, by a 6-digit code emailed to the account's own address (never an authenticator app): the
+  // account turned it on itself, by reading a code in its inbox (server/index.mjs, /api/me/two-factor).
+  ['users', 'two_factor', 'integer not null default 0'],
   ['users', 'avatar', 'text'], ['users', 'bio', 'text'], ['lessons', 'challenge_id', 'text'], ['lessons', 'duet_of', 'text'], ['lessons', 'captions', 'text'], ['users', 'admin_level', 'integer not null default 0'], ['users', 'admin_perms', "text not null default '[]'"], ['users', 'suspended', 'integer not null default 0'], ['users', 'suspend_reason', 'text'],
   // When an account was suspended, and the day it is permanently deleted if it is not restored first (90 days).
   ['users', 'suspended_at', 'text'], ['users', 'last_seen', 'text'], ['users', 'delete_after', 'text'], ['users', 'verified', 'integer not null default 0'], ['users', 'verified_type', 'text'], ['users', 'verified_at', 'text'], ['users', 'verified_until', 'text'], ['users', 'identity_checked', 'integer not null default 0'], ['users', 'verify_reminded', 'text'], ['payments', 'verification_id', 'text'], ['payments', 'renewal_id', 'text'], ['lessons', 'captions_status', 'text'], ['users', 'admin', 'integer not null default 0'], ['products', 'hidden', 'integer not null default 0'], ['products', 'type', 'text'],
@@ -957,6 +974,10 @@ for (const [table, column, type] of [
   ['lives', 'replay_video', 'text'], ['lives', 'replay_poster', 'text'], ['lives', 'replay_duration', 'integer'], ['lives', 'replay_status', 'text'], ['lives', 'replay_started_at', 'text'],
   ['users', 'username', 'text'], ['users', 'referred_by', 'text'], ['users', 'referral_rewarded', 'integer not null default 0'],
   ['orders', 'fee', 'real not null default 0'], ['orders', 'settlement_id', 'text'],
+  // What the buyer filled in to pay the shop by hand (the number or address the money comes from, the name on it,
+  // their bank and the transaction ID), so the shop can match the money to this order (server/index.mjs,
+  // cleanPaymentDetails). Left empty for orders paid online or at the door.
+  ['orders', 'payment_details', 'text'],
   ['products', 'video', 'text'], ['products', 'video_poster', 'text'], ['products', 'video_duration', 'integer'], ['products', 'photo_type', "text not null default 'item'"],
   // Resaligue count, and when the shop pinned the item to the top of its profile.
   ['products', 'repost_count', 'integer not null default 0'], ['products', 'pinned_at', 'text'],

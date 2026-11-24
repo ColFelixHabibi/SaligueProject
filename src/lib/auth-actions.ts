@@ -18,10 +18,15 @@ export type AccountUser = {
   // Profile photo (/media/… link). Sellers need one before listing.
   avatar: string | null;
   isGuest: boolean;
+  // Two-step sign-in by email is on for this account (a code is asked for at sign-in).
+  twoFactor?: boolean;
   createdAt: string;
 };
 
 type Session = { token: string; user: AccountUser; isNew?: boolean };
+
+/** What the server answers instead of a session when an account signs in with two-step sign-in on. */
+export type TwoFactorChallenge = { ticket: string; email: string; minutes: number };
 export type AccountChange = 'signed-in' | 'registered' | 'updated' | 'signed-out';
 
 // Notified whenever the signed-in account changes (login, register, logout, profile updates).
@@ -55,10 +60,40 @@ export async function registerWithEmail(name: string, email: string, password: s
   emit(session.user, 'registered');
 }
 
+/**
+ * Signs in with email and password. Returns `null` when that was the whole sign-in, or the challenge to answer when
+ * the account has two-step sign-in on: the code is in its inbox, and `completeTwoFactor` finishes it.
+ */
 export async function loginWithEmail(email: string, password: string, role?: 'buyer' | 'seller') {
-  const session = await api<Session>('/auth/login', { body: { email, password, role } });
+  const answer = await api<Session | { twoFactor: TwoFactorChallenge }>('/auth/login', { body: { email, password, role } });
+  if ('twoFactor' in answer) return answer.twoFactor;
+  setToken(answer.token);
+  emit(answer.user, 'signed-in');
+  return null;
+}
+
+/** The second step of signing in: the six digits from the email. Only now is the session made. */
+export async function completeTwoFactor(challenge: TwoFactorChallenge, code: string) {
+  const session = await api<Session>('/auth/login/code', { body: { ticket: challenge.ticket, code } });
   setToken(session.token);
   emit(session.user, 'signed-in');
+}
+
+/** Whether two-step sign-in is on for this account, and whether the server can send email at all (`ready`). */
+export async function twoFactorStatus() {
+  return api<{ on: boolean; email: string | null; ready: boolean }>('/me/two-factor');
+}
+
+/** Mails a code that turns two-step sign-in on or off; `confirmTwoFactor` then answers with it. */
+export async function askTwoFactor(on: boolean) {
+  return api<{ ticket: string; email: string; minutes: number }>('/me/two-factor', { body: { on } });
+}
+
+/** Turns two-step sign-in on or off, once the code from the email is in. */
+export async function confirmTwoFactor(ticket: string, code: string, on: boolean) {
+  const { user } = await api<{ on: boolean; user: AccountUser }>('/me/two-factor/confirm', { body: { ticket, code, on } });
+  emit(user, 'updated');
+  return user;
 }
 
 /** Emails a one-hour link to choose a new password (the answer doesn't reveal whether the email has an account). */

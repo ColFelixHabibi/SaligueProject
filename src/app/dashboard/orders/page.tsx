@@ -18,7 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { MessageSellerButton } from '@/components/message-seller-button';
 import { useToast } from '@/hooks/use-toast';
-import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, shortOrderId, updateOrder, useOrders } from '@/lib/orders';
+import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, paymentDetailLines, shortOrderId, updateOrder, useOrders } from '@/lib/orders';
 import { downloadCsv } from '@/lib/seller';
 import type { Order, OrderStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -132,6 +132,18 @@ function OrderDetails({ order, onClose }: { order: Order; onClose: () => void })
           <p className={order.paymentStatus === 'paid' ? 'font-semibold text-emerald-600' : 'text-amber-600'}>
             {order.paymentStatus === 'paid' ? `Paid${order.paidAt ? ` · ${format(new Date(order.paidAt), 'd MMM HH:mm')}` : ''}` : order.paymentMethod === 'online' ? 'Waiting for the customer to pay online — don’t send it yet' : 'Not paid yet'}
           </p>
+          {paymentDetailLines(order.paymentDetails).length > 0 && (
+            // What the customer filled in when they paid by hand, so the shop can match the money to the order.
+            <div className="space-y-0.5 rounded-lg bg-muted p-2">
+              <p className="font-medium">{order.paymentStatus === 'paid' ? 'What the customer sent' : 'The customer says they paid — check the money arrived'}</p>
+              {paymentDetailLines(order.paymentDetails).map((line) => (
+                <p key={line.label} className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">{line.label}</span>
+                  <span className="select-all text-right font-medium">{line.value}</span>
+                </p>
+              ))}
+            </div>
+          )}
           {order.paymentStatus === 'paid' && order.paymentMethod !== 'online' && order.status !== 'cancelled' && (
             <button type="button" className="text-xs text-muted-foreground underline" disabled={saving} onClick={() => change({ paymentStatus: 'unpaid' }, 'Marked as not paid')}>Mark as not paid</button>
           )}

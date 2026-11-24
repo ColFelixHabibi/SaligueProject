@@ -5,6 +5,7 @@ import { DeleteAccount, DownloadData } from '@/components/delete-account';
 import { CommentControls } from '@/components/comment-controls';
 import { BlockedCard } from '@/components/blocked-card';
 import { SignInActivity } from '@/components/sign-in-activity';
+import { TwoFactorCard } from '@/components/two-factor-card';
 
 import { PersonalisationCard } from '@/components/personalisation-card';
 import { AiKeyCard } from '@/components/ai-key-card';
@@ -119,6 +120,7 @@ export function AccountSettings() {
       <PersonalisationCard />
       <AiKeyCard />
       <SignInActivity />
+      <TwoFactorCard userId={user?.uid} />
       <BlockedCard />
       <Card className="p-6">
         <ProfilePhotoField name={user?.displayName} required={shop} />

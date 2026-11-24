@@ -15,9 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShopAddress } from '@/components/shop-address';
 import { useToast } from '@/hooks/use-toast';
-import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, payOnline, shortOrderId, updateOrder, useOrders } from '@/lib/orders';
+import { ORDER_STATUSES, PAYMENT_METHODS, formatPrice, isManualPayment, payOnline, paymentDetailForm, paymentDetailLines, paymentDetailMissing, shortOrderId, shopPaysTo, updateOrder, useOrders } from '@/lib/orders';
+import { PaymentDetailsForm } from '@/components/payment-details-form';
 import { MessageSellerButton } from '@/components/message-seller-button';
-import type { Order } from '@/lib/types';
+import type { Order, PaymentDetails } from '@/lib/types';
 
 function statusLabel(status: string) {
   return ORDER_STATUSES.find((s) => s.value === status)?.label ?? status;
@@ -39,7 +40,11 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
   const [saving, setSaving] = useState(false);
   const payment = PAYMENT_METHODS.find((m) => m.value === order.paymentMethod);
   const when = order.createdAt ? new Date(order.createdAt).toLocaleString() : 'Just now';
-  const momo = order.shop?.whatsapp || order.shop?.phone;
+  // Where to send a payment made by hand (the shop's MoMo, Airtel, PayPal or bank details), and what the buyer
+  // already told the shop about it.
+  const payTo = shopPaysTo(order.shop, order.paymentMethod);
+  const sent = paymentDetailLines(order.paymentDetails);
+  const [payDetails, setPayDetails] = useState<PaymentDetails>({ ...(order.paymentDetails ?? {}) });
 
   // Up to 14 days after delivery; 2 days when it was handed over with the code (delivery is proven).
   const canReport = ['confirmed', 'shipped', 'delivered'].includes(order.status) && !order.problem && !order.settled
@@ -61,11 +66,24 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
     setSaving(true);
     try {
       await updateOrder(order.id, changes);
+      return true;
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Could not update order', description: friendlyError(error) });
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+  // "I have paid": the buyer sends the transaction ID; the shop checks the money arrived and marks the order paid.
+  const sendPaidDetails = async () => {
+    const missing = paymentDetailMissing(payment?.form, payDetails, true);
+    if (missing) {
+      toast({ variant: 'destructive', title: 'One detail is missing', description: `Enter “${missing}”, then send.` });
+      return;
+    }
+    // Only the answers this way of paying asks for, as at checkout: another method's leftovers are never sent.
+    if (!(await change({ paymentDetails: paymentDetailForm(payment?.form, payDetails) }))) return;
+    toast({ title: 'Sent to the shop', description: 'The shop checks the money arrived and confirms your order.' });
   };
 
   return (
@@ -119,9 +137,32 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
                 </Button>
               </div>
             )}
-            {order.paymentMethod === 'mobile_money' && order.paymentStatus === 'unpaid' && order.status !== 'cancelled' && momo && (
-              <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
-                Send <b>{formatPrice(order.total)}</b> by Mobile Money to <b>{momo}</b> ({order.shop?.name}) with reference <b>{shortOrderId(order.id)}</b>.
+            {isManualPayment(order.paymentMethod) && order.paymentStatus === 'unpaid' && order.status !== 'cancelled' && (
+              <div className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+                {payTo ? (
+                  <>
+                    <p className="font-semibold">Send {formatPrice(order.total)} by {payTo.title}</p>
+                    <dl className="space-y-0.5">
+                      {payTo.lines.map((line) => (
+                        <div key={line.label} className="flex justify-between gap-2">
+                          <dt className="text-muted-foreground">{line.label}</dt>
+                          <dd className="select-all text-right font-semibold">{line.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="text-xs text-muted-foreground">Put <b className="text-foreground">{shortOrderId(order.id)}</b> in the reason, so the shop finds your payment.</p>
+                  </>
+                ) : (
+                  <p>The shop has not added its {payment?.label} details yet — message the shop to get them.</p>
+                )}
+                <div className="space-y-2 border-t pt-2">
+                  <p className="font-medium">Paid already? Add the details so the shop can confirm it.</p>
+                  <PaymentDetailsForm form={payment?.form} value={payDetails} onChange={setPayDetails} idPrefix={`order-${order.id}`} needReference />
+                  <Button size="sm" disabled={saving} onClick={sendPaidDetails}>I have paid — send the details</Button>
+                  {sent.length > 0 && (
+                    <p className="text-xs text-muted-foreground">Sent: {sent.map((line) => `${line.label.toLowerCase()} ${line.value}`).join(' · ')}</p>
+                  )}
+                </div>
               </div>
             )}
             {order.shop && <ShopAddress shop={order.shop} compact={order.paymentMethod !== 'pickup'} />}
@@ -172,6 +213,17 @@ function OrderCard({ order, as }: { order: Order; as: 'buyer' | 'seller' }) {
               )}
               {order.delivery.notes && <p className="italic text-muted-foreground">“{order.delivery.notes}”</p>}
             </div>
+            {sent.length > 0 && (
+              <div className="space-y-0.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                <p className="font-semibold">{order.paymentStatus === 'paid' ? 'What the buyer sent' : 'The buyer says they paid — check the money arrived'}</p>
+                {sent.map((line) => (
+                  <p key={line.label} className="flex justify-between gap-2">
+                    <span className="opacity-80">{line.label}</span>
+                    <span className="select-all text-right font-medium">{line.value}</span>
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Select value={order.status} onValueChange={(v) => change({ status: v as Order['status'] })} disabled={saving}>
                 <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>

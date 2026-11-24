@@ -27,8 +27,9 @@ let transportUrl = null;
 
 const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-// One simple, branded layout for every email.
-function html({ title, lines, button }) {
+// One simple, branded layout for every email. A sign-in code (`code`) is set large and spaced, because it is read
+// off the screen and typed into the app.
+function html({ title, lines, button, code }) {
   return `<!doctype html><html><body style="margin:0;background:#f6f6f7;font-family:Arial,sans-serif;color:#1d1d1f">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:12px;overflow:hidden">
@@ -36,6 +37,7 @@ function html({ title, lines, button }) {
 <tr><td style="padding:24px">
 <h1 style="margin:0 0 12px;font-size:20px">${escape(title)}</h1>
 ${lines.map((l) => `<p style="margin:0 0 10px;line-height:1.5">${escape(l)}</p>`).join('')}
+${code ? `<p style="margin:18px 0;padding:14px;background:#fdf0f6;border-radius:10px;text-align:center;font-size:30px;font-weight:bold;letter-spacing:8px;color:#e21376">${escape(code)}</p>` : ''}
 ${button ? `<p style="margin:20px 0"><a href="${escape(button.url)}" style="background:#e21376;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:bold">${escape(button.label)}</a></p>` : ''}
 </td></tr>
 <tr><td style="padding:14px 24px;background:#fafafa;font-size:12px;color:#888">You get this email because you have a Saligue account. <a href="${siteUrl()}/privacy" style="color:#888">Privacy</a> · <a href="${siteUrl()}/terms" style="color:#888">Terms</a></td></tr>
@@ -45,12 +47,13 @@ ${button ? `<p style="margin:20px 0"><a href="${escape(button.url)}" style="back
 /**
  * Sends an email in the background; failures are logged, never shown to the person using the app.
  * `button.url` may be a path ("/orders"), which is turned into a full link to the website.
+ * `code` is a sign-in code: it is set large in the email and repeated at the top of the plain-text version.
  */
-export function sendEmail(to, { subject, title = subject, lines, button }) {
+export function sendEmail(to, { subject, title = subject, lines, button, code }) {
   if (!to || to.endsWith('@demo.saligue.app')) return;
   const link = button && { ...button, url: button.url.startsWith('/') ? `${siteUrl()}${button.url}` : button.url };
-  const text = [title, '', ...lines, ...(link ? ['', `${link.label}: ${link.url}`] : [])].join('\n');
-  const message = { from: settings().from, to, subject, text, html: html({ title, lines, button: link }) };
+  const text = [title, '', ...(code ? [code, ''] : []), ...lines, ...(link ? ['', `${link.label}: ${link.url}`] : [])].join('\n');
+  const message = { from: settings().from, to, subject, text, html: html({ title, lines, button: link, code }) };
 
   const { url } = settings();
   if (!url) {

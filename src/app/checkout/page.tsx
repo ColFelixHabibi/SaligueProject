@@ -19,8 +19,9 @@ import { RegisterDialog } from '@/components/auth/register-dialog';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useCart } from '@/hooks/use-cart-store';
 import { useToast } from '@/hooks/use-toast';
-import { PAYMENT_METHODS, formatPrice, payOnline, placeOrders, usePaymentConfig } from '@/lib/orders';
-import type { DeliveryAddress, PaymentMethod } from '@/lib/types';
+import { PAYMENT_METHODS, checkoutMethods, formatPrice, payOnline, paymentDetailForm, placeOrders, usePaymentConfig } from '@/lib/orders';
+import { PaymentDetailsForm } from '@/components/payment-details-form';
+import type { DeliveryAddress, PaymentDetails, PaymentMethod } from '@/lib/types';
 
 const DELIVERY_KEY = 'saligue-delivery-address';
 
@@ -40,14 +41,12 @@ export default function CheckoutPage() {
   const { user, authUid } = useAuth();
   const { cartItems, clearCart } = useCart();
   const [delivery, setDelivery] = useState<DeliveryAddress>({ fullName: '', phone: '', country: 'Rwanda', city: '', street: '' });
-  const [payment, setPayment] = useState<PaymentMethod>('mobile_money');
+  const [payment, setPayment] = useState<PaymentMethod | null>(null);
+  // What the buyer fills in to pay the shop by hand (MoMo, Airtel, PayPal, bank): the number or address the money
+  // comes from, and the transaction ID once they have paid.
+  const [payDetails, setPayDetails] = useState<PaymentDetails>({});
   const [email, setEmail] = useState('');
   const payConfig = usePaymentConfig();
-  // Paying online is the default once it is switched on.
-  useEffect(() => {
-    if (payConfig?.enabled) setPayment((p) => (p === 'mobile_money' ? 'online' : p));
-  }, [payConfig?.enabled]);
-  const methods = PAYMENT_METHODS.filter((m) => m.value !== 'online' || payConfig?.enabled);
   const soldOut = cartItems.filter((i) => i.stock != null && i.quantity > i.stock);
   const [placing, setPlacing] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -75,6 +74,11 @@ export default function CheckoutPage() {
     return [...groups.values()];
   }, [cartItems]);
   const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  // A way to pay by hand shows up only when every shop in the bag has added the details it needs (its MoMo,
+  // Airtel, PayPal or bank details), so no shopper is sent to an account that does not exist.
+  const methods = checkoutMethods(shops.map((items) => items[0].shop), !!payConfig?.enabled);
+  // Nothing chosen yet means the first way offered: paying online when it is switched on, else MoMo and the rest.
+  const chosen = PAYMENT_METHODS.find((m) => m.value === payment) ?? methods[0];
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,14 +97,15 @@ export default function CheckoutPage() {
     }
     setPlacing(true);
     try {
-      const ids = await placeOrders(cartItems, delivery, payment);
+      // Only the answers for the way that was finally chosen: another way's answers never travel with the order.
+      const ids = await placeOrders(cartItems, delivery, chosen.value, chosen.form ? paymentDetailForm(chosen.form, payDetails) : undefined);
       try {
         localStorage.setItem(DELIVERY_KEY, JSON.stringify(delivery));
       } catch {
         // Ignore.
       }
       await clearCart();
-      if (payment === 'online') {
+      if (chosen.value === 'online') {
         toast({ title: 'Order reserved', description: 'Taking you to the secure payment page…' });
         try {
           await payOnline(ids, user?.email ? undefined : email);
@@ -188,7 +193,7 @@ export default function CheckoutPage() {
               <CardTitle>Payment</CardTitle>
             </CardHeader>
             <CardContent>
-              <RadioGroup value={payment} onValueChange={(v) => setPayment(v as PaymentMethod)} className="space-y-3">
+              <RadioGroup value={payment ?? chosen.value} onValueChange={(v) => setPayment(v as PaymentMethod)} className="space-y-3">
                 {methods.map((m) => (
                   <Label key={m.value} htmlFor={`pay-${m.value}`} className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 has-[:checked]:border-primary">
                     <RadioGroupItem id={`pay-${m.value}`} value={m.value} className="mt-0.5" />
@@ -207,7 +212,7 @@ export default function CheckoutPage() {
                     </span>
                   </div>
                 )}
-                {payment === 'online' && (
+                {chosen.value === 'online' && (
                   <div className="space-y-3 rounded-lg bg-muted/60 p-4 text-sm">
                     <p className="flex items-center gap-2 font-medium"><ShieldCheck className="h-4 w-4 text-emerald-600" /> You pay on Flutterwave&apos;s secure page. Saligue never sees your card.</p>
                     {payConfig && payConfig.currency !== 'USD' && (
@@ -221,7 +226,22 @@ export default function CheckoutPage() {
                     )}
                   </div>
                 )}
+                {chosen.form && (
+                  <div className="space-y-3 rounded-lg bg-muted/60 p-4">
+                    <p className="text-sm font-medium">Your payment details</p>
+                    <p className="text-xs text-muted-foreground">
+                      The shop uses these to find your money, so it can confirm your order. Add the transaction ID now, or on the order once you have paid.
+                    </p>
+                    <PaymentDetailsForm form={chosen.form} value={payDetails} onChange={setPayDetails} idPrefix="checkout-pay" />
+                  </div>
+                )}
               </RadioGroup>
+              {!methods.some((m) => m.value === 'paypal' || m.value === 'bank_transfer') && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  MTN MoMo, Airtel Money, PayPal and bank transfer (Ecobank and other banks, local or international)
+                  appear here once the shop adds those details to its settings.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -253,7 +273,7 @@ export default function CheckoutPage() {
             </CardContent>
             <CardFooter className="flex-col gap-2">
               <Button type="submit" size="lg" className="w-full" disabled={placing}>
-                {placing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />} {payment === 'online' ? `Pay ${formatPrice(total)} now` : 'Place order'}
+                {placing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />} {chosen.value === 'online' ? `Pay ${formatPrice(total)} now` : 'Place order'}
               </Button>
 
             </CardFooter>

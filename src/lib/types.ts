@@ -88,6 +88,22 @@ export type Shop = {
   hours?: string;
   // The shop's description, shown as the bio on its profile.
   bio?: string;
+  // How the shop gets paid (src/lib/orders.ts, PAYMENT_METHODS): what the buyer needs to send the money by MTN
+  // MoMo, Airtel Money, PayPal or bank transfer. A way to pay by hand is offered at checkout only once the shop
+  // has added the details it needs, so nobody is sent to an account that does not exist.
+  momoNumber?: string;        // MTN MoMo number
+  momoName?: string;          // the name on it
+  airtelNumber?: string;      // Airtel Money number
+  airtelName?: string;
+  paypalEmail?: string;       // PayPal address, good from any country
+  bankName?: string;          // e.g. Ecobank
+  bankAccountName?: string;
+  bankAccountNumber?: string; // account number, IBAN for an international transfer
+  bankSwift?: string;         // SWIFT / BIC
+  // The ways of paying by hand the shop takes, as names only ('mtn_momo', 'paypal'…). The copy of the shop that
+  // travels with every item carries this instead of the numbers and accounts above, which stay on the shop's own
+  // record (server/index.mjs, SHOP_PAY_LIMITS): an order, seen only by its buyer and its shop, has the real ones.
+  pay?: PaymentMethod[];
 };
 
 export function shopAddressLines(shop: Shop): string[] {
@@ -103,7 +119,20 @@ export function isShopComplete(shop?: Partial<Shop> | null): shop is Shop {
 }
 
 export type OrderStatus = 'placed' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
-export type PaymentMethod = 'online' | 'mobile_money' | 'cash_on_delivery' | 'pickup';
+export type PaymentMethod = 'online' | 'mobile_money' | 'mtn_momo' | 'airtel_money' | 'paypal' | 'bank_transfer' | 'cash_on_delivery' | 'pickup';
+
+/**
+ * What the buyer typed in to pay the shop by hand (MTN MoMo, Airtel Money, PayPal, bank transfer): the number or
+ * address they paid from, the name on it, and the transaction ID the shop needs to find the money. Filled in at
+ * checkout, completed on the order once the money has gone (src/components/payment-details-form.tsx).
+ */
+export type PaymentDetails = {
+  from?: string;        // the number or email the buyer pays from
+  senderName?: string;  // the name on that number or account
+  bank?: string;        // the buyer's own bank, for a transfer
+  reference?: string;   // the transaction ID, transfer reference or slip number
+  at?: string;          // when the buyer said they paid
+};
 
 export type OrderItem = { productId: string; name: string; price: number; quantity: number; image?: string };
 
@@ -131,6 +160,8 @@ export type Order = {
   delivery: DeliveryAddress;
   paymentMethod: PaymentMethod;
   paymentStatus: 'unpaid' | 'paid';
+  // What the buyer filled in to pay by hand, and whether the shop has confirmed the money arrived.
+  paymentDetails?: PaymentDetails | null;
   paidAt?: string | null;
   status: OrderStatus;
   shippedAt?: string | null;

@@ -19,9 +19,10 @@ import { useToast } from '@/hooks/use-toast';
 import { AtSign, KeyRound } from 'lucide-react';
 import React, { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
-import { loginWithEmail } from '@/lib/auth-actions';
+import { loginWithEmail, type TwoFactorChallenge } from '@/lib/auth-actions';
 import { GoogleButton } from './google-button';
 import { SuspendedPanel, type SuspendedProof } from './suspended-panel';
+import { TwoFactorCode } from './two-factor-code';
 import Link from 'next/link';
 import { ScrollArea } from '../ui/scroll-area';
 
@@ -46,14 +47,29 @@ export function LoginDialog({
   const [busy, setBusy] = useState(false);
   // A suspended account is told why and until when, and can ask for a review, right here.
   const [suspended, setSuspended] = useState<{ message: string; proof: SuspendedProof } | null>(null);
+  // Two-step sign-in is on for this account: the password was right and a code went to its email, so the dialog stays
+  // open until that code is in.
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null);
+  // Closing throws away a half-finished sign-in, so reopening never shows a step from last time.
+  const setOpen = (next: boolean) => {
+    if (!next) {
+      setChallenge(null);
+      setSuspended(null);
+    }
+    onOpenChange(next);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
       // One account per person: logging in never changes whether it has a shop.
-      await loginWithEmail(email, password);
-      onOpenChange(false);
+      const asked = await loginWithEmail(email, password);
+      if (asked) {
+        setChallenge(asked);
+        return;
+      }
+      setOpen(false);
     } catch (error: any) {
       if (error?.code === 'suspended') {
         setSuspended({ message: error.message, proof: { email, password } });
@@ -77,7 +93,7 @@ export function LoginDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="sm:max-w-md p-0 bg-transparent border-0">
         <ScrollArea className="max-h-[90vh]">
@@ -89,7 +105,7 @@ export function LoginDialog({
                     </DialogDescription>
                 </DialogHeader>
                 <CardContent className="p-6">
-                    {suspended ? <SuspendedPanel message={suspended.message} proof={suspended.proof} onBack={() => setSuspended(null)} /> : <>
+                    {suspended ? <SuspendedPanel message={suspended.message} proof={suspended.proof} onBack={() => setSuspended(null)} /> : challenge ? <TwoFactorCode challenge={challenge} onDone={() => setOpen(false)} onBack={() => setChallenge(null)} /> : <>
                     <div className="space-y-6">
                         <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-2">
@@ -114,7 +130,7 @@ export function LoginDialog({
                         <Button type="submit" size="lg" className="w-full text-lg h-14" disabled={busy}>{busy ? t('Logging in…') : t('Log In')}</Button>
                         </form>
                         {/* No date is collected here: a brand-new Google account is asked for it inside the button. */}
-                        <GoogleButton onDone={() => onOpenChange(false)} onSuspended={(message, credential) => setSuspended({ message, proof: { credential } })} />
+                        <GoogleButton onDone={() => setOpen(false)} onSuspended={(message, credential) => setSuspended({ message, proof: { credential } })} />
                     </div>
                     <div className="mt-6 text-center text-sm">
                         {t("Don't have an account?")}{' '}

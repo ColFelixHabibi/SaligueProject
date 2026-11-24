@@ -25,7 +25,7 @@ db.exec(`
     country text,
     device text not null default '',
     method text not null,         -- password | google
-    outcome text not null,        -- ok | wrong_password | locked | suspended | no_account
+    outcome text not null,        -- ok | wrong_password | wrong_code | locked | suspended | no_account
     verdict text not null,        -- you | new_place | suspicious | attacker
     reason text not null default '',
     created_at text not null

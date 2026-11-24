@@ -145,6 +145,28 @@ The screens are `src/components/social/story-bar.tsx` (composer and audience), `
 added with these features is translated into Kinyarwanda and French, and `tests/i18n.test.mjs` fails on any string
 handed to `t('…')` that is missing from the dictionary in `src/lib/i18n.ts`.
 
+## Paying for what you buy
+
+A shopper pays **online** — card or Mobile Money on the secure payment page, when the shop has that switched on — or
+**by hand**, in a way the shop publishes: MTN MoMo, Airtel Money, PayPal, or a bank transfer to any bank (Ecobank,
+or an international account by SWIFT). Mobile Money to the shop's own phone, cash on delivery and pickup are there
+too, so a shop that publishes nothing can still sell.
+
+A shop fills those in under **Dashboard → Settings → How you get paid**
+(`src/components/shop-profile-form.tsx`), and they are stored on the shop's own record only. The copy of the shop
+that travels with every item carries the address a buyer needs to find the shop and the *names* of the ways it takes
+(`shop.pay`), never the number, email or account the money goes to — `SHOP_PAY_LIMITS` and `shopPayOptions` in
+`server/index.mjs` keep the two apart, and an order is given the shop's real record (`payingShop`) because only its
+buyer and its shop can read it. Checkout offers a way of paying only when every shop in the bag accepts it
+(`checkoutMethods` in `src/lib/orders.ts`).
+
+The buyer then answers what the shop needs to find the money — the number or address it came from, the name on it,
+their own bank, the transaction ID (`payment_details` on the order, trimmed by `cleanPaymentDetails`): at checkout, or
+later on the order once they have paid. Saying "I have paid" never marks an order paid; only the shop confirms the
+money arrived, and until then it stays unpaid. `tests/api.test.mjs` (Paying a shop by hand) proves the catalogue
+publishes no account number, that a stranger cannot put details on someone else's order, and that the shop's
+confirmation is what settles it.
+
 ## Accounts and security
 
 A **password** is stored as scrypt output with a salt of its own. Before a sign-in is checked, the stored string is
@@ -178,6 +200,23 @@ whoever tries it next. Inside the phone app the pages come from `https://localho
 inside embedded WebViews (`disallowed_useragent`), so the app signs people in with email:
 `src/components/auth/google-button.tsx` asks `isNativeApp()` before fetching anything and leaves the whole Google block
 out there, rather than offering a button that could only fail.
+
+**Two-step sign-in is by email, never an authenticator app** — nothing to install, and the second factor is the inbox
+people already have (Gmail included). An account turns it on itself under **Account → Settings → Two-step sign-in**
+(`src/components/two-factor-card.tsx`): `POST /api/me/two-factor` mails six digits to the account's own address, and
+only `POST /api/me/two-factor/confirm` with those digits — which is also how it is turned *off* — sets
+`users.two_factor`. With it on, `POST /api/auth/login` answers with a challenge instead of a session (`{ twoFactor:
+{ ticket } }`, no token, nothing about the account), and `POST /api/auth/login/code` exchanges the emailed code for the
+session, so the password alone opens nothing. Codes live in `login_codes` as a SHA-256 of *the ticket and the six
+digits together*, good for one use and ten minutes, dead after five wrong tries — a copy of the database cannot be
+run through the million codes a six-digit number allows, because every ticket needs its own million. A wrong code is
+recorded as `wrong_code` in the sign-in list (someone had the right password but not the code), not as a wrong
+password, and it never counts as password-guessing. Because a code that never arrives is a step that never completes,
+a site whose mail is not connected cannot lock anybody out by accident: the card warns instead, and
+`tests/api.test.mjs` (two-step sign-in by email) proves the whole path — the code really is in the email, the password
+alone makes no session, a code works once, an account cannot be switched with someone else's code, and switching it
+off needs a code too. Anything that already proves the inbox — Google sign-in, a password-reset link, an emailed code
+— is enough on its own, so those paths are not asked for a second code.
 
 **Closing an account takes three steps, never one** (Admin → Accounts, `server/index.mjs`): an admin suspends it for
 1, 3, 7 or 30 days — or until reviewed — and a timed suspension ends by itself; an admin may then *ask* to close it,

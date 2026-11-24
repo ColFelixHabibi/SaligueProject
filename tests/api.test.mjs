@@ -7,7 +7,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -631,6 +631,103 @@ describe('buyer protection', () => {
     assert.equal((await call('/orders', { token: a.token })).json[0].problem.status, 'open');
     // The held order is not in what the shop is owed.
     assert.equal((await call('/seller/sales', { token: shop.token })).json.open.orders, 0);
+  });
+});
+
+// Paying a shop by hand — MTN MoMo, Airtel Money, PayPal, a bank transfer (Ecobank or any bank) — instead of
+// paying online: the shop publishes where it is paid, the buyer says what the shop needs to find the money, and
+// only the shop confirms it arrived.
+describe('paying a shop by hand', () => {
+  // The bank the second test pays: the same shop, but its own numbers, so neither test depends on the other.
+  const BANK = { bankName: 'Ecobank', bankAccountName: 'Kigali Style House', bankAccountNumber: '0011223344556', bankSwift: 'ECOCRWWR' };
+
+  test('a shop publishes where it is paid, but the catalogue holds only the ways it takes', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 0));
+    const shop = await sampleShop(product.id);
+    const me = (await call('/auth/me', { token: shop.token })).json.user;
+    const pay = { ...BANK, momoNumber: '+250 788 111 222', momoName: me.shop.name, airtelNumber: '+250 730 111 222', airtelName: me.shop.name, paypalEmail: 'shop@example.com' };
+    const saved = await call('/auth/me', { method: 'PATCH', token: shop.token, body: { shop: { ...me.shop, ...pay } } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    // The shop reads back everything it filled in.
+    assert.equal(saved.json.user.shop.bankAccountNumber, BANK.bankAccountNumber);
+    assert.equal(saved.json.user.shop.paypalEmail, 'shop@example.com');
+    // The copy of the shop that travels with every item carries the address buyers need to find the shop, and the
+    // names of the ways to pay it — never the number, address or account the money goes to.
+    const listed = (await call(`/products/${product.id}`)).json.shop;
+    assert.deepEqual(listed.pay, ['mtn_momo', 'airtel_money', 'paypal', 'bank_transfer']);
+    for (const key of ['momoNumber', 'momoName', 'airtelNumber', 'airtelName', 'paypalEmail', 'bankName', 'bankAccountNumber', 'bankSwift']) {
+      assert.equal(listed[key], undefined, `${key} must never be published in the catalogue`);
+    }
+    assert.equal(listed.name, me.shop.name);
+    assert.equal(listed.street, me.shop.street);
+    // A PayPal address that is not one is refused: a buyer is never sent money nowhere.
+    assert.equal((await call('/auth/me', { method: 'PATCH', token: shop.token, body: { shop: { ...me.shop, paypalEmail: 'not an address' } } })).status, 400);
+    // A shop that takes nothing by hand carries no list at all (checkout then offers cash and pickup only).
+    assert.equal((await call('/auth/me', { method: 'PATCH', token: shop.token, body: { shop: me.shop } })).status, 200);
+    assert.equal((await call(`/products/${product.id}`)).json.shop.pay, undefined);
+    assert.equal((await call(`/products/${product.id}`)).json.shop.name, me.shop.name);
+    // A listing saved while a shop's own record could still be copied into it is served cleanly anyway: the
+    // catalogue never hands out the number, address or account, but it still says how the shop takes payment.
+    const raw = new DatabaseSync(join(data, 'saligue.db'));
+    raw.prepare('update products set shop = ? where id = ?')
+      .run(JSON.stringify({ ...me.shop, momoNumber: '0788123456', paypalEmail: 'pay@example.com' }), product.id);
+    const served = (await call(`/products/${product.id}`)).json.shop;
+    assert.equal(served.momoNumber, undefined, 'the catalogue never publishes the MoMo number');
+    assert.equal(served.paypalEmail, undefined, 'the catalogue never publishes the PayPal address');
+    assert.deepEqual(served.pay, ['mtn_momo', 'paypal'], 'but it still says how the shop takes payment');
+    assert.equal(served.street, me.shop.street);
+    raw.close();
+    // A new listing carries that same safe copy. Creating one runs the fashion AI (server/fashion.mjs), which a test
+    // never waits for, so the route itself is read: it must publish listedShop(user's shop), never the shop's own
+    // record, which is where the numbers and accounts it is paid at live.
+    const creating = readFileSync(join(root, 'server/index.mjs'), 'utf8')
+      .split("route('POST', '/api/products'")[1]
+      .split("route('PATCH', '/api/products'")[0];
+    assert.match(creating, /listedShop\(parse\(user\.shop\)\)/, 'a new listing publishes the copy without the numbers');
+    assert.doesNotMatch(creating, /contact, user\.shop,/, 'a new listing must never copy the shop’s own record');
+  });
+
+  test('a bank transfer: the buyer sends the details, and only the shop says the money arrived', async () => {
+    const product = (await call('/products')).json.find((p) => !p.official && (p.stock == null || p.stock > 0));
+    const shop = await sampleShop(product.id);
+    const me = (await call('/auth/me', { token: shop.token })).json.user;
+    assert.equal((await call('/auth/me', { method: 'PATCH', token: shop.token, body: { shop: { ...me.shop, ...BANK } } })).status, 200);
+    assert.ok((await call(`/products/${product.id}`)).json.shop.pay.includes('bank_transfer'));
+
+    const buyer = await register('Bank Payer');
+    const delivery = { fullName: 'Bank Payer', phone: '0780000041', city: 'Kigali', street: 'KN 41 Ave' };
+    const placed = await call('/orders', {
+      token: buyer.token,
+      body: { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'bank_transfer', delivery, paymentDetails: { senderName: 'Bank Payer', from: '+250 788 000 041', bank: 'Bank of Kigali' } },
+    });
+    assert.equal(placed.status, 200, JSON.stringify(placed.json));
+    const orderId = placed.json.ids[0];
+    const mine = (await call('/orders', { token: buyer.token })).json.find((o) => o.id === orderId);
+    assert.equal(mine.paymentMethod, 'bank_transfer');
+    // The order tells its buyer where to send the money, and keeps what they said they would pay from.
+    assert.equal(mine.shop.bankName, 'Ecobank');
+    assert.equal(mine.shop.bankAccountNumber, BANK.bankAccountNumber);
+    assert.equal(mine.paymentDetails.bank, 'Bank of Kigali');
+    assert.equal(mine.paymentStatus, 'unpaid');
+    // Someone else's order takes no details from a stranger.
+    const stranger = await register('Nosy Neighbour');
+    assert.equal((await call(`/orders/${orderId}`, { method: 'PATCH', token: stranger.token, body: { paymentDetails: { reference: 'X1' } } })).status, 403);
+    // An empty form says nothing; the transaction ID can come later, once the money has gone.
+    assert.equal((await call(`/orders/${orderId}`, { method: 'PATCH', token: buyer.token, body: { paymentDetails: {} } })).status, 400);
+    assert.equal((await call(`/orders/${orderId}`, { method: 'PATCH', token: buyer.token, body: { paymentDetails: { reference: 'FT24001' } } })).status, 200);
+    const sent = (await call('/orders', { token: buyer.token })).json.find((o) => o.id === orderId);
+    assert.equal(sent.paymentDetails.reference, 'FT24001');
+    assert.equal(sent.paymentDetails.bank, 'Bank of Kigali', 'what the buyer said at checkout stays');
+    assert.equal(sent.paymentStatus, 'unpaid', 'saying "I have paid" is not the shop confirming it');
+    // The shop sees what the buyer sent, checks its own account, and confirms the money itself.
+    const shopSide = (await call('/orders?as=seller', { token: shop.token })).json.find((o) => o.id === orderId);
+    assert.equal(shopSide.paymentDetails.reference, 'FT24001');
+    assert.equal((await call(`/orders/${orderId}`, { method: 'PATCH', token: shop.token, body: { paymentStatus: 'paid' } })).status, 200);
+    const paid = (await call('/orders', { token: buyer.token })).json.find((o) => o.id === orderId);
+    assert.equal(paid.paymentStatus, 'paid');
+    assert.ok(paid.paidAt);
+    // A paid order takes no more payment details from the buyer.
+    assert.equal((await call(`/orders/${orderId}`, { method: 'PATCH', token: buyer.token, body: { paymentDetails: { reference: 'FT99999' } } })).status, 400);
   });
 });
 
@@ -2804,6 +2901,102 @@ describe('sign-in places', () => {
     assert.equal((await call('/me/sign-out-others', { method: 'POST', token: elsewhere.json.token })).status, 200);
     assert.equal((await call('/auth/me', { token: owner.token })).status, 401);
     assert.equal((await call('/auth/me', { token: elsewhere.json.token })).status, 200);
+  });
+});
+
+// Two-step sign-in by a code emailed to the account's own address — not an authenticator app, so nothing to install.
+// With no mail account set up (as here), server/mail.mjs saves every email in data/outbox/, which is how these tests
+// read the code a person would read in their inbox: the same file the deployment would have posted to Gmail.
+describe('two-step sign-in by email', () => {
+  /** The newest 6-digit code emailed to an address (the code sits on its own line, under the email's title). */
+  const codeFor = (email) => {
+    const dir = join(data, 'outbox');
+    const files = readdirSync(dir).filter((f) => f.endsWith(`-${email}.txt`)).sort().reverse();
+    for (const file of files) {
+      const lines = readFileSync(join(dir, file), 'utf8').split('\n');
+      if (/^\d{6}$/.test(lines[5] ?? '')) return lines[5];
+    }
+    throw new Error(`no 6-digit code was ever emailed to ${email}`);
+  };
+
+  test('a code goes to the inbox, is needed to sign in, and is needed to switch it off again', async () => {
+    const person = await register('Two Step');
+    const email = person.user.email;
+
+    // Off to begin with. `ready: false` tells the settings card this site cannot send mail yet, so it warns rather
+    // than letting someone switch on a step whose code would never arrive.
+    const before = await call('/me/two-factor', { token: person.token });
+    assert.equal(before.status, 200);
+    assert.equal(before.json.on, false);
+    assert.equal(before.json.email, email);
+    assert.equal(before.json.ready, false, 'no mail account in tests');
+    assert.equal((await call('/me/two-factor')).status, 401, 'not signed in, nothing to show');
+
+    // Turning it on asks for a code read from the inbox first.
+    const asked = await call('/me/two-factor', { token: person.token, body: { on: true } });
+    assert.equal(asked.status, 200, JSON.stringify(asked.json));
+    assert.equal(asked.json.email, email);
+    assert.equal((await call('/me/two-factor/confirm', { token: person.token, body: { ticket: asked.json.ticket, code: '000000' } })).status, 401, 'a wrong code changes nothing');
+    assert.equal((await call('/me/two-factor', { token: person.token })).json.on, false, 'still off after a wrong code');
+
+    const on = await call('/me/two-factor/confirm', { token: person.token, body: { ticket: asked.json.ticket, code: codeFor(email) } });
+    assert.equal(on.status, 200, JSON.stringify(on.json));
+    assert.equal(on.json.on, true);
+    assert.equal(on.json.user.twoFactor, true);
+    assert.equal((await call('/auth/me', { token: person.token })).json.user.twoFactor, true, 'the account shows it');
+    assert.equal((await call('/me/two-factor', { token: person.token, body: { on: true } })).json.error.code, 'already_on');
+
+    // ...and the same code never works twice.
+    assert.equal((await call('/me/two-factor/confirm', { token: person.token, body: { ticket: asked.json.ticket, code: codeFor(email) } })).json.error.code, 'code_expired');
+
+    // The password alone no longer opens the account: no session, and the answer names the email the code went to.
+    const login = await call('/auth/login', { body: { email, password: 'Test12345!' } });
+    assert.equal(login.status, 200, JSON.stringify(login.json));
+    assert.equal(login.json.token, undefined, 'no session before the code');
+    assert.equal(login.json.user, undefined, 'and nothing about the account');
+    assert.equal(login.json.twoFactor.email, email);
+    assert.equal(login.json.twoFactor.minutes, 10);
+
+    // The code really is in the email, under the subject the inbox shows.
+    const sent = readdirSync(join(data, 'outbox')).filter((f) => f.endsWith(`-${email}.txt`)).sort().reverse()
+      .map((f) => readFileSync(join(data, 'outbox', f), 'utf8'))
+      .find((text) => text.includes('Subject: Your Saligue sign-in code'));
+    assert.ok(sent, 'the sign-in email was sent');
+    assert.match(sent, new RegExp(`\\n${codeFor(email)}\\n`), 'the code is in the email itself');
+
+    // A wrong code is refused, and the owner is told — someone had the right password but not the code.
+    const wrong = await call('/auth/login/code', { body: { ticket: login.json.twoFactor.ticket, code: '000001' } });
+    assert.equal(wrong.status, 401);
+    assert.equal(wrong.json.error.code, 'wrong_code');
+
+    const signedIn = await call('/auth/login/code', { body: { ticket: login.json.twoFactor.ticket, code: codeFor(email) } });
+    assert.equal(signedIn.status, 200, JSON.stringify(signedIn.json));
+    assert.ok(signedIn.json.token);
+    assert.equal(signedIn.json.user.id, person.id);
+    assert.equal((await call('/auth/me', { token: signedIn.json.token })).status, 200, 'a real session');
+    const activity = (await call('/me/sign-ins', { token: signedIn.json.token })).json;
+    assert.ok(activity.some((r) => r.outcome === 'wrong_code'), activity.map((r) => r.outcome).join(' '));
+    assert.ok(activity.some((r) => r.outcome === 'ok'), 'and the finished sign-in is recorded');
+
+    // Guessing is cut off: a few wrong codes kill the ticket, and asking again is the only way on.
+    const fresh = await call('/auth/login', { body: { email, password: 'Test12345!' } });
+    for (let i = 0; i < 5; i++) await call('/auth/login/code', { body: { ticket: fresh.json.twoFactor.ticket, code: '000002' } });
+    assert.equal((await call('/auth/login/code', { body: { ticket: fresh.json.twoFactor.ticket, code: '000002' } })).status, 429, 'the ticket is spent');
+
+    // Another account's code cannot switch this account: a code only ever proves its own inbox.
+    const other = await register('Two Step Other');
+    const theirs = await call('/me/two-factor', { token: other.token, body: { on: true } });
+    const stolen = await call('/me/two-factor/confirm', { token: person.token, body: { ticket: theirs.json.ticket, code: codeFor(other.user.email), on: true } });
+    assert.equal(stolen.json.error.code, 'wrong_account');
+
+    // Turning it off needs a code too, then the password alone is enough again.
+    const offAsk = await call('/me/two-factor', { token: person.token, body: { on: false } });
+    assert.equal(offAsk.status, 200, JSON.stringify(offAsk.json));
+    const off = await call('/me/two-factor/confirm', { token: person.token, body: { ticket: offAsk.json.ticket, code: codeFor(email), on: false } });
+    assert.equal(off.status, 200, JSON.stringify(off.json));
+    assert.equal(off.json.on, false);
+    assert.equal(off.json.user.twoFactor, false);
+    assert.ok((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.token, 'the password alone opens it again');
   });
 });
 

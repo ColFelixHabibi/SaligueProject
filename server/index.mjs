@@ -219,6 +219,8 @@ function publicUser(u) {
     bio: u.bio ?? null,
     isGuest: !!u.is_guest,
     verified: !!u.verified,
+    // Two-step sign-in by email is on for this account (the settings card shows it, nothing else needs it).
+    twoFactor: !!u.two_factor,
     createdAt: u.created_at,
   };
 }
@@ -315,6 +317,9 @@ const priceOf = (r) => {
 };
 
 function productOut(r) {
+  // The shop as buyers may see it: its address and the ways it takes to be paid, never the numbers and accounts the
+  // money goes to (listedShop) — so a listing saved while those could still be copied is published cleanly too.
+  const shop = parse(r.shop);
   const p = {
     id: r.id,
     name: r.name,
@@ -342,7 +347,7 @@ function productOut(r) {
     brand: r.brand ?? undefined,
     condition: r.condition ?? undefined,
     contact: r.contact ?? undefined,
-    shop: parse(r.shop) ?? undefined,
+    shop: shop ? listedShop(shop) : undefined,
     official: !!r.official,
     // Hidden from shoppers after several reports; only its seller still sees it.
     hidden: !!r.hidden,
@@ -420,9 +425,76 @@ function ownProduct(user, id) {
 // Orders
 // ---------------------------------------------------------------------------
 
-// online: card or Mobile Money on Flutterwave's page (payments.mjs), confirmed automatically.
-const PAYMENT_METHODS = ['online', 'mobile_money', 'cash_on_delivery', 'pickup'];
-const PAYMENT_LABELS = { online: 'paid online (card / Mobile Money)', mobile_money: 'Mobile Money to the shop', cash_on_delivery: 'cash on delivery', pickup: 'pay at pickup' };
+// online: card or Mobile Money on Flutterwave's page (payments.mjs), confirmed automatically. Everything else is
+// paid by hand: the buyer sends the money to the shop's own MTN MoMo, Airtel Money, PayPal or bank account, fills in
+// what the shop needs to find it (paymentDetails), and the shop confirms the money arrived.
+const PAYMENT_METHODS = ['online', 'mtn_momo', 'airtel_money', 'paypal', 'bank_transfer', 'mobile_money', 'cash_on_delivery', 'pickup'];
+const PAYMENT_LABELS = {
+  online: 'paid online (card / Mobile Money)',
+  mtn_momo: 'MTN MoMo to the shop',
+  airtel_money: 'Airtel Money to the shop',
+  paypal: 'PayPal',
+  bank_transfer: 'bank transfer',
+  mobile_money: 'Mobile Money to the shop',
+  cash_on_delivery: 'cash on delivery',
+  pickup: 'pay at pickup',
+};
+
+/**
+ * The buyer's payment details for a payment made by hand: the number or address the money comes from, the name on
+ * it, their bank, and the transaction ID. Only these keys are kept, each cut to a sane length, so the order shows
+ * the shop exactly what it needs to match the money in its account.
+ */
+const PAYMENT_DETAIL_KEYS = { from: 120, senderName: 80, bank: 80, reference: 80 };
+function cleanPaymentDetails(value) {
+  if (!value || typeof value !== 'object') return null;
+  const out = Object.fromEntries(Object.entries(PAYMENT_DETAIL_KEYS)
+    .map(([key, max]) => [key, String(value[key] ?? '').replace(/\s+/g, ' ').trim().slice(0, max)])
+    .filter(([, v]) => v));
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The longest each detail a shop publishes for buyers to pay it by hand may be: its MTN MoMo and Airtel Money
+ * numbers and the names on them, its PayPal address, and its bank (Ecobank or any bank, local or international).
+ * They are kept on the shop's own record, which no one but the shop and its buyers see; the copy of the shop that
+ * travels with every item carries only the names of the ways it takes (shopPayOptions), never the numbers.
+ */
+const SHOP_PAY_LIMITS = { momoNumber: 30, momoName: 80, airtelNumber: 30, airtelName: 80, paypalEmail: 120, bankName: 60, bankAccountName: 80, bankAccountNumber: 60, bankSwift: 20 };
+
+/** Which ways of paying by hand a shop takes, judged by the details it has filled in (none filled in: none). */
+function shopPayOptions(shop) {
+  return [
+    shop?.momoNumber && 'mtn_momo',
+    shop?.airtelNumber && 'airtel_money',
+    shop?.paypalEmail && 'paypal',
+    // A transfer needs the account number and the name on it, the least a bank can be told to send to.
+    shop?.bankAccountNumber && shop?.bankAccountName && 'bank_transfer',
+  ].filter(Boolean);
+}
+
+/**
+ * The copy of a shop that travels with every item: the address buyers need to find the shop, and the names of the
+ * ways it takes to be paid — never the number, address or account the money goes to, which stay on the shop's own
+ * record. A new listing and a re-saved shop both carry this copy, so those details cannot reach the catalogue.
+ */
+function listedShop(shop) {
+  // The ways it takes: judged from the details when the record still has them (a shop saving its details), and
+  // otherwise the list it was already published with (the copy on its items) — publishing never loses a way to pay.
+  const ways = shopPayOptions(shop);
+  const pay = ways.length ? ways : (Array.isArray(shop?.pay) ? shop.pay.filter((method) => PAYMENT_LABELS[method]) : []);
+  const kept = Object.fromEntries(Object.entries(shop ?? {}).filter(([k]) => !(k in SHOP_PAY_LIMITS) && k !== 'pay'));
+  return { ...kept, ...(pay.length ? { pay } : {}) };
+}
+
+/**
+ * The shop's own record — with the numbers and accounts buyers pay it at — looked up from the seller. An order keeps
+ * this copy, so its buyer knows where to send the money; the catalogue's copy of the shop leaves those details out.
+ */
+function payingShop(sellerId, fallback) {
+  const row = db.prepare('select shop from users where id = ?').get(sellerId);
+  return parse(row?.shop) ?? parse(fallback);
+}
 
 /** Puts the items of a cancelled order back in stock. */
 function restock(order) {
@@ -455,6 +527,8 @@ function orderOut(r) {
     delivery: parse(r.delivery),
     paymentMethod: r.payment_method,
     paymentStatus: r.payment_status,
+    // What the buyer filled in to pay by hand (the number they paid from and the transaction ID).
+    paymentDetails: parse(r.payment_details) ?? null,
     paidAt: r.paid_at ?? null,
     status: r.status,
     shippedAt: r.shipped_at ?? null,
@@ -663,6 +737,87 @@ function liftIfOver(account) {
   return db.prepare('select * from users where id = ?').get(account.id);
 }
 
+// ---------------------------------------------------------------------------
+// Two-step sign-in, by a code emailed to the account's own address
+// ---------------------------------------------------------------------------
+// The second step is the inbox, never an authenticator app: six digits are emailed to the account's own address and
+// are good for ten minutes. Nothing is ever switched on until a code has been read out of that inbox and typed back,
+// so a deployment with no mail account cannot lock anybody out — it simply never gets past this step (mail.mjs keeps
+// the mail in data/outbox/ in that case). The same six digits are asked for when turning the step on or off, so a
+// password alone can change neither.
+const CODE_TTL = 10 * 60_000;
+const CODE_TRIES = 5;
+// A code is hashed together with its ticket, so a copy of the database cannot be run through the million codes a
+// six-digit number allows: each ticket needs its own million.
+const codeHash = (ticket, code) => createHash('sha256').update(`${ticket}\n${code}`).digest('hex');
+const ticketHash = (ticket) => createHash('sha256').update(String(ticket ?? '')).digest('hex');
+const newCode = () => String(randomInt(100_000, 1_000_000));
+
+/** What each of the three reasons for a code says in the email (the code itself is added by startCode). */
+const CODE_MAIL = {
+  sign_in: (name) => ({
+    subject: 'Your Saligue sign-in code',
+    title: 'Your sign-in code',
+    lines: [`Hi ${name}, here is the code that finishes signing in. It works once, for ten minutes.`, 'If you did not try to sign in, change your password: someone has it.'],
+  }),
+  on: (name) => ({
+    subject: 'Turn on two-step sign-in for Saligue',
+    title: 'Turn on two-step sign-in',
+    lines: [`Hi ${name}, here is the code that turns two-step sign-in on. It works once, for ten minutes.`, 'After this, signing in with your password also asks for a code sent to this address.'],
+  }),
+  off: (name) => ({
+    subject: 'Turn off two-step sign-in for Saligue',
+    title: 'Turn off two-step sign-in',
+    lines: [`Hi ${name}, here is the code that turns two-step sign-in off. It works once, for ten minutes.`, 'Without it, your password alone opens this account again.'],
+  }),
+};
+
+/** Mails a fresh code for `purpose` and returns the ticket to hand the browser (the code never comes back from here). */
+function startCode(account, purpose) {
+  const ticket = randomBytes(32).toString('base64url');
+  const code = newCode();
+  const name = String(account.display_name || '').split(' ')[0] || 'there';
+  transaction(() => {
+    // One live step per reason: asking again replaces the code sent a moment ago, so the last email is the one that works.
+    db.prepare('delete from login_codes where user_id = ? and purpose = ?').run(account.id, purpose);
+    db.prepare('delete from login_codes where expires_at < ?').run(now());
+    db.prepare('insert into login_codes (ticket_hash, user_id, code_hash, purpose, tries, expires_at, created_at) values (?, ?, ?, ?, 0, ?, ?)')
+      .run(ticketHash(ticket), account.id, codeHash(ticket, code), purpose, new Date(Date.now() + CODE_TTL).toISOString(), now());
+  });
+  sendEmail(account.email, { ...CODE_MAIL[purpose](name), code });
+  return ticket;
+}
+
+/**
+ * Checks one code and returns the account it belongs to. The ticket is spent on success; a few wrong codes kill it.
+ * An expired or unknown ticket says what a wrong code says, so a lost tab is not a different story to tell.
+ */
+function useCode(ticket, code, purpose) {
+  const row = db.prepare('select * from login_codes where ticket_hash = ? and purpose = ?').get(ticketHash(ticket), purpose);
+  if (!row) fail(400, 'code_expired', 'That code is no longer valid. Ask for a new one.');
+  if (row.expires_at < now()) {
+    db.prepare('delete from login_codes where ticket_hash = ?').run(row.ticket_hash);
+    fail(400, 'code_expired', 'That code has expired. Ask for a new one.');
+  }
+  if (row.tries >= CODE_TRIES) {
+    db.prepare('delete from login_codes where ticket_hash = ?').run(row.ticket_hash);
+    fail(429, 'too_many_codes', 'Too many wrong codes. Ask for a new one.');
+  }
+  const given = String(code ?? '').replace(/\D/g, '');
+  if (given.length !== 6 || !timingSafeEqual(Buffer.from(codeHash(ticket, given), 'hex'), Buffer.from(row.code_hash, 'hex'))) {
+    db.prepare('update login_codes set tries = tries + 1 where ticket_hash = ?').run(row.ticket_hash);
+    fail(401, 'wrong_code', 'That code is not right. Check the email and try again.');
+  }
+  db.prepare('delete from login_codes where ticket_hash = ?').run(row.ticket_hash);
+  return db.prepare('select * from users where id = ?').get(row.user_id);
+}
+
+/** The account a live ticket was sent to (for the security watch: a wrong code is worth recording). */
+const accountOfTicket = (ticket) => db.prepare('select u.id, u.email from login_codes c join users u on u.id = c.user_id where c.ticket_hash = ?').get(ticketHash(ticket)) ?? null;
+
+/** What a live ticket was asked to do ('sign_in', 'on' or 'off') — the ticket knows, so the browser need not say. */
+const purposeOfTicket = (ticket) => db.prepare('select purpose from login_codes where ticket_hash = ?').get(ticketHash(ticket))?.purpose ?? null;
+
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
   if (tooManyAttempts(email)) fail(429, 'too_many_attempts', 'Too many tries. Wait 15 minutes or reset your password.');
@@ -679,9 +834,24 @@ route('POST', '/api/auth/login', ({ user, body }) => {
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
   failedLogins.delete(attemptKey(email));
+  // Two-step sign-in: the password was right, so the only thing left is a code sent to the account's own inbox. No
+  // session is made, and a guest's cart is not merged, until that code comes back (POST /api/auth/login/code below).
+  // Nothing here says more than the sign-in form already does, and a wrong code is not a wrong password.
+  if (account.two_factor) return { twoFactor: { ticket: startCode(account, 'sign_in'), email: account.email, minutes: CODE_TTL / 60_000 } };
   // Logging in never changes what the account is (older apps send a "Log in as a Seller" switch).
   if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
   return { token: createSession(account.id), user: publicUser(db.prepare('select * from users where id = ?').get(account.id)) };
+});
+
+// The second step: the six digits from the email, and only then a session. The ticket says which account this is, so
+// no email is sent back here and the answer cannot be used to find out who has an account.
+route('POST', '/api/auth/login/code', ({ user, body }) => {
+  const account = liftIfOver(useCode(body.ticket, body.code, 'sign_in'));
+  if (!account) fail(400, 'code_expired', 'That code is no longer valid. Sign in again.');
+  // A suspension that came in while the code was in the inbox still holds.
+  if (account.suspended) fail(403, 'suspended', suspendRefusal(account));
+  if (user?.is_guest && user.id !== account.id) mergeGuestInto(user.id, account.id);
+  return { token: createSession(account.id), user: publicUser(account) };
 });
 
 // Google sign-in. The OAuth client ID comes from GOOGLE_CLIENT_ID or `node server/admin.mjs google <client id>`.
@@ -971,14 +1141,20 @@ route('PATCH', '/api/auth/me', ({ user, body }) => {
   }
   if (body.bio !== undefined) db.prepare('update users set bio = ? where id = ?').run(String(body.bio ?? '').trim().slice(0, 300) || null, user.id);
   if (body.shop !== undefined) {
-    // Known fields only, each a short text; the description is the shop's bio on its profile.
-    const limits = { name: 80, phone: 30, whatsapp: 30, country: 60, city: 60, district: 80, street: 160, landmark: 120, mapUrl: 500, hours: 120, bio: 300 };
+    // Known fields only, each a short text; the description is the shop's bio on its profile, and the last ones are
+    // where buyers send the money (MTN MoMo, Airtel Money, PayPal, a bank transfer).
+    const limits = { name: 80, phone: 30, whatsapp: 30, country: 60, city: 60, district: 80, street: 160, landmark: 120, mapUrl: 500, hours: 120, bio: 300, ...SHOP_PAY_LIMITS };
     const shop = Object.fromEntries(Object.entries(limits).map(([k, max]) => [k, String(body.shop?.[k] ?? '').trim().slice(0, max)]).filter(([, v]) => v));
     if (!shop?.name || !shop.phone || !shop.country || !shop.city || !shop.street) fail(400, 'incomplete_shop', 'Shop name, phone, country, city and street are required.');
+    if (shop.paypalEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(shop.paypalEmail)) fail(400, 'invalid_paypal', 'Enter the PayPal address that gets the money, like shop@example.com.');
+    // The catalogue copy, on every item, keeps the address (buyers need it to find the shop) and the names of the
+    // ways it takes to be paid, but never the number, address or account the money goes to. An order carries the
+    // shop's own record instead (payingShop), because its buyer is the one person who must send the money.
+    const listed = listedShop(shop);
     transaction(() => {
       db.prepare('update users set shop = ? where id = ?').run(json(shop), user.id);
       // Keep the address on already-listed items up to date.
-      db.prepare('update products set shop = ? where seller_id = ?').run(json(shop), user.id);
+      db.prepare('update products set shop = ? where seller_id = ?').run(json(listed), user.id);
     });
     broadcast('products');
   }
@@ -1101,7 +1277,9 @@ route('POST', '/api/products', async ({ user, body }) => {
     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, fields.name, fields.price, fields.discount ?? null, fields.image, fields.cutout ?? null, fields.embedding ?? null, fields.category, fields.type,
     fields.seller || user.display_name || 'Seller', user.id, user.email, fields.status ?? 'active', fields.description ?? null, fields.size ?? null,
-    fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, user.shop, user.official, fields.sound ?? null,
+    // The shop's address and the ways it takes to be paid, never the numbers and accounts buyers pay it at
+    // (listedShop): this copy is published with every item, the shop's own record is not.
+    fields.color ?? null, fields.brand ?? null, fields.condition ?? null, fields.contact ?? null, json(listedShop(parse(user.shop))), user.official, fields.sound ?? null,
     fields.stock ?? null, fields.photo_type ?? 'item', now()
   );
   broadcast('products');
@@ -2102,6 +2280,9 @@ route('POST', '/api/orders', ({ user, body }) => {
   if (body.paymentMethod === 'online' && !paymentsEnabled()) fail(400, 'payments_off', 'Online payment is not available yet. Choose another way to pay.');
   const delivery = Object.fromEntries(Object.entries(body.delivery ?? {}).map(([k, v]) => [k, String(v ?? '').trim().slice(0, 300)]));
   if (!delivery.fullName || !delivery.phone || !delivery.city || !delivery.street) fail(400, 'incomplete_delivery', 'Please fill in the delivery address.');
+  // The buyer's own details for a payment made by hand (which number or address the money comes from), so the shop
+  // can match the money to this order instead of guessing.
+  const paymentDetails = cleanPaymentDetails(body.paymentDetails);
 
   // Prices and stock always come from the database, checked and reserved in one step.
   const ids = transaction(() => {
@@ -2126,10 +2307,13 @@ route('POST', '/api/orders', ({ user, body }) => {
       const total = Math.round(group.total * 100) / 100;
       // The handover code: only the buyer sees it; the shop enters it when handing the order over (proof of delivery).
       const code = String(randomInt(1000, 10000));
-      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, fee, delivery_code, created_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        id, user.id, user.display_name || String(delivery.fullName), user.email || '', sellerId, group.shop,
-        json(group.items), total, json(delivery), body.paymentMethod, saleFee(sellerId, total), code, now()
+      db.prepare(`insert into orders (id, buyer_id, buyer_name, buyer_email, seller_id, shop, items, total, delivery, payment_method, payment_details, fee, delivery_code, created_at)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        // The shop's own record, with the number or account this buyer pays it at (the catalogue's copy has the
+        // address only), so the order says where to send the money.
+        id, user.id, user.display_name || String(delivery.fullName), user.email || '', sellerId, json(payingShop(sellerId, group.shop)),
+        json(group.items), total, json(delivery), body.paymentMethod, paymentDetails ? json(paymentDetails) : null,
+        saleFee(sellerId, total), code, now()
       );
       return { id, sellerId, group };
     });
@@ -2237,6 +2421,28 @@ route('PATCH', '/api/orders/([\\w-]+)', ({ user, params, body }) => {
     db.prepare("update orders set status = 'delivered', received_at = ?, received_by = 'buyer' where id = ?").run(now(), order.id);
     notify(order.seller_id, { type: 'sale', title: `Order #${order.id.slice(0, 6).toUpperCase()} arrived`, body: `${order.buyer_name} confirmed they received it.`, link: '/dashboard/orders' });
     rewardReferral(order);
+  } else if (order.buyer_id === user.id && body.paymentDetails !== undefined) {
+    // "I have paid": the buyer sends the transaction ID for a payment made by hand, and the shop checks the money
+    // arrived and marks the order paid. Nothing here says the payment is confirmed.
+    if (order.payment_status === 'paid') fail(400, 'paid', 'This order is already paid.');
+    if (order.status === 'cancelled') fail(400, 'cancelled', 'This order was cancelled.');
+    if (!['mtn_momo', 'airtel_money', 'paypal', 'bank_transfer', 'mobile_money'].includes(order.payment_method)) {
+      fail(400, 'not_by_hand', 'This order is not paid by hand.');
+    }
+    const details = cleanPaymentDetails(body.paymentDetails);
+    if (!details) fail(400, 'empty', 'Fill in your payment details so the shop can find the money.');
+    const before = parse(order.payment_details) ?? {};
+    // What the buyer said at checkout is kept; what they say now is added on top.
+    db.prepare('update orders set payment_details = ? where id = ?').run(json({ ...before, ...details, at: now() }), order.id);
+    // The shop hears about it once, when the transaction ID arrives (not on every small edit).
+    if (details.reference && details.reference !== before.reference) {
+      notify(order.seller_id, {
+        type: 'sale',
+        title: `Payment sent for order #${order.id.slice(0, 6).toUpperCase()}`,
+        body: `${order.buyer_name} says they paid ${money(order.total)} by ${PAYMENT_LABELS[order.payment_method]} (ref ${details.reference}). Check the money arrived, then mark the order paid.`,
+        link: '/dashboard/orders',
+      });
+    }
   } else if (order.buyer_id === user.id) {
     if (order.status !== 'placed' || body.status !== 'cancelled' || body.paymentStatus !== undefined) fail(403, 'forbidden', 'You can only cancel an order that has not been confirmed.');
     if (order.payment_status === 'paid') fail(403, 'paid', 'This order is already paid. Message the shop to cancel it and get your money back.');
@@ -4818,6 +5024,44 @@ route('POST', '/api/me/sign-out-others', ({ req, user }) => {
   const removed = db.prepare('delete from sessions where user_id = ? and token != ? and token != ?').run(user.id, sessionHash(token ?? ''), String(token ?? '')).changes;
   return { ok: true, removed };
 });
+
+// Turning two-step sign-in on or off (Account → Settings). Both directions need a code read from the account's own
+// inbox, so someone who has only the password can change neither — and turning it on cannot happen by accident on a
+// deployment whose mail is not working, because a code that never arrives is a step that never completes.
+route('GET', '/api/me/two-factor', ({ user }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  return { on: !!user.two_factor, email: user.email, ready: mailConfigured() };
+});
+route('POST', '/api/me/two-factor', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  if (!user.email) fail(400, 'no_email', 'This account has no email address, so a code cannot be sent.');
+  const on = body.on === true;
+  if (on === !!user.two_factor) fail(400, on ? 'already_on' : 'already_off', on ? 'Two-step sign-in is already on for this account.' : 'Two-step sign-in is already off for this account.');
+  return { ticket: startCode(user, on ? 'on' : 'off'), email: user.email, minutes: CODE_TTL / 60_000 };
+});
+route('POST', '/api/me/two-factor/confirm', ({ user, body }) => {
+  if (!user || user.is_guest) fail(401, 'not_signed_in', 'Please sign in.');
+  // What the ticket was asked for, not what the browser echoes back: an app that leaves `on` out must not turn the step
+  // off (the first version did, which made a code mailed for "on" unusable), and a sign-in ticket proves an inbox but is
+  // no permission to change this account.
+  const purpose = purposeOfTicket(body.ticket);
+  if (purpose !== 'on' && purpose !== 'off') fail(400, 'code_expired', 'That code is no longer valid. Ask for a new one.');
+  const on = purpose === 'on';
+  if (typeof body.on === 'boolean' && body.on !== on) fail(400, 'wrong_ticket', 'That code was sent for the other change. Ask for a new one.');
+  const account = useCode(body.ticket, body.code, purpose);
+  // A ticket from another account cannot switch this one: the code only ever proves its own inbox.
+  if (account.id !== user.id) fail(400, 'wrong_account', 'That code was sent to a different account.');
+  db.prepare('update users set two_factor = ? where id = ?').run(on ? 1 : 0, user.id);
+  notify(user.id, {
+    type: 'account',
+    title: on ? 'Two-step sign-in is on' : 'Two-step sign-in is off',
+    body: on
+      ? 'Signing in with your password now also asks for a code sent to your email.'
+      : 'Your password alone opens your account again. Turn two-step sign-in back on in Account → Settings.',
+    link: '/my-account/settings',
+  });
+  return { on, user: publicUser(db.prepare('select * from users where id = ?').get(user.id)) };
+});
 route('POST', '/api/admin/security/block', ({ user, body }) => {
   requireAdmin(user, 'platform');
   const target = String(body.ip ?? '').trim();
@@ -7032,7 +7276,7 @@ function afterRequest(ip, path, method, body, user, result, userAgent) {
     if (path === '/api/auth/register' && result?.token) signedUp(ip);
     else if (path === '/api/auth/guest' && result?.created) guestStarted(ip);
     else if (path === '/api/auth/forgot') resetRequested(ip, String(body.email ?? '').slice(0, 120));
-    else if ((path === '/api/auth/login' || path === '/api/auth/google') && result?.user?.id) {
+    else if ((path === '/api/auth/login' || path === '/api/auth/login/code' || path === '/api/auth/google') && result?.user?.id) {
       const account = db.prepare('select id, email, admin from users where id = ?').get(result.user.id);
       if (account?.admin) adminSignedIn(ip, account);
     } else if (method !== 'GET' && path.startsWith('/api/admin/platform') && user) adminChange(ip, user.email, `changed platform settings (${path.replace('/api/admin/platform', '') || '/'})`);
@@ -7051,6 +7295,12 @@ function afterRefusal(ip, path, error, body, user, userAgent) {
       }
       if (error.code === 'invalid_credentials') loginFailed(ip, email, { admin: !!db.prepare('select admin from users where email = ?').get(email)?.admin });
       else if (error.code === 'too_many_attempts') accountLocked(ip, email);
+    } else if (path === '/api/auth/login/code' && (error.code === 'wrong_code' || error.code === 'too_many_codes')) {
+      // Whoever this is had the right password but not the code, which is exactly what the owner wants to know:
+      // "wrong_code" counts as a miss in signins.mjs, but never as someone guessing passwords on other accounts.
+      const owner = accountOfTicket(body.ticket);
+      if (owner) recordSignIn({ userId: owner.id, email: owner.email, ip, userAgent, outcome: error.code === 'too_many_codes' ? 'locked' : 'wrong_code' });
+      if (error.code === 'too_many_codes' && owner) accountLocked(ip, owner.email);
     } else if (path === '/api/payments/webhook' && error.status === 401) webhookForged(ip);
     else if (error.status === 403 && path.startsWith('/api/admin')) adminDenied(ip, user?.id ?? null, path);
   } catch (e) {
