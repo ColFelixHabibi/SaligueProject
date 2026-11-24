@@ -4,11 +4,15 @@
 //   node server/admin.mjs admin <email>         make an account a main admin (type 1: everything, manages sub-admins)
 //   node server/admin.mjs indeciana [password]  INDECIANA's own account: indeciana@gmail.com, shop, main admin (password: 8+ chars; kept if left out)
 //   node server/admin.mjs password <email> <new password>   set an account's password (signs it out everywhere)
+//   node server/admin.mjs twofactor <email> off|on          two-step sign-in (a code emailed to the account): "off" for
+//                                               an account whose code can no longer arrive, which would otherwise shut it
 //   node server/admin.mjs users                 list accounts
 //   node server/admin.mjs support               list support requests
 //   node server/admin.mjs google <client id>    switch on Google sign-in (OAuth "Web application" client ID);
 //                                               it prints the origins Google Cloud must also authorize
-//   node server/admin.mjs mail <smtp url> [from] send real emails, e.g. smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com
+//   node server/admin.mjs mail <smtp url> [from] send real emails, e.g.
+//                                               smtp://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:587?requireTLS=true
+//                                               (the login is checked before it is saved); "mail off" disconnects
 //   node server/admin.mjs site <url>            the website's public address, used in links inside emails
 //   node server/admin.mjs reports               reported items (hidden ones first)
 //   node server/admin.mjs show <product id>     put a hidden item back after review (the AI learns look-alikes are fine)
@@ -22,7 +26,7 @@
 import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { db, json, makeUsername, transaction } from './db.mjs';
 import { learn } from './learn.mjs';
-import { sendEmail } from './mail.mjs';
+import { sendEmail, verifyMailAccount } from './mail.mjs';
 // The site's public address, read the way the builds read it (SITE_URL, /etc/saligue.env, then today's tunnel name).
 import { FIRST_ADDRESS, siteUrl, toOrigins } from '../scripts/site-url.mjs';
 
@@ -58,7 +62,7 @@ if (command === 'official' || command === 'unofficial') {
     console.error('Usage: node server/admin.mjs password <email> <new password (8+ characters)>');
     process.exit(1);
   }
-  const user = db.prepare('select id from users where lower(email) = ?').get(String(email ?? '').toLowerCase());
+  const user = db.prepare('select id, two_factor from users where lower(email) = ?').get(String(email ?? '').toLowerCase());
   if (!user) {
     console.error(`No account with the email ${email}.`);
     process.exit(1);
@@ -66,6 +70,28 @@ if (command === 'official' || command === 'unofficial') {
   db.prepare('update users set password_hash = ? where id = ?').run(hashPassword(password), user.id);
   db.prepare('delete from sessions where user_id = ?').run(user.id);
   console.log(`Password changed for ${email}. Log in again with the new password.`);
+  // A new password is not enough on its own when the account also asks for a code from its inbox.
+  if (user.two_factor) console.log('Two-step sign-in is on for this account, so a code emailed to it is asked for too. If no code can arrive: node server/admin.mjs twofactor ' + email + ' off');
+} else if (command === 'twofactor') {
+  // Here the second argument is an email address and the third is off or on: the way into an account whose code cannot
+  // be delivered (mailbox closed, the mail account's app password revoked, the address typed wrong). Turning it off
+  // hands the account back to its password alone; the person is told by email, and `password` sets a new one.
+  const action = String(process.argv[4] ?? '').toLowerCase();
+  if (action !== 'off' && action !== 'on') {
+    console.error('Usage: node server/admin.mjs twofactor <email> off | on');
+    process.exit(1);
+  }
+  const person = db.prepare('select id, email, two_factor from users where lower(email) = ? and is_guest = 0').get(String(email ?? '').toLowerCase());
+  if (!person) {
+    console.error(`No account with the email ${email}.`);
+    process.exit(1);
+  }
+  const on = action === 'on';
+  db.prepare('update users set two_factor = ? where id = ?').run(on ? 1 : 0, person.id);
+  // Codes already mailed die with the change, so a challenge open in a lost tab cannot still sign in.
+  db.prepare('delete from login_codes where user_id = ?').run(person.id);
+  console.log(`Two-step sign-in is now ${on ? 'on' : 'off'} for ${person.email}.`);
+  if (!on) console.log(`They can sign in with their password alone again. Set a new one with: node server/admin.mjs password ${person.email} <new password>`);
 } else if (command === 'admin') {
   const done = db.prepare('update users set admin = 1, admin_level = 1 where email = ?').run(String(email ?? '').toLowerCase());
   console.log(done.changes ? `${email} can now open Platform settings (Me → Platform settings).` : `No account with the email ${email}.`);
@@ -186,11 +212,44 @@ if (command === 'official' || command === 'unofficial') {
     console.log('A Cloudflare quick tunnel gets a new name each time it restarts, and a new name is a new origin: add it');
     console.log('too, or point SITE_URL at a real domain (deploy/switch-domain.sh), which is only entered once.');
   }
+} else if (command === 'mail' && String(email ?? '').trim() === 'off') {
+  // Like `payments off`: leave nothing behind. A saved "off" would read as a connected mail account, so the two-step
+  // card would stop warning while every code it mailed failed silently.
+  db.prepare("delete from app_config where key = 'mail'").run();
+  console.log('No mail account is connected. Emails are kept in data/outbox/ instead of being sent.');
 } else if (command === 'mail' || command === 'site') {
   const value = String(email ?? '').trim();
-  const config = command === 'mail' ? { url: value, from: process.argv[4] } : { url: value };
+  const from = process.argv[4];
+  if (command === 'site') {
+    // Links inside emails are built from this, so a typo here only shows up as a dead "Open Saligue" button.
+    if (!/^https?:\/\//i.test(value)) {
+      console.error('Give the website address with its scheme, e.g. https://78-47-151-100.sslip.io');
+      process.exit(1);
+    }
+  }
+  if (command === 'mail') {
+    if (!/^smtps?:\/\//i.test(value)) {
+      console.error('Give the mail server address with the account in it, e.g.\n'
+        + '  node server/admin.mjs mail \'smtp://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:587?requireTLS=true\' \'Saligue by INDECIANA\'');
+      process.exit(1);
+    }
+    // Log in before saving, so a wrong app password is caught here once instead of every email failing quietly later.
+    // Port 587 with STARTTLS on purpose: many hosts block outgoing 465 and 25.
+    try {
+      await verifyMailAccount(value);
+    } catch (error) {
+      const reason = String(error?.message ?? error);
+      console.error(/535|Invalid login|Username and Password not accepted|auth/i.test(reason)
+        ? 'The mail server refused the login. For Gmail: turn on 2-Step Verification, create an App Password (Google Account → Security → App passwords), use that instead of the normal password, and write @ in the address as %40.'
+        : `Could not reach the mail server: ${reason}`);
+      process.exit(1);
+    }
+  }
+  const config = command === 'mail' ? { url: value, from } : { url: value };
   db.prepare('insert into app_config (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(command, JSON.stringify(config));
-  console.log(command === 'mail' ? 'Emails will now be sent with this mail account.' : `Links in emails will point to ${value}.`);
+  console.log(command === 'mail'
+    ? 'Emails will now be sent with this mail account. Send one with: node server/admin.mjs testmail <address>'
+    : `Links in emails will point to ${value}.`);
 } else if (command === 'payments') {
   const [secretKey, secretHash, currency = 'RWF', rate] = process.argv.slice(3);
   if (secretKey === 'off') {
@@ -235,5 +294,5 @@ if (command === 'official' || command === 'unofficial') {
   sendEmail(String(email ?? ''), { subject: 'Saligue test email', lines: ['If you can read this, Saligue can send emails.'] });
   setTimeout(() => process.exit(0), 8000);
 } else {
-  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | reports | takedowns | takedown <notice id> restore|keep|remove | show <product id> | remove <product id> | payments <key> <hash> [currency] [rate] | payments off | testmail <email>');
+  console.log('Usage: node server/admin.mjs official <email> | unofficial <email> | users | support | google <client id> | mail <smtp url> [from] | site <url> | password <email> <new password> | twofactor <email> off|on | reports | takedowns | takedown <notice id> restore|keep|remove | show <product id> | remove <product id> | payments <key> <hash> [currency] [rate] | payments off | testmail <email>');
 }

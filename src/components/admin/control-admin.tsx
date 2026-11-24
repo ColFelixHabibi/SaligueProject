@@ -203,6 +203,7 @@ type Account = {
   suspended: boolean; suspendReason: string | null; suspendedAt?: string | null; suspendedUntil?: string | null;
   closureRequestedAt?: string | null; closureRequestedBy?: string | null; deleteAfter?: string | null; canConfirmClosure?: boolean;
   appeal?: string | null; appealAt?: string | null;
+  twoFactor?: boolean;
 };
 
 const SUSPEND_FOR = [{ days: 1, label: '1 day' }, { days: 3, label: '3 days' }, { days: 7, label: '7 days' }, { days: 30, label: '30 days' }, { days: 0, label: 'Until reviewed' }];
@@ -240,6 +241,13 @@ export function AccountsAdmin() {
     await act(() => api(`/admin/users/${a.id}/suspend`, { body: { suspended: false } }), 'Account restored');
     void search();
   };
+  // For someone who cannot receive the sign-in code any more (closed mailbox, app password revoked, address typed
+  // wrong): without this the account is shut for good, since a password reset still stops at the code. They are told.
+  const twoStep = async (a: Account) => {
+    if (!(await ask({ title: `Switch off two-step sign-in for ${a.name}?`, description: 'Only for an account whose code can no longer arrive. They are told, and their password alone opens the account again until they turn it back on. Set a new password afterwards.', confirm: 'Switch it off', destructive: true }))) return;
+    await act(() => api(`/admin/users/${a.id}/two-factor`, { body: {} }), 'Two-step sign-in switched off');
+    void search();
+  };
   const closure = async (a: Account, action: 'request' | 'cancel' | 'confirm') => {
     const answer =
       action === 'request'
@@ -275,7 +283,7 @@ export function AccountsAdmin() {
           <div key={a.id} className={cn('space-y-2 rounded-xl border p-3 text-sm', a.suspended && 'border-destructive/40 bg-destructive/5')}>
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
-                <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}</p>
+                <p className="break-words font-semibold">{a.name} {a.adminLevel ? <Badge variant="outline" className="ml-1">{a.adminLevel === 1 ? 'Main admin' : 'Sub-admin'}</Badge> : null}{a.official && <Badge variant="outline" className="ml-1">INDECIANA</Badge>}{a.twoFactor && <Badge variant="outline" className="ml-1">Two-step sign-in</Badge>}</p>
                 <p className="truncate text-xs text-muted-foreground">{a.email} · {a.items} items · {a.orders} orders · since {day(a.createdAt)}</p>
                 {a.suspended && <p className="text-xs font-semibold text-destructive">{step(a)}{a.suspendReason ? ` · ${a.suspendReason}` : ''}</p>}
               </div>
@@ -289,6 +297,9 @@ export function AccountsAdmin() {
                   {a.closureRequestedAt && <Button size="sm" variant="ghost" onClick={() => closure(a, 'cancel')}>Keep</Button>}
                   {a.canConfirmClosure && <Button size="sm" variant="destructive" onClick={() => closure(a, 'confirm')}><Trash2 className="mr-1 h-4 w-4" /> Delete permanently</Button>}
                 </div>
+              )}
+              {a.twoFactor && (
+                <Button size="sm" variant="ghost" onClick={() => twoStep(a)}><ShieldCheck className="mr-1 h-4 w-4" /> Turn off two-step</Button>
               )}
             </div>
             {a.appeal && (

@@ -815,8 +815,13 @@ function useCode(ticket, code, purpose) {
 /** The account a live ticket was sent to (for the security watch: a wrong code is worth recording). */
 const accountOfTicket = (ticket) => db.prepare('select u.id, u.email from login_codes c join users u on u.id = c.user_id where c.ticket_hash = ?').get(ticketHash(ticket)) ?? null;
 
-/** What a live ticket was asked to do ('sign_in', 'on' or 'off') — the ticket knows, so the browser need not say. */
-const purposeOfTicket = (ticket) => db.prepare('select purpose from login_codes where ticket_hash = ?').get(ticketHash(ticket))?.purpose ?? null;
+/**
+ * The live ticket a browser holds: what it was asked to do ('sign_in', 'on' or 'off') and whose inbox it proves. The
+ * ticket knows both, so the browser need not say — and another account's ticket can be refused before its code is spent.
+ */
+const ticketOf = (ticket) => db
+  .prepare('select purpose, user_id from login_codes where ticket_hash = ?')
+  .get(ticketHash(ticket)) ?? null;
 
 route('POST', '/api/auth/login', ({ user, body }) => {
   const email = String(body.email ?? '').trim().toLowerCase();
@@ -5044,13 +5049,14 @@ route('POST', '/api/me/two-factor/confirm', ({ user, body }) => {
   // What the ticket was asked for, not what the browser echoes back: an app that leaves `on` out must not turn the step
   // off (the first version did, which made a code mailed for "on" unusable), and a sign-in ticket proves an inbox but is
   // no permission to change this account.
-  const purpose = purposeOfTicket(body.ticket);
-  if (purpose !== 'on' && purpose !== 'off') fail(400, 'code_expired', 'That code is no longer valid. Ask for a new one.');
-  const on = purpose === 'on';
+  const ticket = ticketOf(body.ticket);
+  if (ticket?.purpose !== 'on' && ticket?.purpose !== 'off') fail(400, 'code_expired', 'That code is no longer valid. Ask for a new one.');
+  // A ticket from another account cannot switch this one: the code only ever proves its own inbox. Checked before the
+  // code is used, so an attempt with someone else's ticket cannot spend the code they are still waiting to type.
+  if (ticket.user_id !== user.id) fail(400, 'wrong_account', 'That code was sent to a different account. Ask for a new one for this account.');
+  const on = ticket.purpose === 'on';
   if (typeof body.on === 'boolean' && body.on !== on) fail(400, 'wrong_ticket', 'That code was sent for the other change. Ask for a new one.');
-  const account = useCode(body.ticket, body.code, purpose);
-  // A ticket from another account cannot switch this one: the code only ever proves its own inbox.
-  if (account.id !== user.id) fail(400, 'wrong_account', 'That code was sent to a different account.');
+  useCode(body.ticket, body.code, ticket.purpose);
   db.prepare('update users set two_factor = ? where id = ?').run(on ? 1 : 0, user.id);
   notify(user.id, {
     type: 'account',
@@ -5058,7 +5064,7 @@ route('POST', '/api/me/two-factor/confirm', ({ user, body }) => {
     body: on
       ? 'Signing in with your password now also asks for a code sent to your email.'
       : 'Your password alone opens your account again. Turn two-step sign-in back on in Account → Settings.',
-    link: '/my-account/settings',
+    link: user.role === 'seller' ? '/dashboard/settings' : '/my-account/settings',
   });
   return { on, user: publicUser(db.prepare('select * from users where id = ?').get(user.id)) };
 });
@@ -5474,6 +5480,8 @@ function adminAccountOut(u, viewer) {
       && (u.closure_requested_by !== viewer.id || viewer.admin_level === 1),
     // What the person wrote when they asked for a review.
     appeal: u.suspend_appeal ?? null, appealAt: u.suspend_appeal_at ?? null,
+    // Two-step sign-in: shown so an admin can see who is protected, and clear it when their inbox stopped working.
+    twoFactor: !!u.two_factor,
     items: db.prepare('select count(*) as n from products where seller_id = ?').get(u.id).n,
     orders: db.prepare('select count(*) as n from orders where buyer_id = ?').get(u.id).n,
   };
@@ -5515,6 +5523,34 @@ route('POST', '/api/admin/users/([\\w-]+)/suspend', ({ user, params, body }) => 
   });
   logAdmin(user, 'suspended', `${target.email} for ${days ? `${days} day(s)` : 'until reviewed'}${reason ? `: ${reason}` : ''}`);
   return { ok: true };
+});
+
+// Two-step sign-in, cleared for someone who cannot receive the code any more (a mailbox closed, a mail account whose app
+// password was revoked, an address typed wrong). Without this the account is shut for good: a password reset gives a new
+// password that the code still stands in front of. The person is told, because a step that protects them being taken off
+// is something they must know about. Their own account is not on the list: switching your own off already needs a code
+// from your inbox (Account → Settings), and a session that could do it without one is exactly what the step protects
+// against — `node server/admin.mjs twofactor <email> off` is the way out when the inbox is the broken part.
+route('POST', '/api/admin/users/([\\w-]+)/two-factor', ({ user, params }) => {
+  requireAdmin(user, 'users');
+  const target = db.prepare('select * from users where id = ?').get(params[0]);
+  if (!target || target.email?.startsWith('deleted-')) fail(404, 'not_found', 'Account not found.');
+  if (target.id === user.id) fail(400, 'self', 'This is your own account: switch two-step sign-in off with the code sent to your inbox (Account → Settings). If the inbox is broken, run node server/admin.mjs twofactor <email> off on the server.');
+  if (target.admin_level === 1 || (target.admin_level === 2 && user.admin_level !== 1)) fail(403, 'forbidden', 'Only the main admin can change how an admin signs in.');
+  if (!target.two_factor) fail(400, 'already_off', 'Two-step sign-in is already off for this account.');
+  transaction(() => {
+    db.prepare('update users set two_factor = 0 where id = ?').run(target.id);
+    // Any code already mailed to them dies with it, so a challenge half-finished in a lost tab cannot still sign in.
+    db.prepare('delete from login_codes where user_id = ?').run(target.id);
+  });
+  notify(target.id, {
+    type: 'account',
+    title: 'Two-step sign-in is off',
+    body: 'Saligue switched it off for you because a code could not reach your email. Your password alone opens your account now, so set a new password, then turn it back on in Account → Settings.',
+    link: target.role === 'seller' ? '/dashboard/settings' : '/my-account/settings',
+  });
+  logAdmin(user, 'two-step sign-in turned off', target.email);
+  return { ok: true, twoFactor: false };
 });
 
 // Steps 2 and 3: ask for a permanent closure (the person gets a notice period to ask for a review), cancel it (the

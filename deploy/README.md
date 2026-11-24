@@ -42,6 +42,26 @@ Hardened on 2026-11-09 (see `README.md` → "Accounts and security" for what eac
   it out. To see which rule covers a name, without staging or deleting anything: `git check-ignore -v --no-index --
   -zzz './---locks---' 'exit=0'` prints the file and line of the rule that matches each one (exit 1 if none match).
 
+## Email and two-step sign-in (a code sent to the inbox, never an authenticator app)
+
+An account turns two-step sign-in on itself under **Account → Settings → Two-step sign-in**, and the six digits are
+emailed to that account's own address — Gmail included, nothing to install. That needs a mail account the server can
+send with, so connect one first (either way, no restart):
+
+- **Admin → Platform → Email** (needs a built site): paste the address and its **App Password**, press “Check and
+  connect”, then “Send test email”.
+- **From the terminal**, with no build at all:
+  `node server/admin.mjs mail 'smtp://you%40gmail.com:APP_PASSWORD@smtp.gmail.com:587?requireTLS=true' 'Saligue by INDECIANA'`.
+  It logs in before saving, so a wrong App Password is refused there and then; `mail off` disconnects, and
+  `node server/admin.mjs testmail you@gmail.com` sends a test.
+
+Gmail refuses an account's normal password: Google Account → Security → **2-Step Verification** must be on, then
+**App passwords** → create one for “Saligue” and use those 16 letters (the spaces are stripped). In the terminal form,
+write the `@` of the address as `%40`. Until a mail account is connected, every email is kept in `data/outbox/` instead
+of being sent, and the two-step card warns rather than letting anyone switch on a step whose code would never arrive.
+If an inbox stops working for an account that has it on, `node server/admin.mjs twofactor <email> off` (or Admin →
+Accounts) hands the account back to its password and tells the person.
+
 ## Release
 1. `npm test`
 2. `node server/backup.mjs` (a copy of the database before the release)

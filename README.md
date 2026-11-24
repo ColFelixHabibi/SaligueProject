@@ -211,12 +211,22 @@ session, so the password alone opens nothing. Codes live in `login_codes` as a S
 digits together*, good for one use and ten minutes, dead after five wrong tries — a copy of the database cannot be
 run through the million codes a six-digit number allows, because every ticket needs its own million. A wrong code is
 recorded as `wrong_code` in the sign-in list (someone had the right password but not the code), not as a wrong
-password, and it never counts as password-guessing. Because a code that never arrives is a step that never completes,
-a site whose mail is not connected cannot lock anybody out by accident: the card warns instead, and
+password, and it never counts as password-guessing. The sign-in answer carries no token once the step is on, so an
+installed phone app older than the release that draws the code screen stops at the sign-in screen instead of opening:
+the website, or the updated app, finishes it — and switching the step off brings the old behaviour back. Because a code
+that never arrives is a step that never completes, a site whose mail is not connected cannot lock anybody out by
+accident: the card warns instead, and
 `tests/api.test.mjs` (two-step sign-in by email) proves the whole path — the code really is in the email, the password
 alone makes no session, a code works once, an account cannot be switched with someone else's code, and switching it
-off needs a code too. Anything that already proves the inbox — Google sign-in, a password-reset link, an emailed code
-— is enough on its own, so those paths are not asked for a second code.
+off needs a code too. Anything that already proves the account another way — a password-reset link that arrived in the
+inbox, the emailed code itself, or a Google sign-in (where Google is the second factor) — is enough on its own, so those
+paths are not asked for a second code from Saligue. An inbox can also *stop* working (a closed
+mailbox, a revoked app password, an address typed wrong), which would otherwise shut the account for good: a password
+reset gives a password that the code still stands in front of. So an admin can clear it from **Admin → Accounts**
+(“Turn off two-step”, next to the account's “Two-step sign-in” badge), and when no admin can sign in either,
+`node server/admin.mjs twofactor <email> off` does the same on the server. Both delete the codes already mailed, tell the
+person by email and notification, and leave them to set a new password; neither can be used on the admin's own account,
+which still needs a code.
 
 **Closing an account takes three steps, never one** (Admin → Accounts, `server/index.mjs`): an admin suspends it for
 1, 3, 7 or 30 days — or until reviewed — and a timed suspension ends by itself; an admin may then *ask* to close it,

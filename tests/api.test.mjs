@@ -2988,6 +2988,8 @@ describe('two-step sign-in by email', () => {
     const theirs = await call('/me/two-factor', { token: other.token, body: { on: true } });
     const stolen = await call('/me/two-factor/confirm', { token: person.token, body: { ticket: theirs.json.ticket, code: codeFor(other.user.email), on: true } });
     assert.equal(stolen.json.error.code, 'wrong_account');
+    // The attempt did not spend it either: their own code still turns their own step on.
+    assert.equal((await call('/me/two-factor/confirm', { token: other.token, body: { ticket: theirs.json.ticket, code: codeFor(other.user.email), on: true } })).json.on, true);
 
     // Turning it off needs a code too, then the password alone is enough again.
     const offAsk = await call('/me/two-factor', { token: person.token, body: { on: false } });
@@ -2997,6 +2999,52 @@ describe('two-step sign-in by email', () => {
     assert.equal(off.json.on, false);
     assert.equal(off.json.user.twoFactor, false);
     assert.ok((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.token, 'the password alone opens it again');
+  });
+
+  // An inbox can stop working (mailbox closed, the mail account's app password revoked, the address typed wrong). The
+  // step then stands in front of an account nobody can open — a password reset gives a password the code still blocks —
+  // so an admin can clear it (Admin → Accounts) and the server can do the same when no admin can sign in either.
+  test('an admin, or the server itself, can switch it off when the code can no longer arrive', async () => {
+    const person = await register('Locked Out');
+    const email = person.user.email;
+    const admin = await register('Code Admin');
+    const made = spawnSync(process.execPath, ['--no-warnings', 'server/admin.mjs', 'admin', admin.user.email], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(made.status, 0, made.stderr);
+
+    // On, the way the person would: a code read from their inbox.
+    const asked = await call('/me/two-factor', { token: person.token, body: { on: true } });
+    assert.equal((await call('/me/two-factor/confirm', { token: person.token, body: { ticket: asked.json.ticket, code: codeFor(email) } })).json.on, true);
+
+    // The account list says who is protected, so an admin can see it before clearing it.
+    const listed = await call(`/admin/users?q=${encodeURIComponent(email)}`, { token: admin.token });
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    assert.equal(listed.json.find((a) => a.email === email)?.twoFactor, true);
+
+    // Someone who is not an admin cannot clear anybody's step — their own included.
+    assert.equal((await call(`/admin/users/${person.id}/two-factor`, { token: person.token, body: {} })).status, 403);
+
+    // A sign-in is a challenge; the admin clears the step; that half-finished challenge dies with it.
+    const login = await call('/auth/login', { body: { email, password: 'Test12345!' } });
+    assert.equal(login.json.token, undefined, 'no session while the step is on');
+    const cleared = await call(`/admin/users/${person.id}/two-factor`, { token: admin.token, body: {} });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+    assert.equal(cleared.json.twoFactor, false);
+    assert.equal((await call('/auth/login/code', { body: { ticket: login.json.twoFactor.ticket, code: codeFor(email) } })).json.error.code, 'code_expired');
+    assert.ok((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.token, 'the password alone opens it again');
+    assert.equal((await call(`/admin/users/${person.id}/two-factor`, { token: admin.token, body: {} })).json.error.code, 'already_off');
+    // ...and an admin cannot quietly strip their own from a session: that already needs a code from their inbox.
+    assert.equal((await call(`/admin/users/${admin.id}/two-factor`, { token: admin.token, body: {} })).json.error.code, 'self');
+
+    // The server's own tool, for when the inbox is broken and no admin can get in to press the button.
+    const again = await call('/me/two-factor', { token: person.token, body: { on: true } });
+    assert.equal((await call('/me/two-factor/confirm', { token: person.token, body: { ticket: again.json.ticket, code: codeFor(email) } })).json.on, true);
+    assert.equal((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.token, undefined);
+    const cli = spawnSync(process.execPath, ['--no-warnings', 'server/admin.mjs', 'twofactor', email, 'off'], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(cli.stdout, /Two-step sign-in is now off for/);
+    assert.match(cli.stdout, /password alone again/);
+    assert.ok((await call('/auth/login', { body: { email, password: 'Test12345!' } })).json.token, 'the CLI hands the account back to its password');
+    assert.equal(spawnSync(process.execPath, ['--no-warnings', 'server/admin.mjs', 'twofactor', 'nobody@example.com', 'off'], { cwd: root, env, encoding: 'utf8' }).status, 1);
   });
 });
 
