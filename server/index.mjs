@@ -6,6 +6,8 @@ import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, 
 import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { db, json, makeUsername, now, parse, transaction } from './db.mjs';
 import { mailConfigured, mailFrom, sendEmail, sendEmailNow, siteUrl, smtpUrlFor, verifyMailAccount } from './mail.mjs';
+// The fixed address the installed apps fall back to, and the one place addresses become origins (Google sign-in).
+import { FIRST_ADDRESS, toOrigins } from '../scripts/site-url.mjs';
 import { sendMobileMoney, transferStatus, transfersReady, findByReference, paymentSettings, paymentsEnabled, startCheckout, toCharge, verifyTransaction, webhookIsGenuine } from './payments.mjs';
 import { REALISTIC_CATEGORIES, REALISTIC_QUALITIES, checkOwnAi, clearResting, falKey, hfToken, ownAi, tellStudio, tryOn, unlimitedTryOn, whenPaidTryOnDown } from './tryon.mjs';
 import { moveImagesToFiles, releaseMedia, serveMedia, storeImage, sweepMedia } from './media.mjs';
@@ -679,6 +681,11 @@ route('POST', '/api/auth/login', ({ user, body }) => {
 // Google sign-in. The OAuth client ID comes from GOOGLE_CLIENT_ID or `node server/admin.mjs google <client id>`.
 const googleClientId = () =>
   process.env.GOOGLE_CLIENT_ID || parse(db.prepare("select value from app_config where key = 'google'").get()?.value)?.clientId || null;
+
+// Every address the site is opened on, as origins. Google compares the address a page was loaded from with the OAuth
+// client's "Authorized JavaScript origins" and refuses the button anywhere it is missing (400: origin_mismatch), so the
+// admin's Platform settings show this list — the other half is only in Google Cloud, and nothing here can do it.
+const googleOrigins = () => toOrigins([siteUrl(), FIRST_ADDRESS, 'http://localhost:9002']);
 
 route('GET', '/api/auth/google', () => ({ clientId: googleClientId() }));
 
@@ -4008,6 +4015,7 @@ route('GET', '/api/admin/platform', async ({ user }) => {
     site: siteUrl(),
     mail: { connected: mailConfigured(), from: mailFrom(), outbox, fromEnv: !!process.env.SMTP_URL },
     payments: { enabled: paymentsEnabled(), currency: pay.currency, rate: pay.rate, key: masked(pay.secretKey), webhook: `${siteUrl()}/api/payments/webhook`, fromEnv: !!process.env.FLW_SECRET_KEY },
+    google: { on: !!googleClientId(), clientId: googleClientId(), origins: googleOrigins(), fromEnv: !!process.env.GOOGLE_CLIENT_ID },
     tryon: { unlimited: unlimitedTryOn(), key: masked(falKey()), fromEnv: !!process.env.FAL_KEY },
     hf: { key: masked(hfToken()), fromEnv: !!process.env.HF_TOKEN },
     aiServer: own ? { url: own.url, ...ownStatus, fromEnv: !!process.env.AI_SERVER_URL } : null,
@@ -4081,6 +4089,22 @@ route('PUT', '/api/admin/platform/payments', async ({ user, body }) => {
   if (check && check.status === 401) fail(400, 'invalid_key', 'Flutterwave says this secret key is not valid.');
   saveConfig('payments', { secretKey, secretHash, currency, rate });
   return { ok: true, checked: !!check?.ok };
+});
+
+// The same switch as `node server/admin.mjs google <client id>`, for the admin who is already on Platform settings. The
+// addresses Google checks are not settable from here — they are shown next to this form instead (googleOrigins).
+route('PUT', '/api/admin/platform/google', ({ user, body }) => {
+  requireAdmin(user, 'platform');
+  if (body.off) {
+    saveConfig('google', null);
+    return { ok: true };
+  }
+  const clientId = String(body.clientId ?? '').trim();
+  if (!clientId.endsWith('.apps.googleusercontent.com')) {
+    fail(400, 'invalid_client_id', 'Paste the Client ID of the OAuth client of type Web application: it ends in .apps.googleusercontent.com (the Client secret starts with GOCSPX-).');
+  }
+  saveConfig('google', { clientId });
+  return { ok: true };
 });
 
 route('PUT', '/api/admin/platform/aiserver', async ({ user, body }) => {
@@ -5960,8 +5984,14 @@ route('GET', '/api/site', () => ({ url: siteUrl() }));
 // The quick tunnel's address, checked every minute (tunnel.mjs): a new name is used at once, and admins are told.
 const watchTunnel = () => checkTunnel((url, before) => {
   console.log(`Public address changed: ${before} → ${url}`);
+  // A new name is a new origin, and Google refuses its sign-in button on an origin the OAuth client does not list —
+  // so with Google sign-in on, the same message says which address has to be added, instead of leaving it to whoever
+  // tries the button next (400: origin_mismatch).
+  const googleHint = googleClientId()
+    ? ` Google sign-in needs this address too: add ${url} to Authorized JavaScript origins of the OAuth "Web application" client, or "Continue with Google" there is refused (Platform settings shows the list).`
+    : '';
   for (const { id } of db.prepare("select id from users where admin = 1 and suspended = 0 and (admin_level = 1 or admin_perms like '%platform%')").all()) {
-    notify(id, { type: 'account', title: 'Saligue has a new public address', body: `The Cloudflare tunnel restarted: ${url}. Installed apps find it by themselves. A real domain ends these changes (deploy/switch-domain.sh).`, link: '/admin', email: true });
+    notify(id, { type: 'account', title: 'Saligue has a new public address', body: `The Cloudflare tunnel restarted: ${url}. Installed apps find it by themselves. A real domain ends these changes (deploy/switch-domain.sh).${googleHint}`, link: '/admin', email: true });
   }
 });
 setTimeout(watchTunnel, 15_000).unref();

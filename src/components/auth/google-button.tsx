@@ -1,6 +1,7 @@
 'use client';
 
 import { friendlyError } from '@/lib/errors';
+import { isNativeApp } from '@/lib/native';
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -50,12 +51,18 @@ function GoogleLogo() {
  * dialog, and the date of birth the dialog collected: the server asks for it when it creates an account (16+), and
  * never when someone signs back in to an account that already stated it. When no dialog collected a date — the login
  * dialog, for instance — the date is asked for right here and the same Google token is retried.
+ *
+ * Inside the phone app there is no such button (state 'app'): Google refuses its sign-in in an embedded WebView with
+ * `disallowed_useragent`, and the app's pages come from https://localhost, an address Google will not accept as an
+ * authorized JavaScript origin — so the app signs people in with the email form above, and nothing is risked on a
+ * button that could only fail.
  */
 export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void; onSuspended?: (message: string, credential: string) => void }) {
   const { toast } = useToast();
   const t = useT();
   const slot = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'off'>('loading');
+  // 'app' means the phone app's WebView, where Google sign-in is not possible at all.
+  const [state, setState] = useState<'loading' | 'ready' | 'off' | 'app'>('loading');
   // Google's ID token is held here when the server says a new account still has to state its age.
   const pending = useRef<string | null>(null);
   const [askedAge, setAskedAge] = useState(false);
@@ -69,6 +76,12 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Nothing is fetched and Google's script is never loaded inside the app: the button it draws cannot sign
+      // anyone in there (see the note above the component), so the email form above is the way in.
+      if (isNativeApp()) {
+        if (!cancelled) setState('app');
+        return;
+      }
       try {
         const clientId = await googleClientId();
         if (!clientId) {
@@ -140,6 +153,9 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
       setChecking(false);
     }
   }
+
+  // In the app the whole section goes, divider and terms line included: the email form above stands on its own there.
+  if (state === 'app') return null;
 
   return (
     <div className="space-y-4">

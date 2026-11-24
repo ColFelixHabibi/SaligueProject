@@ -158,7 +158,26 @@ JSON answer (tokens, own data, refusals) carries `nosniff` and `no-store`, and s
 
 Failed sign-ins are counted per key, and that map is bounded and pruned, so a flood of random addresses cannot grow
 it without limit. A **suspended** account is refused on both paths — email and Google — rather than only the first.
-Google's ID token is verified against Google's keys before an account is created or entered.
+Google's ID token is verified against Google's keys before an account is created or entered. The OAuth **web client ID**
+lives on the server, never in the code: `node server/admin.mjs google <client id>` stores it in `app_config` (read
+again on every request, so no restart), and `GOOGLE_CLIENT_ID` in `/etc/saligue.env` wins over it; the command prints
+every address Google Cloud still has to authorize, and refuses a value that is not a client ID. **Admin → Platform
+settings → Google sign-in** (`src/app/admin/page.tsx`) does the same from the browser without the terminal: it shows
+that list with a copy button beside each address, says which address the page was opened on when that one is missing
+from it, and saves or switches off the client ID (`PUT /api/admin/platform/google`).
+
+The other half is in Google Cloud, and only there: **Authorized JavaScript origins** on that one *Web application*
+client must list every address the site is opened on, because Google compares it with the address the page came from
+and refuses with `Access blocked — Error 400: origin_mismatch` when it is missing. Enter scheme, host and port exactly
+as they appear in the address bar — no path, no trailing slash, one entry per address
+(`https://78-47-151-100.sslip.io`, the day's `https://<random>.trycloudflare.com`, `http://localhost:9002` for
+`npm run dev`). A new quick-tunnel name is a new origin, and a bare IP (`https://78.47.151.100`) cannot be entered at
+all — which is why Caddy redirects it. Saving there takes a few minutes to reach the browser. The notice admins get
+when the tunnel announces a new name names the address to add, so the button breaking on it is not discovered by
+whoever tries it next. Inside the phone app the pages come from `https://localhost` and Google refuses its sign-in
+inside embedded WebViews (`disallowed_useragent`), so the app signs people in with email:
+`src/components/auth/google-button.tsx` asks `isNativeApp()` before fetching anything and leaves the whole Google block
+out there, rather than offering a button that could only fail.
 
 **Closing an account takes three steps, never one** (Admin → Accounts, `server/index.mjs`): an admin suspends it for
 1, 3, 7 or 30 days — or until reviewed — and a timed suspension ends by itself; an admin may then *ask* to close it,

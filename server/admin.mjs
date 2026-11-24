@@ -6,7 +6,8 @@
 //   node server/admin.mjs password <email> <new password>   set an account's password (signs it out everywhere)
 //   node server/admin.mjs users                 list accounts
 //   node server/admin.mjs support               list support requests
-//   node server/admin.mjs google <client id>    switch on Google sign-in (OAuth web client ID)
+//   node server/admin.mjs google <client id>    switch on Google sign-in (OAuth "Web application" client ID);
+//                                               it prints the origins Google Cloud must also authorize
 //   node server/admin.mjs mail <smtp url> [from] send real emails, e.g. smtps://you%40gmail.com:APP_PASSWORD@smtp.gmail.com
 //   node server/admin.mjs site <url>            the website's public address, used in links inside emails
 //   node server/admin.mjs reports               reported items (hidden ones first)
@@ -22,6 +23,8 @@ import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { db, json, makeUsername, transaction } from './db.mjs';
 import { learn } from './learn.mjs';
 import { sendEmail } from './mail.mjs';
+// The site's public address, read the way the builds read it (SITE_URL, /etc/saligue.env, then today's tunnel name).
+import { FIRST_ADDRESS, siteUrl, toOrigins } from '../scripts/site-url.mjs';
 
 const [command, email] = process.argv.slice(2);
 
@@ -29,6 +32,14 @@ const [command, email] = process.argv.slice(2);
 function hashPassword(password) {
   const salt = randomBytes(16);
   return ['scrypt', salt.toString('hex'), scryptSync(password, salt, 64).toString('hex')].join(String.fromCharCode(36));
+}
+
+/**
+ * Every address the site is opened on, as origins (scheme://host[:port]): today's public address, the fixed one the
+ * installed apps fall back to, and the port `npm run dev` serves on. These are the entries Google Cloud needs.
+ */
+function signInOrigins() {
+  return toOrigins([siteUrl(), FIRST_ADDRESS, 'http://localhost:9002']);
 }
 
 if (command === 'official' || command === 'unofficial') {
@@ -150,9 +161,31 @@ if (command === 'official' || command === 'unofficial') {
   console.log('The item is visible again and its reports are cleared.');
 } else if (command === 'google') {
   // Here the second argument is the Google OAuth client ID, not an email.
+  const clientId = String(email ?? '').trim();
+  if (!clientId) {
+    console.error('Usage: node server/admin.mjs google <client id>   (the "Web application" OAuth client, ending in .apps.googleusercontent.com)');
+    process.exit(1);
+  }
+  // A secret (GOCSPX-…) or the project number is stored just as happily and then fails at the button, so refuse it here.
+  if (!clientId.endsWith('.apps.googleusercontent.com')) {
+    console.error('That is not a client ID: it ends in .apps.googleusercontent.com (the "Client secret" starts with GOCSPX-). Nothing was changed.');
+    process.exit(1);
+  }
   db.prepare("insert into app_config (key, value) values ('google', ?) on conflict(key) do update set value = excluded.value")
-    .run(JSON.stringify({ clientId: String(email ?? '').trim() }));
+    .run(JSON.stringify({ clientId }));
   console.log('Google sign-in is switched on. Restart is not needed.');
+  // The other half lives in Google Cloud and nothing here can do it: Google compares the address the page was
+  // loaded from (window.location.origin) with the client's "Authorized JavaScript origins" and answers
+  // 400: origin_mismatch when it is missing. Scheme, host and port must match exactly — no path, no trailing
+  // slash — one entry per address, and a bare IP address cannot be entered at all.
+  const origins = signInOrigins();
+  console.log('');
+  console.log('Still to do in Google Cloud — Credentials → that client → Authorized JavaScript origins, one entry each:');
+  for (const origin of origins) console.log(`  ${origin}`);
+  if (origins.some((origin) => /\.trycloudflare\.com$/.test(origin))) {
+    console.log('A Cloudflare quick tunnel gets a new name each time it restarts, and a new name is a new origin: add it');
+    console.log('too, or point SITE_URL at a real domain (deploy/switch-domain.sh), which is only entered once.');
+  }
 } else if (command === 'mail' || command === 'site') {
   const value = String(email ?? '').trim();
   const config = command === 'mail' ? { url: value, from: process.argv[4] } : { url: value };

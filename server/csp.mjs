@@ -82,8 +82,9 @@ export function cspDirectives({ liveKitUrl, apiUrl, studioUrl, extraConnect } = 
     // 'unsafe-inline': the static export's own bootstrap. 'wasm-unsafe-eval': the on-device try-on engine compiles
     // WebAssembly (onnxruntime-web, MediaPipe) — without it the Fitting Room cannot start.
     'script-src': ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", GOOGLE_SIGN_IN],
-    // Tailwind ships one file, but React writes style attributes and Next inlines a few rules.
-    'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    // Tailwind ships one file, but React writes style attributes and Next inlines a few rules. Google's sign-in script
+    // adds its own small stylesheet for the button (the address Google lists for style-src: only that file).
+    'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', `${GOOGLE_SIGN_IN}/gsi/style`],
     'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
     'img-src': ["'self'", 'data:', 'blob:', ...(api ? [api] : [])],
     // Recordings and voice notes are played from blob: addresses the page made itself; replays come from this server.

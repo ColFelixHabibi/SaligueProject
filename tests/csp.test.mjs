@@ -39,6 +39,8 @@ describe('the policy lets the app do its job', () => {
     for (const directive of ['script-src', 'frame-src', 'connect-src']) {
       assert.ok(sources(directive).includes('https://accounts.google.com'), `${directive}: ${policy}`);
     }
+    // Its script adds a stylesheet for the button; refused, the browser logs a CSP error on every sign-in page.
+    assert.ok(sources('style-src').includes('https://accounts.google.com/gsi/style'), `style-src: ${policy}`);
   });
 
   test('the shop map and the pictures it needs are allowed', () => {

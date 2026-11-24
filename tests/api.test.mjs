@@ -1431,6 +1431,38 @@ describe('security watch', () => {
     const platform = (await call('/admin/platform', { token: admin.token })).json.stats;
     for (const key of ['users', 'sellers', 'products', 'orders']) assert.equal(typeof platform[key], 'number', key);
   });
+  test('Google sign-in is switched on from Platform settings, with the addresses Google Cloud has to be given', async () => {
+    const admin = await register('Platform Google Admin');
+    const db = new DatabaseSync(join(data, 'saligue.db'));
+    db.prepare('update users set admin = 1, admin_level = 1 where id = ?').run(admin.id);
+    db.close();
+    const clientId = '908738925071-6c2s274nr6oaj4gief0ph2m7ubuoc25o.apps.googleusercontent.com';
+    // A secret, a project number or an empty box is refused here too, not only by `node server/admin.mjs google`.
+    assert.equal((await call('/auth/google')).json.clientId, null, 'nothing is switched on yet');
+    for (const wrong of ['', 'GOCSPX-a-secret', '908738925071']) {
+      assert.equal((await call('/admin/platform/google', { method: 'PUT', token: admin.token, body: { clientId: wrong } })).status, 400, `refused: ${wrong}`);
+      assert.equal((await call('/auth/google')).json.clientId, null, 'a refused value changes nothing');
+    }
+    const saved = await call('/admin/platform/google', { method: 'PUT', token: admin.token, body: { clientId } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    // The sign-in button asks for it on every page load, so it is on without a restart.
+    assert.equal((await call('/auth/google')).json.clientId, clientId);
+    // The other half of the switch cannot be done from here: Google Cloud must hold these addresses as authorized
+    // JavaScript origins, so Platform settings is given them as origins — this site's own, the fixed one apps fall back
+    // to, and the port `npm run dev` serves on.
+    const google = (await call('/admin/platform', { token: admin.token })).json.google;
+    assert.equal(google.on, true);
+    assert.equal(google.clientId, clientId);
+    for (const origin of [base, 'https://78-47-151-100.sslip.io', 'http://localhost:9002']) assert.ok(google.origins.includes(origin), origin);
+    for (const origin of google.origins) assert.equal(new URL(origin).origin, origin, `an origin, not an address: ${origin}`);
+    // Only an admin with the Platform right touches it.
+    const stranger = await register('Platform Google Stranger');
+    assert.equal((await call('/admin/platform/google', { method: 'PUT', token: stranger.token, body: { clientId } })).status, 403);
+    assert.equal((await call('/admin/platform/google', { method: 'PUT', body: { off: true } })).status, 403);
+    // Off again, so nothing after this test offers a Google button.
+    assert.equal((await call('/admin/platform/google', { method: 'PUT', token: admin.token, body: { off: true } })).status, 200);
+    assert.equal((await call('/auth/google')).json.clientId, null);
+  });
   test('the main admin can clear the admin log, and one line says who cleared it', async () => {
     const admin = await mainAdmin('Log Admin');
     assert.equal((await call('/admin/security/clear', { method: 'POST', token: admin.token })).status, 200);

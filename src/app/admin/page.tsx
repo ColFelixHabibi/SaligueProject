@@ -16,7 +16,7 @@ import { ComplianceAdmin } from '@/components/admin/compliance-admin';
 import { AiLearningAdmin } from '@/components/admin/ai-learning-admin';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldAlert, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Coins, CheckCircle2, ChevronRight, CircleDashed, Copy, Cpu, CreditCard, Download, EyeOff, Eye, GraduationCap, KeyRound, LayoutDashboard, Loader2, LogIn, Mail, Megaphone, Package, Radio, Rocket, Scale, ScrollText, Server, ShieldAlert, ShieldCheck, Shirt, ShoppingBag, SlidersHorizontal, UserCog, Users, Wallet, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,10 @@ type Platform = {
   site: string;
   mail: { connected: boolean; from: string; outbox: number; fromEnv: boolean };
   payments: { enabled: boolean; currency: string; rate: number; key: string | null; webhook: string; fromEnv: boolean };
+  // The addresses Google's sign-in has to accept (origins) are the other half of the switch, and only Google Cloud
+  // holds them: the card shows them, so nobody has to guess which one is missing. Optional, like `hf`: this page also
+  // ships inside the installed apps, which may be talking to a server older than this field.
+  google?: { on: boolean; clientId: string | null; origins: string[]; fromEnv: boolean };
   tryon: { unlimited: boolean; key: string | null; fromEnv: boolean };
   hf?: { key: string | null; fromEnv: boolean };
   aiServer: { url: string; ok: boolean; reason?: string; gpu?: string | null; memoryGb?: number | null; ready?: boolean; busy?: boolean; fromEnv: boolean } | null;
@@ -76,6 +80,10 @@ function PlatformSettings() {
   const [falKey, setFalKey] = useState('');
   const [hfToken, setHfToken] = useState('');
   const [aiServer, setAiServer] = useState({ url: '', key: '' });
+  const [googleId, setGoogleId] = useState('');
+  // The address this page was opened on. Google draws its button only where the OAuth client lists that address, so
+  // the card names it when it is missing from the list. It is read after mounting: the site is built without a window.
+  const [here, setHere] = useState('');
   const [signing, setSigning] = useState<{ available: boolean; alias?: string } | null>(null);
   const [signingPassword, setSigningPassword] = useState<string | null>(null);
   const [keySaved, setKeySaved] = useState(false);
@@ -110,6 +118,7 @@ function PlatformSettings() {
   useEffect(() => {
     if (user?.email) setTestTo((t) => t || user.email!);
   }, [user]);
+  useEffect(() => setHere(window.location.origin), []);
 
   const act = async (name: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(name);
@@ -127,6 +136,9 @@ function PlatformSettings() {
   };
 
   if (isAuthLoading || !data) return <Skeleton className="h-96" />;
+
+  // A server older than this page sends no `google` at all: the card then reads as off, with nothing to list.
+  const google = data.google ?? { on: false, clientId: null, origins: [] as string[], fromEnv: false };
 
   return (
     <div className="space-y-6">
@@ -180,6 +192,53 @@ function PlatformSettings() {
               <Button type="submit" variant="outline" disabled={busy === 'test'}>{busy === 'test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Send test</Button>
             </form>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><LogIn className="h-5 w-5 text-primary" /> Google sign-in</CardTitle>
+            <Status on={google.on} label={['On · Google accounts', 'Off · email only']} />
+          </div>
+          <CardDescription>
+            “Continue with Google” on the sign-in and register screens. Google draws its button only on the addresses listed
+            below: anywhere else its own page answers <b className="text-foreground">Error 400: origin_mismatch</b> before
+            Saligue is asked anything.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Steps items={[
+            <>Open <b>console.cloud.google.com</b> → APIs &amp; Services → <b>Credentials</b> and choose the OAuth client of type <b>Web application</b>.</>,
+            <>In <b>Authorized JavaScript origins</b>, add every address below exactly as written — no path, no trailing slash — then save.</>,
+            <>Paste that client’s <b>Client ID</b> below. Google takes a few minutes to pass a changed list to the browser.</>,
+          ]} />
+          <div className="space-y-1.5">
+            <Label>Addresses Google must accept</Label>
+            <ul className="space-y-1 text-sm">
+              {google.origins.map((origin) => (
+                <li key={origin} className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 select-all break-all rounded bg-muted px-2 py-1">{origin}</code>
+                  <Button size="icon" variant="outline" aria-label={`Copy ${origin}`} onClick={() => navigator.clipboard.writeText(origin).then(() => toast({ title: 'Address copied' })).catch(() => {})}><Copy className="h-4 w-4" /></Button>
+                </li>
+              ))}
+            </ul>
+            {here && !google.origins.includes(here) && (
+              <p className="text-xs text-amber-600">You opened this page on <b>{here}</b>, which is not in the list: Google refuses sign-in from there. Add that address as well.</p>
+            )}
+            {google.origins.some((origin) => /\.trycloudflare\.com$/.test(origin)) && (
+              <p className="text-xs text-muted-foreground">A Cloudflare quick tunnel gets a new name when it restarts, and a new name is another address to add. A real domain (<code>deploy/switch-domain.sh</code>) is entered once.</p>
+            )}
+          </div>
+          {google.clientId && <p className="text-sm">Client ID: <b className="break-all">{google.clientId}</b>{google.fromEnv ? ' · set in /etc/saligue.env' : ''}</p>}
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
+            e.preventDefault();
+            void act('google', () => api('/admin/platform/google', { method: 'PUT', body: { clientId: googleId } }), 'Google sign-in is on').then((ok) => ok && setGoogleId(''));
+          }}>
+            <div className="min-w-0 flex-1 space-y-1.5"><Label htmlFor="google-client">Client ID</Label><Input id="google-client" required value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="…apps.googleusercontent.com" autoComplete="off" /></div>
+            <Button type="submit" disabled={busy === 'google'}>{busy === 'google' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save</Button>
+            {google.on && !google.fromEnv && <Button type="button" variant="ghost" onClick={() => act('google-off', () => api('/admin/platform/google', { method: 'PUT', body: { off: true } }), 'Google sign-in is off')}>Turn off</Button>}
+          </form>
         </CardContent>
       </Card>
 

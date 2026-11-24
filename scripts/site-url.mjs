@@ -39,3 +39,20 @@ export function siteUrl() {
   }
   return url;
 }
+
+/**
+ * The origins (scheme://host[:port]) behind a list of addresses, without repeats. This is the shape Google compares
+ * with the address a page was loaded from before it draws its sign-in button: every address the site is opened on has
+ * to be listed in the OAuth client, or Google refuses that page with "Error 400: origin_mismatch". An address it
+ * cannot read is dropped rather than thrown, so one bad line never costs the whole list.
+ */
+export function toOrigins(addresses) {
+  const origins = (addresses ?? []).map((address) => {
+    try {
+      return new URL(String(address ?? '').trim()).origin;
+    } catch {
+      return null;
+    }
+  });
+  return [...new Set(origins.filter(Boolean))];
+}
