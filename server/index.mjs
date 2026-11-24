@@ -830,11 +830,11 @@ route('POST', '/api/auth/login', ({ user, body }) => {
   if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', suspendRefusal(account));
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
     noteFailedAttempt(email);
-    // An account made with "Continue with Google" has no password. The phone app has no Google button (Google refuses
-    // it inside apps), so say how to get in instead of "incorrect": Google on the website, or Forgot password, whose
-    // link sets a first password. Sign-up already says whether an email has an account, so this tells no more.
+    // An account made with "Continue with Google" has no password, so say how to get in instead of "incorrect":
+    // Continue with Google (in the app it signs in through the phone's browser), or Forgot password, whose link sets a
+    // first password. Sign-up already says whether an email has an account, so this tells no more.
     if (account && !account.password_hash && !account.is_guest) {
-      fail(401, 'google_account', 'This account signs in with Google. On the website use Continue with Google, or tap Forgot password to set a password for the app.');
+      fail(401, 'google_account', 'This account signs in with Google. Tap Continue with Google below, or Forgot password to set a password.');
     }
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
@@ -903,7 +903,7 @@ async function googleIdentity(credential) {
   return info;
 }
 
-route('POST', '/api/auth/google', async ({ req, user, body }) => {
+async function googleSignIn({ req, user, body }) {
   const info = await googleIdentity(body.credential);
   const email = String(info.email).toLowerCase();
   const name = String(info.name || email.split('@')[0]).slice(0, 80);
@@ -931,6 +931,37 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   db.prepare('insert into users (id, email, display_name, role, terms_accepted_at, terms_version, birth_date, age_checked_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, email, name, role, now(), TERMS_VERSION, birthDate, now(), now());
   welcome(id, name, role);
   return { token: createSession(id), user: publicUser(db.prepare('select * from users where id = ?').get(id)), isNew: true };
+}
+route('POST', '/api/auth/google', googleSignIn);
+
+// Google sign-in for the phone apps. Google refuses its sign-in inside an app's WebView (disallowed_useragent), so the
+// app opens /app-signin in the phone's own browser with a challenge — SHA-256 of a secret only the app holds, as in
+// OAuth's PKCE. That page signs in with Google here and gets a one-time code (nothing is signed in on the browser), sends
+// the browser back to the app (com.indeciana.saligue://signin?code=…), and the app trades the code and its secret for
+// a session. Another app catching the link has the code but not the secret; a code works once, for three minutes.
+const appHandoffs = new Map(); // sha256(code) → { token, user, isNew, challenge, expires }
+route('POST', '/api/auth/google/app', async ({ req, body }) => {
+  const challenge = String(body.challenge ?? '');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(challenge)) fail(400, 'invalid_challenge', 'Open this page from the Saligue app.');
+  const session = await googleSignIn({ req, user: null, body });
+  const code = randomBytes(24).toString('base64url');
+  const at = Date.now();
+  for (const [k, v] of appHandoffs) if (v.expires < at) appHandoffs.delete(k);
+  appHandoffs.set(sessionHash(code), { ...session, challenge, expires: at + 3 * 60_000 });
+  return { code };
+});
+route('POST', '/api/auth/google/app/redeem', ({ body }) => {
+  const key = sessionHash(String(body.code ?? ''));
+  const handoff = appHandoffs.get(key);
+  if (!handoff || handoff.expires < Date.now()) fail(400, 'code_expired', 'That sign-in has expired. Tap Continue with Google again.');
+  const proof = createHash('sha256').update(String(body.verifier ?? '')).digest('base64url');
+  // A wrong secret spends the code too: whoever holds a stolen code gets one try, and it fails.
+  appHandoffs.delete(key);
+  if (proof.length !== handoff.challenge.length || !timingSafeEqual(Buffer.from(proof), Buffer.from(handoff.challenge))) {
+    db.prepare('delete from sessions where token = ?').run(sessionHash(handoff.token));
+    fail(400, 'code_expired', 'That sign-in has expired. Tap Continue with Google again.');
+  }
+  return { token: handoff.token, user: handoff.user, isNew: !!handoff.isNew };
 });
 
 route('POST', '/api/auth/logout', ({ req, res }) => {

@@ -18,6 +18,8 @@ const onDevice = () => typeof window !== 'undefined' && isNativeApp() && /^(http
 // where Saligue is now (rediscover below).
 const SERVER_KEY = 'saligue-server';
 const FIXED_ORIGIN = (process.env.NEXT_PUBLIC_FIXED_URL || 'https://78-47-151-100.sslip.io').replace(/\/+$/, '');
+/** The server's own fixed address (it never changes, unlike a quick tunnel's name). */
+export const fixedOrigin = () => FIXED_ORIGIN;
 function apiOrigin() {
   if (cachedOrigin === null) {
     let remembered: string | null = null;

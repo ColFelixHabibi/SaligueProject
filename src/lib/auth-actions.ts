@@ -1,6 +1,7 @@
 'use client';
 
-import { api, setToken } from './api';
+import { api, fixedOrigin, setToken } from './api';
+import { openInBrowser } from './native';
 import type { Shop } from './types';
 
 export type AccountUser = {
@@ -132,6 +133,35 @@ export async function googleClientId() {
  */
 export async function loginWithGoogle(credential: string, role?: 'buyer' | 'seller', birthDate?: string) {
   const session = await api<Session>('/auth/google', { body: { credential, role, birthDate } });
+  setToken(session.token);
+  emit(session.user, session.isNew ? 'registered' : 'signed-in');
+}
+
+// Google sign-in for the phone apps (server: /api/auth/google/app). Google refuses to sign in inside the app's WebView,
+// so the app keeps a secret, opens /app-signin in the phone's browser with its SHA-256, and gets back a one-time code
+// (com.indeciana.saligue://signin?code=…) that only this secret can turn into a session.
+const VERIFIER_KEY = 'saligue-google-verifier';
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** In the app: opens Google sign-in in the phone's browser. */
+export async function startAppGoogleSignIn(role?: 'buyer' | 'seller') {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  localStorage.setItem(VERIFIER_KEY, verifier);
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  // The fixed address: Google only signs in on addresses authorized for this client, and a quick tunnel's name changes.
+  openInBrowser(`${fixedOrigin()}/app-signin/?challenge=${challenge}${role ? `&role=${role}` : ''}`);
+}
+
+/** In the browser page /app-signin: Google's token and the app's challenge become a one-time code for the app. */
+export const googleCodeForApp = (credential: string, challenge: string, role?: 'buyer' | 'seller', birthDate?: string) =>
+  api<{ code: string }>('/auth/google/app', { body: { credential, challenge, role, birthDate } }).then((r) => r.code);
+
+/** In the app, when the browser hands the code back: signs in with it and the secret kept for it. */
+export async function finishAppGoogleSignIn(code: string) {
+  const verifier = localStorage.getItem(VERIFIER_KEY);
+  if (!verifier) throw Object.assign(new Error('That sign-in has expired. Tap Continue with Google again.'), { code: 'code_expired' });
+  localStorage.removeItem(VERIFIER_KEY);
+  const session = await api<Session>('/auth/google/app/redeem', { body: { code, verifier } });
   setToken(session.token);
   emit(session.user, session.isNew ? 'registered' : 'signed-in');
 }

@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { yearsAgo } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { useT } from '@/lib/i18n';
-import { googleClientId, loginWithGoogle } from '@/lib/auth-actions';
+import { googleClientId, googleCodeForApp, loginWithGoogle, startAppGoogleSignIn } from '@/lib/auth-actions';
 
 declare global {
   interface Window {
@@ -52,12 +52,13 @@ function GoogleLogo() {
  * never when someone signs back in to an account that already stated it. When no dialog collected a date — the login
  * dialog, for instance — the date is asked for right here and the same Google token is retried.
  *
- * Inside the phone app there is no such button (state 'app'): Google refuses its sign-in in an embedded WebView with
- * `disallowed_useragent`, and the app's pages come from https://localhost, an address Google will not accept as an
- * authorized JavaScript origin — so the app signs people in with the email form above, and nothing is risked on a
- * button that could only fail.
+ * Inside the phone app (state 'app') Google's own button cannot work: Google refuses its sign-in in an embedded
+ * WebView with `disallowed_useragent`, and the app's pages come from https://localhost, which Google does not accept
+ * as an origin. So there the button opens /app-signin in the phone's own browser, which signs in with Google and
+ * sends a one-time code back to the app (src/lib/auth-actions.ts, startAppGoogleSignIn). On that page `forApp` is
+ * set: the Google token becomes that code instead of signing in the browser.
  */
-export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void; onSuspended?: (message: string, credential: string) => void }) {
+export function GoogleButton({ role, birthDate, onDone, onSuspended, forApp }: { role?: 'buyer' | 'seller'; birthDate?: string; onDone?: () => void; onSuspended?: (message: string, credential: string) => void; forApp?: { challenge: string; onCode: (code: string) => void } }) {
   const { toast } = useToast();
   const t = useT();
   const slot = useRef<HTMLDivElement>(null);
@@ -70,8 +71,17 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
   const [checking, setChecking] = useState(false);
   const ageId = useId();
   // Read inside Google's callback, which is registered only once.
-  const latest = useRef({ role, birthDate, onDone, onSuspended, t });
-  latest.current = { role, birthDate, onDone, onSuspended, t };
+  const latest = useRef({ role, birthDate, onDone, onSuspended, t, forApp });
+  latest.current = { role, birthDate, onDone, onSuspended, t, forApp };
+  // The Google token signs this browser in — or, on /app-signin, becomes the one-time code for the app.
+  const finish = async (credential: string, date?: string) => {
+    const { forApp: app, role: r, onDone: done } = latest.current;
+    if (app) app.onCode(await googleCodeForApp(credential, app.challenge, r, date));
+    else {
+      await loginWithGoogle(credential, r, date);
+      done?.();
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -94,8 +104,7 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
           client_id: clientId,
           callback: async ({ credential }: { credential: string }) => {
             try {
-              await loginWithGoogle(credential, latest.current.role, latest.current.birthDate || undefined);
-              latest.current.onDone?.();
+              await finish(credential, latest.current.birthDate || undefined);
             } catch (error: any) {
               // A brand-new Google account still has to state its age: ask right here, then retry with the same token.
               if (error?.code === 'birth_date_required' || error?.code === 'invalid_birth_date') {
@@ -141,8 +150,7 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
     if (!credential) return;
     setChecking(true);
     try {
-      await loginWithGoogle(credential, latest.current.role, typedDate);
-      latest.current.onDone?.();
+      await finish(credential, typedDate);
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -154,16 +162,20 @@ export function GoogleButton({ role, birthDate, onDone, onSuspended }: { role?: 
     }
   }
 
-  // In the app the whole section goes, divider and terms line included: the email form above stands on its own there.
-  if (state === 'app') return null;
-
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 text-xs uppercase text-muted-foreground">
         <span className="h-px flex-1 bg-border" /> {t('or')} <span className="h-px flex-1 bg-border" />
       </div>
       <div ref={slot} className={state === 'ready' ? 'flex min-h-11 justify-center' : 'hidden'} />
-      {state !== 'ready' && (
+      {state === 'app' && (
+        // In the app: Google signs in in the phone's browser, which then brings you back here signed in.
+        <Button type="button" variant="outline" size="lg" className="h-14 w-full rounded-full text-base"
+          onClick={() => startAppGoogleSignIn(role).catch((error) => toast({ variant: 'destructive', title: t('Google sign-in failed'), description: friendlyError(error) }))}>
+          <span className="mr-3"><GoogleLogo /></span> {t('Continue with Google')}
+        </Button>
+      )}
+      {state !== 'ready' && state !== 'app' && (
         <Button
           type="button"
           variant="outline"

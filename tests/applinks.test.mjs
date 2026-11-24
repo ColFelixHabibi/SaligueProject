@@ -112,7 +112,9 @@ test('the published key is the release signing key', { skip: signingFingerprint(
 // link on a phone that had Saligue installed opened the app — whose window cannot save a file — and nothing
 // downloaded. App Links cannot say "everything except", so the shared pages are named and the download is left out.
 test('the app claims pages, never the whole address', () => {
-  const data = [...manifest.matchAll(/<data[^>]*>/g)].map((m) => m[0]);
+  // Web addresses only: the app's own scheme (com.indeciana.saligue://signin, Google sign-in coming back from the
+  // browser) belongs to the app alone, so it has no website path to leave to the browser.
+  const data = [...manifest.matchAll(/<data[^>]*>/g)].map((m) => m[0]).filter((tag) => tag.includes('android:scheme="https"'));
   assert.ok(data.length > 0, 'the app claims no path at all: shared links would never open it');
   for (const tag of data) assert.match(tag, /android:(path|pathPrefix)="/, `${tag} claims every path on the address`);
   assert.ok(!data.some((tag) => tag.includes('android:pathPrefix="/download')), '/download must be left to the browser');
@@ -121,6 +123,12 @@ test('the app claims pages, never the whole address', () => {
 
 // A WebView cannot save a file. The manifest no longer hands /download to the app, but an older build still claims
 // every path, so the links that do arrive are handed to the phone's browser instead of a page that cannot download.
+test('Google sign-in can come back to the app from the browser, on both phones', () => {
+  assert.match(manifest, /android:scheme="com\.indeciana\.saligue" android:host="signin"/);
+  assert.match(readFileSync('ios/App/App/Info.plist', 'utf8'), /<string>com\.indeciana\.saligue<\/string>/);
+  assert.match(appLinks, /finishAppGoogleSignIn/);
+});
+
 test('a link to the download goes to the phone\'s browser, not to a page the app cannot download from', () => {
   assert.match(appLinks, /\^\\\/download\(\\\/\|\$\)/); // the /download/ page and /download/saligue.apk
   assert.match(appLinks, /openInBrowser\(target\.toString\(\)\)/);

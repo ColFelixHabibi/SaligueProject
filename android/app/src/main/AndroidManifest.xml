@@ -48,6 +48,15 @@
                 <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/register" />
                 <data android:scheme="https" android:host="78-47-151-100.sslip.io" android:pathPrefix="/invite" />
             </intent-filter>
+            <!-- Google sign-in comes back here: Google will not sign in inside the app's WebView, so the app opens
+                 /app-signin in the phone's browser, which returns com.indeciana.saligue://signin?code=… (one-time,
+                 usable only with a secret the app kept: src/lib/auth-actions.ts). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.indeciana.saligue" android:host="signin" />
+            </intent-filter>
         </activity>
 
         <provider

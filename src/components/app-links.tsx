@@ -3,6 +3,9 @@
 import { useEffect } from 'react';
 import { openInBrowser } from '@/lib/native';
 import { siteHost } from '@/lib/paths';
+import { finishAppGoogleSignIn } from '@/lib/auth-actions';
+import { friendlyError } from '@/lib/errors';
+import { useToast } from '@/hooks/use-toast';
 
 /**
  * Shared links open the app, the way they do in every other social app: a Saligue link sent on WhatsApp opens
@@ -15,6 +18,7 @@ import { siteHost } from '@/lib/paths';
  * inside the app — except a download, which goes to the phone's browser, because a WebView cannot save a file.
  */
 export function AppLinks() {
+  const { toast } = useToast();
   useEffect(() => {
     const capacitor = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     if (capacitor?.isNativePlatform?.() !== true) return;
@@ -30,8 +34,28 @@ export function AppLinks() {
     const here = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
     const bare = (path: string) => path.replace(/(.)\/+(\?|#|$)/, '$1$2');
 
+    // Google sign-in coming back from the phone's browser (src/app/app-signin): com.indeciana.saligue://signin?code=…
+    const signIn = (url: string) => {
+      const code = new URL(url.replace(/^com\.indeciana\.saligue:\/\//, 'https://app/')).searchParams.get('code');
+      if (!code) return;
+      finishAppGoogleSignIn(code)
+        .then(() => {
+          toast({ title: 'Signed in with Google' });
+          if (/^\/(login|register)(\/|$)/.test(window.location.pathname)) window.location.href = '/';
+        })
+        .catch((error) => toast({ variant: 'destructive', title: 'Google sign-in failed', description: friendlyError(error) }));
+    };
+    const handled = new Set<string>();
     const open = (url?: string | null) => {
       if (!url) return;
+      if (url.startsWith('com.indeciana.saligue://signin')) {
+        // The launch URL and the event can both carry it: a code works once, so use it once.
+        if (!handled.has(url)) {
+          handled.add(url);
+          signIn(url);
+        }
+        return;
+      }
       let target: URL;
       try {
         target = new URL(url);
@@ -72,6 +96,7 @@ export function AppLinks() {
       left = true;
       removed?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return null;

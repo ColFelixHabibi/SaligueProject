@@ -3204,6 +3204,40 @@ describe('app versions', () => {
 // when they typed it with other dots, a +tag or googlemail.com — and an account made with Google, which has no
 // password, is told how to sign in where there is no Google button (the phone app) instead of "incorrect".
 describe('Google sign-in and existing accounts', () => {
+  // The phone apps: Google signs in in the phone's browser, which gets a one-time code for the app; only the app's
+  // secret (whose SHA-256 the page was given) turns it into a session, and only once.
+  test('the app signs in with Google through the browser, with a one-time code bound to its secret', async () => {
+    const { createHash } = await import('node:crypto');
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    sql("insert into app_config (key, value) values ('google', ?) on conflict(key) do update set value = excluded.value", JSON.stringify({ clientId: GOOGLE_CLIENT }));
+    try {
+      const verifier = 'v'.repeat(43);
+      const challenge = createHash('sha256').update(verifier).digest('base64url');
+      const credential = googleToken({ email: 'app.google.user@gmail.com', name: 'App User' });
+      assert.equal((await call('/auth/google/app', { body: { credential, challenge: 'short' } })).json.error.code, 'invalid_challenge');
+      const handed = await call('/auth/google/app', { body: { credential, challenge, birthDate: '1995-02-03' } });
+      assert.equal(handed.status, 200, JSON.stringify(handed.json));
+      assert.equal(handed.json.token, undefined, 'the browser is not signed in');
+
+      // The right secret: a session, once.
+      const session = await call('/auth/google/app/redeem', { body: { code: handed.json.code, verifier } });
+      assert.equal(session.status, 200, JSON.stringify(session.json));
+      assert.equal(session.json.user.email, 'app.google.user@gmail.com');
+      assert.equal((await call('/auth/me', { token: session.json.token })).json.user?.email, 'app.google.user@gmail.com');
+      assert.equal((await call('/auth/google/app/redeem', { body: { code: handed.json.code, verifier } })).json.error.code, 'code_expired');
+
+      // A caught code without the secret is refused, and the code is spent.
+      const again = await call('/auth/google/app', { body: { credential, challenge } });
+      assert.equal((await call('/auth/google/app/redeem', { body: { code: again.json.code, verifier: 'w'.repeat(43) } })).json.error.code, 'code_expired');
+      assert.equal((await call('/auth/google/app/redeem', { body: { code: again.json.code, verifier } })).json.error.code, 'code_expired');
+    } finally {
+      sql("delete from app_config where key = 'google'");
+    }
+  });
+
   test('same Gmail inbox, same account; a Google-only account is told how to sign in', async () => {
     const sql = (statement, ...args) => {
       const db = new DatabaseSync(join(data, 'saligue.db'));
