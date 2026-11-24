@@ -547,7 +547,7 @@ route('POST', '/api/auth/register', ({ req, user, body }) => {
   if (body.acceptTerms !== true) fail(400, 'terms_not_accepted', 'Please accept the Terms of Service and Privacy Policy.');
   // The age gate. Everything above is the shape of the form; this is the one rule that can turn someone away.
   const birthDate = requireBirthDate(body);
-  if (db.prepare('select 1 from users where email = ?').get(email)) fail(409, 'user_already_exists', 'An account with this email already exists.');
+  if (db.prepare('select 1 from users where email = ?').get(email)) fail(409, 'user_already_exists', 'An account with this email already exists. Log in instead, or use Continue with Google if you made it with Google.');
 
   // A guest keeps everything they did: the guest account becomes the real one.
   let id = user?.is_guest ? user.id : null;
@@ -670,6 +670,12 @@ route('POST', '/api/auth/login', ({ user, body }) => {
   if (account?.suspended && passwordMatches(String(body.password ?? ''), account.password_hash)) fail(403, 'suspended', suspendRefusal(account));
   if (!account || !passwordMatches(String(body.password ?? ''), account.password_hash)) {
     noteFailedAttempt(email);
+    // An account made with "Continue with Google" has no password. The phone app has no Google button (Google refuses
+    // it inside apps), so say how to get in instead of "incorrect": Google on the website, or Forgot password, whose
+    // link sets a first password. Sign-up already says whether an email has an account, so this tells no more.
+    if (account && !account.password_hash && !account.is_guest) {
+      fail(401, 'google_account', 'This account signs in with Google. On the website use Continue with Google, or tap Forgot password to set a password for the app.');
+    }
     fail(401, 'invalid_credentials', 'Email or password is incorrect.');
   }
   failedLogins.delete(attemptKey(email));
@@ -690,10 +696,30 @@ const googleOrigins = () => toOrigins([siteUrl(), FIRST_ADDRESS, 'http://localho
 route('GET', '/api/auth/google', () => ({ clientId: googleClientId() }));
 
 // Who a Google ID token belongs to. Google checks the signature and expiry for us.
+// Gmail ignores dots and anything after a +, and googlemail.com is gmail.com: felix.h@gmail.com, felixh@gmail.com and
+// felixh+shop@googlemail.com are one inbox. Google reports the address one way; someone who signed up here with
+// email and password may have typed it another. Without this, "Continue with Google" made them a second, empty
+// account. Only Gmail works so (other providers may give dots a meaning), and Google has verified the inbox
+// (googleIdentity), so it never reaches someone else's account. The oldest real account wins if several match.
+const gmailInbox = (email) => {
+  const [local, domain] = String(email).toLowerCase().split('@');
+  if (!local || !['gmail.com', 'googlemail.com'].includes(domain)) return null;
+  return `${local.split('+')[0].replace(/\./g, '')}@gmail.com`;
+};
+function sameGmailInbox(email) {
+  const inbox = gmailInbox(email);
+  if (!inbox) return null;
+  const candidates = db.prepare("select * from users where is_guest = 0 and (email like '%@gmail.com' or email like '%@googlemail.com') and email like ? order by created_at")
+    .all(`${inbox.split('@')[0].slice(0, 1)}%`);
+  return candidates.find((u) => gmailInbox(u.email) === inbox) ?? null;
+}
+
 async function googleIdentity(credential) {
   const clientId = googleClientId();
   if (!clientId) fail(503, 'google_not_configured', 'Google sign-in is not switched on yet.');
-  const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(String(credential ?? ''))}`);
+  // GOOGLE_TOKENINFO_URL is only for the tests' stand-in; everyone else asks Google.
+  const tokeninfo = process.env.GOOGLE_TOKENINFO_URL || 'https://oauth2.googleapis.com/tokeninfo';
+  const response = await fetch(`${tokeninfo}?id_token=${encodeURIComponent(String(credential ?? ''))}`);
   const info = response.ok ? await response.json() : null;
   if (!info || info.aud !== clientId || !['accounts.google.com', 'https://accounts.google.com'].includes(info.iss)) {
     fail(401, 'invalid_credentials', 'Google sign-in failed. Please try again.');
@@ -709,7 +735,7 @@ route('POST', '/api/auth/google', async ({ req, user, body }) => {
   // One account per person: a new Google account can shop and sell like any other.
   const role = 'seller';
 
-  const account = liftIfOver(db.prepare('select * from users where email = ?').get(email));
+  const account = liftIfOver(db.prepare('select * from users where email = ?').get(email) ?? sameGmailInbox(email));
   if (account) {
     // The same refusal the password sign-in gives: an admin who suspended this account (Admin → Accounts) must
     // not be told "signed in" here either.

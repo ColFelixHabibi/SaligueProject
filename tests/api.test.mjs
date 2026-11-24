@@ -83,7 +83,23 @@ const deepseek = createServer((req, res) => {
 await new Promise((done) => deepseek.listen(0, '127.0.0.1', done));
 const deepseekUrl = `http://127.0.0.1:${deepseek.address().port}`;
 
-const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
+// A stand-in for Google's tokeninfo (GOOGLE_TOKENINFO_URL): the "ID token" a test sends is the answer Google would
+// give, written as base64url JSON, so the Google sign-in route is tested without Google. Junk is refused like Google does.
+const google = createServer((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const token = new URL(req.url, 'http://x').searchParams.get('id_token');
+    res.end(JSON.stringify(JSON.parse(Buffer.from(token, 'base64url').toString())));
+  } catch {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: 'invalid_token' }));
+  }
+});
+await new Promise((done) => google.listen(0, '127.0.0.1', done));
+const GOOGLE_CLIENT = 'test-client.apps.googleusercontent.com';
+const googleToken = (claims) => Buffer.from(JSON.stringify({ aud: GOOGLE_CLIENT, iss: 'https://accounts.google.com', email_verified: 'true', ...claims })).toString('base64url');
+
+const env = { ...process.env, SALIGUE_SECURITY_WATCH: '0', GOOGLE_TOKENINFO_URL: `http://127.0.0.1:${google.address().port}`, SALIGUE_DATA: data, PORT: String(port), HOST: '127.0.0.1', SITE_URL: base, SMTP_URL: '', FAL_KEY: '', FLW_SECRET_KEY: '', FCM_SERVICE_ACCOUNT: '',
   // The AI key tests ask the stand-in above, never DeepSeek; no platform key, so an account's own key is the only one.
   DEEPSEEK_API_URL: deepseekUrl, DEEPSEEK_API_KEY: '',
   // Two different model names, so a test can tell which tier a feature asked for: the writing people read uses
@@ -152,6 +168,7 @@ process.on('exit', stop);
 after(() => {
   stop();
   deepseek.close();
+  google.close();
   rmSync(data, { recursive: true, force: true });
 });
 
@@ -2884,5 +2901,48 @@ describe('app versions', () => {
     assert.equal(rows.find((r) => r.code === 0)?.n, 1, 'an app too old to say its version');
     assert.equal(rows.reduce((sum, r) => sum + r.n, 0), 2, 'the website is not counted');
     assert.equal((await call('/admin/platform', { token: fresh.token })).status, 403);
+  });
+});
+
+// "Continue with Google" lands in the account someone already made with their Gmail address and a password — also
+// when they typed it with other dots, a +tag or googlemail.com — and an account made with Google, which has no
+// password, is told how to sign in where there is no Google button (the phone app) instead of "incorrect".
+describe('Google sign-in and existing accounts', () => {
+  test('same Gmail inbox, same account; a Google-only account is told how to sign in', async () => {
+    const sql = (statement, ...args) => {
+      const db = new DatabaseSync(join(data, 'saligue.db'));
+      try { return db.prepare(statement).run(...args); } finally { db.close(); }
+    };
+    sql("insert into app_config (key, value) values ('google', ?) on conflict(key) do update set value = excluded.value", JSON.stringify({ clientId: GOOGLE_CLIENT }));
+    try {
+      const birthDate = '1990-05-01';
+      const made = await call('/auth/register', { body: { email: 'Felix.Habi+shop@googlemail.com', password: 'secret123', name: 'Felix', birthDate, acceptTerms: true, role: 'buyer' } });
+      assert.equal(made.status, 200, JSON.stringify(made.json));
+      const viaGoogle = await call('/auth/google', { body: { credential: googleToken({ email: 'felixhabi@gmail.com', name: 'Felix H' }) } });
+      assert.equal(viaGoogle.status, 200, JSON.stringify(viaGoogle.json));
+      assert.equal(viaGoogle.json.user.id, made.json.user.id, 'the account made with a password, not a new one');
+      assert.ok(!viaGoogle.json.isNew);
+
+      // Not verified by Google, a stranger's client, or another provider's dots: never someone else's account.
+      assert.equal((await call('/auth/google', { body: { credential: googleToken({ email: 'felixhabi@gmail.com', email_verified: 'false' }) } })).status, 401);
+      assert.equal((await call('/auth/google', { body: { credential: googleToken({ email: 'felixhabi@gmail.com', aud: 'someone-else.apps.googleusercontent.com' }) } })).status, 401);
+      assert.equal((await call('/auth/google', { body: { credential: 'junk' } })).status, 401);
+      const yahoo = await call('/auth/register', { body: { email: 'a.b@yahoo.com', password: 'secret123', name: 'AB', birthDate, acceptTerms: true, role: 'buyer' } });
+      const other = await call('/auth/google', { body: { credential: googleToken({ email: 'ab@yahoo.com' }), birthDate } });
+      assert.notEqual(other.json.user?.id, yahoo.json.user.id, 'dots only mean nothing at Gmail');
+
+      // An account made with Google has no password: the app's email form says what to do.
+      const fresh = await call('/auth/google', { body: { credential: googleToken({ email: 'only.google@gmail.com', name: 'Only Google' }), birthDate } });
+      assert.equal(fresh.status, 200, JSON.stringify(fresh.json));
+      assert.equal(fresh.json.isNew, true);
+      const tried = await call('/auth/login', { body: { email: 'only.google@gmail.com', password: 'anything' } });
+      assert.equal(tried.status, 401);
+      assert.equal(tried.json.error.code, 'google_account');
+      assert.match(tried.json.error.message, /Forgot password/);
+      // A wrong password on a password account still says only "incorrect".
+      assert.equal((await call('/auth/login', { body: { email: 'felix.habi+shop@googlemail.com', password: 'wrong-one' } })).json.error.code, 'invalid_credentials');
+    } finally {
+      sql("delete from app_config where key = 'google'");
+    }
   });
 });
