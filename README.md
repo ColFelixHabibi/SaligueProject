@@ -314,6 +314,12 @@ Both commands rebuild the website into the native projects, so the apps always c
 app can be built anywhere with the Android SDK; the iPhone app needs macOS and Xcode — see
 [deploy/play-store.md](deploy/play-store.md) and [deploy/ios.md](deploy/ios.md).
 
+**Live video goes through the site's own address.** A live pass names `wss://<the address the phone used>/livekit`,
+and `server/index.mjs` hands that socket (only `/livekit/rtc…`, never LiveKit's admin API) to LiveKit on
+127.0.0.1:7880. LiveKit's own name, `live.78-47-151-100.sslip.io`, stopped resolving on the users' phones in November
+2026 — the reason the site moved to the Cloudflare tunnel — and every live after that failed before reaching the video
+server. The pictures and sound still travel straight to 78.47.151.100 (UDP 50000–60000, TCP 7881, TURN 3478).
+
 **Lives with many guests, and who chooses what.** The host picks how many guests can be on camera (1–8, Studio →
 Guests on camera; fewer seats never removes anyone already on), and past three everyone shares a 3-across grid,
 which the server's recording follows too. A gift can go to the host or to any guest on camera (it becomes that

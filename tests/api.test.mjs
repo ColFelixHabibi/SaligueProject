@@ -834,6 +834,24 @@ describe('profiles, lives and the admin log', () => {
     await call(`/lives/${live.json.id}/end`, { token: shop.token, body: {} });
   });
 
+  // Live video's address: the one the phone already reaches this server by, at /livekit (LiveKit's own sslip.io name
+  // stopped resolving on the users' phones). Only the signalling paths pass; LiveKit's admin API never does.
+  test('a live pass points at this server\'s own /livekit, which passes on only the signalling paths', async () => {
+    const product = (await call('/products?limit=1')).json[0];
+    const shop = await sampleShop(product.id);
+    const live = (await call('/lives', { token: shop.token, body: { title: 'Reachable video', productIds: [product.id] } })).json;
+    const pass = await call(`/lives/${live.id}/token`, { token: shop.token, body: {} });
+    assert.equal(pass.status, 200, JSON.stringify(pass.json));
+    assert.equal(pass.json.url, `ws://127.0.0.1:${port}/livekit`);
+    assert.equal((await fetch(`${base}/livekit/twirp/livekit.RoomService/ListRooms`, { method: 'POST' })).status, 404);
+    assert.equal((await fetch(`${base}/livekit/anything`)).status, 404);
+    // The validate check reaches LiveKit's address from the settings (nobody listens there in the tests: 502).
+    assert.equal((await fetch(`${base}/livekit/rtc/validate`)).status, 502);
+    const page = await fetch(`${base}/`);
+    assert.match(page.headers.get('content-security-policy') ?? '', new RegExp(`ws://127\\.0\\.0\\.1:${port}`));
+    await call(`/lives/${live.id}/end`, { token: shop.token, body: {} });
+  });
+
   // Seats on camera are the host's choice (1–8); a gift can go to a guest on camera and counts on their tile; the top
   // supporters are ranked; the first heart says "liked the LIVE" once; a live can be reposted to followers once.
   test('seats, gifts to guests, supporters, "liked the LIVE" and reposting a live', async () => {

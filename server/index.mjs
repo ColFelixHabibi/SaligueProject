@@ -1,6 +1,7 @@
 // Saligue server: the app's own API and database (SQLite file), and the website itself, from one address.
 //   npm run server          → http://localhost:8080
 import http from 'node:http';
+import net from 'node:net';
 import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path';
@@ -3600,8 +3601,26 @@ route('GET', '/api/lives/([\\w-]+)', ({ user, params }) => {
   };
 });
 
+// Live video's signalling goes through this server, on whatever address the phone already reaches it by (the
+// Cloudflare tunnel, or the fixed one behind Caddy), at /livekit — passed on to LiveKit on this machine (the upgrade
+// handler and the /livekit/ branch of the HTTP handler below). LiveKit's own address, live.78-47-151-100.sslip.io,
+// stopped resolving on the users' phones in November 2026 (the reason the site itself moved to the tunnel), and with
+// it every live: the phone got its pass and never reached the video server. The video and sound themselves still go
+// straight to the server's IP address (UDP 50000–60000, TCP 7881, TURN 3478), which the phones do reach.
+const LIVEKIT_PATH = '/livekit';
+const livekitUpstream = () => new URL(process.env.LIVEKIT_API_URL || 'http://127.0.0.1:7880');
+/** wss://<the address this request came in on>/livekit, or null when the request carries no usable address. */
+function liveUrlFor(req) {
+  const host = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '').split(',')[0].trim();
+  if (!/^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) return null;
+  const proto = String(req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http')).split(',')[0].trim();
+  return `${proto === 'https' ? 'wss' : 'ws'}://${host}${LIVEKIT_PATH}`;
+}
+// Only the signalling paths a phone uses (rtc, rtc/v1, and their validate checks) — never LiveKit's admin API.
+const livekitPath = (pathname) => (/^\/livekit\/rtc(\/v1)?(\/validate)?\/?$/.test(pathname) ? pathname.slice(LIVEKIT_PATH.length) : null);
+
 // A pass into the video room: hosts and accepted guests can use their camera; everyone else watches.
-route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
+route('POST', '/api/lives/([\\w-]+)/token', ({ req, user, params }) => {
   needFeature('live');
   if (!user) fail(401, 'not_signed_in', 'Please wait a moment and try again.');
   const live = getLive(params[0]);
@@ -3612,7 +3631,8 @@ route('POST', '/api/lives/([\\w-]+)/token', ({ user, params }) => {
   // The host is joining: the server starts recording (once the room is there).
   if (host && live.recorder === 'server' && !live.egress_id) void recordLive(live.id);
   return {
-    url: liveSettings().url,
+    // Through this server's own address (see liveUrlFor); LiveKit's address only when the request carries none.
+    url: liveUrlFor(req) ?? liveSettings().url,
     token: accessToken({ room: live.id, identity: user.id, name, canPublish: !!(host || guest), metadata: { role: host ? 'host' : guest ? 'guest' : 'viewer', avatar: user.avatar ?? null, account: !user.is_guest } }),
     role: host ? 'host' : guest ? 'guest' : 'viewer',
   };
@@ -7442,6 +7462,20 @@ const server = http.createServer(async (req, res) => {
   // Security watch (security.mjs): blocked addresses are refused; scanners, attack text and floods are noticed.
   const ip = clientIp(req);
   if (!screenRequest(ip, url.pathname, url.search.slice(1))) return send(res, 403, { error: { code: 'blocked', message: 'Access from your network is paused for a while. Try again later.' } });
+  // Live video's signalling checks over plain HTTP (/livekit/rtc/validate): passed on to LiveKit.
+  if (url.pathname.startsWith(`${LIVEKIT_PATH}/`)) {
+    const path = livekitPath(url.pathname);
+    if (!path) return send(res, 404, { error: { code: 'not_found', message: 'Not found.' } });
+    const upstream = livekitUpstream();
+    const forward = http.request({ host: upstream.hostname, port: upstream.port || 80, method: req.method, path: `${path}${url.search}`,
+      headers: { ...req.headers, host: upstream.host, 'x-forwarded-for': ip } }, (answer) => {
+      res.writeHead(answer.statusCode ?? 502, { ...answer.headers, 'access-control-allow-origin': '*' });
+      answer.pipe(res);
+    });
+    forward.on('error', () => send(res, 502, { error: { code: 'live_unavailable', message: 'Live video is not reachable right now.' } }));
+    req.pipe(forward);
+    return;
+  }
   const isApi = url.pathname.startsWith('/api/');
   if (isApi) {
     // The website may be served from elsewhere (e.g. GitHub Pages) and call this server.
@@ -7539,8 +7573,9 @@ const server = http.createServer(async (req, res) => {
       const policy = contentSecurityPolicy({
         liveKitUrl: liveSettings().url,
         apiUrl: process.env.NEXT_PUBLIC_API_URL,
+        // The socket to this same address's /livekit (liveUrlFor): 'self' covers it in new browsers, not in all.
         studioUrl: process.env.AI_STUDIO_URL,
-        extraConnect: String(process.env.SALIGUE_CSP_CONNECT ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+        extraConnect: [...String(process.env.SALIGUE_CSP_CONNECT ?? '').split(',').map((s) => s.trim()).filter(Boolean), liveUrlFor(req)].filter(Boolean),
       });
       res.setHeader('Reporting-Endpoints', `csp="${CSP_REPORT_PATH}"`);
       res.setHeader(header, `${policy}; report-uri ${CSP_REPORT_PATH}; report-to csp`);
@@ -7815,6 +7850,36 @@ function sweepSuspensions() {
 db.prepare("update users set closure_requested_at = coalesce(suspended_at, ?) where suspended = 1 and delete_after is not null and closure_requested_at is null and email not like 'deleted-%'").run(now());
 sweepSuspensions();
 setInterval(sweepSuspensions, HOUR_MS).unref();
+
+// Live video's signalling socket (/livekit/rtc…): the WebSocket is handed to LiveKit on this machine untouched, both
+// ways. Anything else asking to upgrade is closed.
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://localhost');
+  const path = livekitPath(url.pathname);
+  const ip = clientIp(req);
+  if (!path || !screenRequest(ip, url.pathname, url.search.slice(1))) {
+    socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+    return;
+  }
+  const upstream = livekitUpstream();
+  const live = net.connect(Number(upstream.port || 80), upstream.hostname, () => {
+    const headers = { ...req.headers, host: upstream.host, 'x-forwarded-for': ip };
+    const lines = [`${req.method} ${path}${url.search} HTTP/1.1`];
+    for (const [name, value] of Object.entries(headers)) for (const v of Array.isArray(value) ? value : [value]) lines.push(`${name}: ${v}`);
+    live.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (head?.length) live.write(head);
+    live.pipe(socket);
+    socket.pipe(live);
+  });
+  const close = () => {
+    live.destroy();
+    socket.destroy();
+  };
+  live.on('error', close);
+  socket.on('error', close);
+  live.on('close', () => socket.destroy());
+  socket.on('close', () => live.destroy());
+});
 
 server.listen(PORT, process.env.HOST || undefined, () => {
   console.log(`Saligue is running on http://localhost:${PORT}  (database: ${resolve(process.env.SALIGUE_DATA || 'data')}/saligue.db)`);

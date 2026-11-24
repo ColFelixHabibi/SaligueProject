@@ -1,6 +1,6 @@
 'use client';
 
-import { api, fixedOrigin, setToken } from './api';
+import { api, serverOrigin, setToken } from './api';
 import { openInBrowser } from './native';
 import type { Shop } from './types';
 
@@ -148,8 +148,9 @@ export async function startAppGoogleSignIn(role?: 'buyer' | 'seller') {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
   localStorage.setItem(VERIFIER_KEY, verifier);
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-  // The fixed address: Google only signs in on addresses authorized for this client, and a quick tunnel's name changes.
-  openInBrowser(`${fixedOrigin()}/app-signin/?challenge=${challenge}${role ? `&role=${role}` : ''}`);
+  // The address the app reaches the server by now (the tunnel): the fixed sslip.io one does not resolve on the
+  // users' phones. It must be among the Google client's authorized origins, as it already is for the website.
+  openInBrowser(`${serverOrigin() || window.location.origin}/app-signin/?challenge=${challenge}${role ? `&role=${role}` : ''}`);
 }
 
 /** In the browser page /app-signin: Google's token and the app's challenge become a one-time code for the app. */
